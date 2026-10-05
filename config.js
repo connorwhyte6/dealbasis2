@@ -2,8 +2,8 @@
    Both are in Supabase: click "Connect" at the top of your project (or Project Settings → API Keys / Data API).
    They are public by design; your data is protected by the database's access rules. Never paste the service_role / secret key here. */
 window.DEALBASIS_CONFIG = {
-  supabaseUrl: "PASTE-PROJECT-URL-HERE",        // looks like https://abcdefghijklmnopqrst.supabase.co
-  supabaseAnonKey: "PASTE-PUBLIC-KEY-HERE"      // the anon public key (eyJ...) or publishable key (sb_publishable_...)
+  supabaseUrl: "https://supabase.com/dashboard/project/taawzbjorabugeqoddye",        // looks like https://abcdefghijklmnopqrst.supabase.co
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRhYXd6YmpvcmFidWdlcW9kZHllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExNzc2MTgsImV4cCI6MjEwNjc1MzYxOH0.Bq5jyrm_WJs-CkInsTELH488SHXEch-BooDhJm11-RA"      // the anon public key (eyJ...) or publishable key (sb_publishable_...)
 };
 
 /* ---- leave everything below this line as it is ---- */
