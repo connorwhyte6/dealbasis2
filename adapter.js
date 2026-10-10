@@ -6,7 +6,10 @@
   'use strict';
   var cfg = window.DEALBASIS_CONFIG || {};
   var demo = /[?&]demo=1\b/.test(location.search);
-  if (demo) return; /* the sample deal runs entirely in the browser, with no account */
+  /* the sample deal runs entirely in the browser, with no account; its memo, deck and workbook can still be downloaded */
+  if (demo) { window.claude = Object.freeze({ use: async function (name) { return name === 'downloads' ? Object.freeze({ save: async function (req) {
+    var data = req.data instanceof Blob ? req.data : new Blob([req.data]); var url = URL.createObjectURL(data); var a = document.createElement('a'); a.href = url; a.download = req.filename || 'download';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 30000); return { status: 'saved' }; } }) : null; } }); return; }
   if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || !window.supabase) {
     document.addEventListener('DOMContentLoaded', function () {
       document.body.innerHTML = '<div style="font:15px/1.5 sans-serif;max-width:560px;margin:80px auto;padding:0 16px"><h1 style="font-size:22px">DealBasis is not configured yet</h1><p>On GitHub, open config.js, click the pencil icon, paste your Supabase Project URL and public key between the quotes, and click Commit changes. The site updates in about a minute.</p></div>';
