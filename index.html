@@ -29,7 +29,7 @@
 <style>
 :root{
   --bg:#ffffff; --soft:#f5f5f6; --ink:#111214; --ink2:#4a5160; --ink3:#7b8291; --line:#e6e8ec; --line2:#d6d9df;
-  --brand:#d9431a; --brand2:#b8360f; --brandhi:#ff5a2a; --brandsoft:#fff1eb; --red:#c81e3a; --red2:#a3122c; --redsoft:#fdf0f2; --green:#15803d; --greensoft:#ecfdf3; --amber:#b45309; --ambersoft:#fff7e6;
+  --brand:#d8381f; --brand2:#b52c16; --brandhi:#ff4a2e; --brandsoft:#fff0ec; --red:#c81e3a; --red2:#a3122c; --redsoft:#fdf0f2; --green:#15803d; --greensoft:#ecfdf3; --amber:#b45309; --ambersoft:#fff7e6;
   --dark:#131417; --radius:12px; --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.08);
   --max:1180px; --gut:clamp(16px,4vw,32px);
   color-scheme:light;
@@ -47,7 +47,7 @@ p{margin:0}
 
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:15px;padding:12px 20px;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s;white-space:nowrap}
-.btn-primary{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(217,67,26,.3)}
+.btn-primary{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(216,56,31,.3)}
 .btn-primary:hover{background:var(--brand2)}
 .btn-secondary{background:#fff;color:var(--ink);border-color:var(--line2)}
 .btn-secondary:hover{border-color:var(--ink3)}
@@ -56,7 +56,8 @@ p{margin:0}
 /* nav */
 .nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.85);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px);border-bottom:1px solid var(--line)}
 .nav .wrap{display:flex;align-items:center;justify-content:space-between;height:68px;gap:20px}
-.logo{display:inline-flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.06em;font-size:17px}
+.logo{display:inline-flex;align-items:center;gap:8px;font-weight:800;letter-spacing:-.02em;font-size:20px}
+.logo .wb{font-weight:800;color:var(--brandhi)}
 .links{display:flex;gap:28px;font-size:15px;color:var(--ink2)}
 .links a:hover{color:var(--ink)}
 .navcta{display:flex;align-items:center;gap:10px}
@@ -64,7 +65,7 @@ p{margin:0}
 .navcta .signin:hover{color:var(--ink)}
 
 /* hero */
-.hero{text-align:center;padding:clamp(56px,8vw,96px) 0 0;background:radial-gradient(1200px 500px at 50% -120px,#fff1eb 0%,rgba(255,241,235,0) 70%)}
+.hero{text-align:center;padding:clamp(56px,8vw,96px) 0 0;background:radial-gradient(1200px 500px at 50% -120px,#fff0ec 0%,rgba(255,240,236,0) 70%)}
 .badge{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;color:var(--ink2);background:#fff;border:1px solid var(--line);padding:6px 12px;border-radius:999px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
 .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--brand)}
 @media(max-width:480px){.badge{font-size:11.5px;padding:5px 10px;gap:6px;letter-spacing:-.1px;white-space:nowrap}.badge .dot{flex:none;width:6px;height:6px}}
@@ -84,7 +85,7 @@ p{margin:0}
 .chrome .url{margin:0 auto;font-size:12.5px;color:var(--ink3);background:#fff;border:1px solid var(--line);border-radius:6px;padding:3px 14px}
 .app{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:440px}
 .rail{background:var(--dark);color:#d9dce2;padding:18px 14px;font-size:13px;display:flex;flex-direction:column;gap:4px}
-.rail .logo{color:#fff;font-size:14px;margin:0 6px 16px}
+.rail .logo{color:#fff;font-size:16px;margin:0 6px 16px}
 .rail .grp{font-size:11px;color:#8b919e;margin:12px 8px 4px;font-weight:600}
 .rail span.it{padding:7px 8px;border-radius:6px;display:flex;justify-content:space-between}
 .rail span.on{background:#252830;color:#fff;box-shadow:inset 2px 0 0 var(--brand)}
@@ -189,7 +190,7 @@ section{padding:clamp(64px,8vw,104px) 0}
 /* cta */
 .cta{padding:0 0 clamp(64px,8vw,104px)}
 .ctabox{background:var(--dark);color:#fff;border-radius:20px;padding:clamp(36px,5vw,64px);display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap;position:relative;overflow:hidden}
-.ctabox::after{content:"";position:absolute;right:-80px;top:-80px;width:320px;height:320px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,90,42,.35),rgba(255,90,42,0))}
+.ctabox::after{content:"";position:absolute;right:-80px;top:-80px;width:320px;height:320px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,74,46,.35),rgba(255,74,46,0))}
 .ctabox h2{font-size:clamp(28px,3.4vw,40px);font-weight:800;max-width:20ch}
 .ctabox p{color:#c3c7cf;margin-top:10px;max-width:52ch}
 .ctabox .ctas{display:flex;gap:12px;flex-wrap:wrap;position:relative;z-index:1}
@@ -350,7 +351,7 @@ sup.ref a{color:var(--brand2);font-weight:600}
 
 <div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="#faq-text">How it works</a></div>
 <header class="nav" id="nav"><div class="wrap">
-  <a class="logo" href="/" aria-label="DealBasis home"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect y="1" width="22" height="1.5" fill="var(--brandhi)"/><rect y="5.5" width="22" height="1.5" fill="var(--brandhi)"/><rect y="10" width="22" height="1.5" fill="var(--brandhi)"/><rect y="14.5" width="14" height="1.5" fill="var(--brandhi)"/></svg>DEALBASIS</a>
+  <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
   <nav class="links" aria-label="Main"><a href="#tour">Product tour</a><a href="#features">Features</a><a href="#failed">Why deals die</a><a href="#example">Example</a><a href="#faq">FAQ</a></nav>
   <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
 </div>
@@ -370,7 +371,7 @@ sup.ref a{color:var(--brand2);font-weight:600}
     <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span class="url">dealbasis.vercel.app/app</span></div>
     <div class="app" aria-hidden="true">
       <div class="rail">
-        <span class="logo"><svg width="18" height="13" viewBox="0 0 22 16"><rect y="1" width="22" height="1.5" fill="var(--brandhi)"/><rect y="5.5" width="22" height="1.5" fill="var(--brandhi)"/><rect y="10" width="22" height="1.5" fill="var(--brandhi)"/><rect y="14.5" width="14" height="1.5" fill="var(--brandhi)"/></svg>DEALBASIS</span>
+        <span class="logo"><span>Deal<b class="wb">Basis</b></span></span>
         <span class="grp">Workspace</span><span class="it on">Deal workspace</span><span class="it">Sources <span class="ct">4</span></span>
         <span class="grp">Financial diligence</span><span class="it">QoE &amp; revenue quality</span><span class="it">Working capital</span><span class="it">Debt tie-outs</span><span class="it">Cash flow review</span>
         <span class="grp">Deal intelligence</span><span class="it">Risk scoring</span><span class="it">Issues</span><span class="it">Committee readout</span>
@@ -641,7 +642,7 @@ sup.ref a{color:var(--brand2);font-weight:600}
 
 <footer><div class="wrap">
   <div class="fgrid">
-    <div><a class="logo" href="/"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect y="1" width="22" height="1.5" fill="var(--brandhi)"/><rect y="5.5" width="22" height="1.5" fill="var(--brandhi)"/><rect y="10" width="22" height="1.5" fill="var(--brandhi)"/><rect y="14.5" width="14" height="1.5" fill="var(--brandhi)"/></svg>DEALBASIS</a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
+    <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
     <div><h4>Product</h4><ul><li><a href="#tour">Product tour</a></li><li><a href="#financial-diligence">Financial Diligence</a></li><li><a href="#deal-intelligence">Deal Intelligence</a></li><li><a href="#how">How it works</a></li><li><a href="#example">Example</a></li><li><a href="#security">Security</a></li><li><a href="#faq">FAQ</a></li></ul></div>
     <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
   </div>
