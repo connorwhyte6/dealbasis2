@@ -2435,6 +2435,101 @@ function nwcMeasures(X, L, dec, asOfIn) {
   if (ni.length) out.operating.flags = [`${fmtUSD(tot(ni))} of current assets is not identified in the documents and stays in under this definition. If it is short-term investments, this measure would be ${fmtUSD(out.operating.value - tot(ni))}.`];
   return { asOf: main.asOf, totalsFrom: stOK && hasL ? 'statement' : null, defs: NWC_DEFS.map(d => ({ ...d, flags: [], ...out[d.id] })) };
 }
+/* ---------- citation and finding checks ----------
+   Every citation behind a risk is re-read: the cited line must exist and show the figure it is cited for, in the
+   document's units or written out ("3.3 million"). A citation that points to the wrong line is moved to the line that
+   does show the figure; one that can't be confirmed is reported. A risk is stated only when its citations check out and
+   the figures it rests on are sound; otherwise it is held back as "to verify", with the reason. */
+const citeKey = a => a ? JSON.stringify([a.d, a.t, a.p, a.l, a.s, a.r, a.c1, a.c2, a.b, a.c, a.m]) : '';
+function numbersIn(text) {
+  const out = []; const re = /(\d[\d,]*(?:\.\d+)?)\s*(%|percent|billion|million|thousand|bn|mm|m|k)?(?![\w])/gi; let m;
+  while ((m = re.exec(String(text || '')))) { const v = parseFloat(m[1].replace(/,/g, '')); if (!isFinite(v)) continue; const u = (m[2] || '').toLowerCase();
+    out.push({ v, pct: u === '%' || u === 'percent', scale: /^b/.test(u) ? 1e9 : /^(m|mm|million)$/.test(u) ? 1e6 : /^(k|thousand)$/.test(u) ? 1e3 : null }); }
+  return out;
+}
+function showsFigure(text, exp, units) {
+  const ns = numbersIn(text); if (!ns.length) return false; const want = Math.abs(exp.v);
+  if (exp.pct) return ns.some(n => Math.abs(n.v / 100 - want) <= (n.pct ? 0.0051 : 0.0006) || (!n.pct && n.v <= 1 && Math.abs(n.v - want) <= 0.0006));
+  const tol = Math.max(0.5, want * 0.006);
+  return ns.some(n => !n.pct && [n.scale, units, 1, 1e3, 1e6, 1e9].filter(Boolean).some(u => Math.abs(n.v * u - want) <= Math.max(tol, n.scale ? want * 0.006 : 0)));
+}
+function citeContext(docs, a, wide) {
+  const d = docs.find(x => x.id === a.d); if (!d) return null;
+  if (a.t === 'pdf') { const p = d.pages && d.pages[a.p - 1]; if (!p) return null; const i = p.lines.findIndex(l => l.n === a.l); if (i < 0) return null; return p.lines.slice(i, i + (wide ? 4 : 1)).map(l => l.text).join(' '); }
+  const t = docTextAt(docs, a); return t || null;
+}
+/* the figure each anchor was read for: statement lines, balance sheet lines and totals, add-backs and facts from text */
+function citeExpectations(X, SM, M) {
+  const ex = new Map(); const put = (a, v, o) => { if (!a || v == null || !isFinite(v)) return; const k = citeKey(a); if (!ex.has(k)) ex.set(k, []); ex.get(k).push({ v, ...(o || {}) }); };
+  if (SM) Object.entries(SM.pl).forEach(([m, byP]) => Object.values(byP).forEach(o => { const pct = /Pct$/.test(m); const label = PL_LABEL[m] || m;
+    if (!o.computed) put(o.src, o.v, { pct, label }); (o.all || []).forEach(i => put(i.src, i.v, { pct, label: i.label || label })); }));
+  (X.bsItems || []).forEach(i => { if (!i.residual) put(i.src, Math.abs(i.value), { label: i.label }); });
+  (X.bsTotals || []).forEach(i => put(i.src, Math.abs(i.value), { label: i.label }));
+  (X.facts || []).forEach(f => {
+    if (f.kind === 'plMention') put(f.src, f.pct ? f.amount / 100 : f.amount, { pct: !!f.pct, label: f.label, text: true });
+    else if (f.kind === 'bsMention' || f.kind === 'debtMention') put(f.src, f.amount, { label: f.label || 'debt', text: true });
+    else if ((f.kind === 'largest' || f.kind === 'topN' || f.kind === 'recurring') && f.pct != null && !(f.src && f.src.t === 'xbrl')) put(f.src, f.pct, { pct: true, label: 'customer', text: true });
+    else if (f.kind === 'saas' && f.value != null && !f.table) put(f.src, f.value, { pct: !!f.pct, label: f.kpi, text: true }); });
+  if (M) { (M.addbacks || []).forEach(a => put(a.src, Math.abs(a.amount), { label: a.label })); }
+  return ex;
+}
+/* the line in the same document that shows a figure under the same name, nearest the original anchor */
+function findLineFor(docs, a, exp, units) {
+  const d = docs.find(x => x.id === a.d); if (!d) return null;
+  const words = String(exp.label || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !/^(total|from|with|that|this|adjusted)$/.test(w));
+  const named = t => { const lt = String(t).toLowerCase(); return !words.length || words.some(w => lt.includes(w)); };
+  const hits = [];
+  if (d.pages && a.t === 'pdf') d.pages.forEach(p => p.lines.forEach((l, i) => { const t = exp.text ? p.lines.slice(i, i + 3).map(x => x.text).join(' ') : l.text;
+    if (named(t) && showsFigure(exp.text ? t : l.text, exp, units)) hits.push({ src: { d: a.d, t: 'pdf', p: p.n, l: l.n }, dist: Math.abs(p.n - a.p) * 1000 + Math.abs(l.n - a.l) }); }));
+  if (d.sections && a.t === 'docx') d.sections.forEach(sc => sc.blocks.forEach(b => {
+    if (b.kind === 'table') (b.rows || []).forEach((r, ri) => { const t = r.filter(Boolean).join('  '); if (named(t) && showsFigure(t, exp, units)) hits.push({ src: { d: a.d, t: 'docx', s: sc.n, b: b.n, ...(ri ? { r: ri + 1 } : {}), ...(a.k ? { k: a.k } : {}) }, dist: Math.abs(sc.n - a.s) * 1000 + Math.abs(b.n - a.b) }); });
+    else if (named(b.text) && showsFigure(b.text, exp, units)) hits.push({ src: { d: a.d, t: 'docx', s: sc.n, b: b.n, ...(a.k ? { k: a.k } : {}) }, dist: Math.abs(sc.n - a.s) * 1000 + Math.abs(b.n - a.b) }); }));
+  hits.sort((x, y) => x.dist - y.dist); return hits[0] ? hits[0].src : null;
+}
+const anchorWhere = a => a ? (a.t === 'pdf' ? `page ${a.p}, line ${a.l}` : a.t === 'docx' ? `${a.k === 'slide' ? 'slide' : 'section'} ${a.s}, paragraph ${a.b}${a.r ? ', row ' + a.r : ''}` : a.t === 'xlsx' ? `${a.s} row ${a.r}` : a.t === 'csv' ? `row ${a.r}` : 'the filing') : '';
+function verifyFindings(findings, ctx) {
+  const { docs, X, SM, M, readChecks, docUnits, fxDocs } = ctx;
+  const ex = citeExpectations(X, SM, M); const tally = { checked: 0, shown: 0, moved: 0, unconfirmed: 0, moves: [], misses: [] };
+  const textKeys = new Set((X.facts || []).filter(f => f.kind === 'plMention' || f.kind === 'bsMention').map(f => citeKey(f.src)));
+  (X.bsItems || []).filter(i => i.inferred === 'text').forEach(i => textKeys.add(citeKey(i.src)));
+  const weakFig = new Set((readChecks || []).filter(r => ['conflict', 'implausible'].includes(r.status) && r.src).map(r => citeKey(r.src)));
+  const unitsOfDoc = id => { const u = docUnits && docUnits[id]; return u ? (u.chosen || u.read || u.detected || 1) : 1; };
+  const checkOne = (a, extra) => {
+    if (!a) return { status: 'missing' };
+    if (a.t === 'xbrl') return docTextAt(docs, a) ? { status: 'shown' } : { status: 'missing' };
+    const exps = [...(ex.get(citeKey(a)) || []), ...(extra || [])];
+    const ctxT = citeContext(docs, a, a.x === 'text' || exps.some(e => e.text)); if (ctxT == null) return { status: 'missing' };
+    if (!exps.length || (fxDocs && fxDocs.has(a.d))) return { status: 'exists' };
+    const units = unitsOfDoc(a.d);
+    if (exps.some(e => showsFigure(ctxT, e, units))) return { status: 'shown' };
+    for (const e of exps) { const to = findLineFor(docs, a, e, units); if (to) { const from = anchorWhere(a); Object.keys(a).forEach(k => { if (k !== 'x') delete a[k]; }); Object.assign(a, to); return { status: 'moved', from, to: anchorWhere(a), label: e.label }; } }
+    return { status: 'mismatch', want: exps[0] };
+  };
+  findings.forEach(f => {
+    const cites = (f.cites || []).filter(Boolean); const evid = (f.evidence || []).filter(e => e && e.src);
+    const res = cites.map(a => ({ a, ...checkOne(a) })).concat(evid.slice(0, 25).map(e => ({ a: e.src, ...checkOne(e.src, e.amount != null && isFinite(e.amount) ? [{ v: Math.abs(e.amount), label: e.desc || '' }] : null) })));
+    if (f.severity) res.forEach(r => { tally.checked++; if (r.status === 'shown' || r.status === 'exists') tally.shown++; else if (r.status === 'moved') { tally.moved++; tally.moves.push(`${f.id}: ${r.label ? String(r.label).toLowerCase() + ' ' : ''}moved from ${r.from} to ${r.to}`); } else { tally.unconfirmed++; tally.misses.push(f.id); } });
+    if (!f.severity) { f.verify = { status: 'checked', res }; return; }
+    const why = [];
+    const bad = res.filter(r => r.status === 'missing' || r.status === 'mismatch');
+    if (bad.length) { const miss = bad.filter(r => r.status === 'missing').length;
+      why.push(`${bad.length} of its ${res.length} citation${res.length === 1 ? '' : 's'} could not be confirmed: ${miss === bad.length ? `the cited ${bad.length === 1 ? 'place does' : 'places do'} not exist in the document` : `the cited ${bad.length === 1 ? 'place does' : 'places do'} not show the figure, and no other line in the document does`}${bad[0].a ? ` (${anchorWhere(bad[0].a)})` : ''}`); }
+    if (!res.length && !['C10', 'SA3'].includes(f.id)) why.push('it has no citation to check');
+    const fromText = res.filter(r => r.a && (r.a.x === 'text' || textKeys.has(citeKey(r.a))));
+    if (fromText.length) why.push(`it rests on ${fromText.length === 1 ? 'a figure' : 'figures'} written in the text, usually rounded, with no table to check against`);
+    const shaky = res.filter(r => r.a && weakFig.has(citeKey(r.a)));
+    if (shaky.length) why.push('a figure it uses is stated differently elsewhere or is implausible');
+    if (!res.length && ['C10', 'SA3'].includes(f.id) && (readChecks || []).some(r => ['revenue', 'ebitda'].includes(r.key) && r.status !== 'verified')) why.push('the revenue or EBITDA it is computed from is not verified');
+    const moved = res.filter(r => r.status === 'moved');
+    if (why.length) { f.verify = { status: 'to verify', why, res, would: f.severity }; f.held = f.severity; f.severity = null; }
+    else { const ok = res.length - moved.length;
+      f.verify = { status: 'verified', res, note: `Checked: ${!res.length ? 'computed from verified figures' : [ok && `${ok} citation${ok === 1 ? '' : 's'} show${ok === 1 ? 's' : ''} the figure`, moved.length && `${moved.length} citation${moved.length === 1 ? '' : 's'} corrected to the line that shows it`].filter(Boolean).join('; ')}.` }; }
+  });
+  /* the citations behind the key figures are re-read too, and moved when they point to the wrong line */
+  (readChecks || []).forEach(r => { if (!r.src || r.src.t === 'xbrl') return; const c = checkOne(r.src); r.cite = c.status;
+    if (c.status === 'moved') tally.moves.push(`${r.figure}: moved from ${c.from} to ${c.to}`); });
+  return tally;
+}
 function buildRecord(docs, mandate, S0, dec, rv) {
   dec = dec || {}; rv = rv || {};
   const X = extractAll(docs);
@@ -2871,12 +2966,19 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     if (p.off) { f.firm = 'Switched off in Firm Settings'; f.severity = null; return; }
     if (f.severity && p.sev) { f.firm = `Severity set to ${p.sev} in Firm Settings`; f.severity = p.sev; }
     if (f.severity && f.severity !== 'Low' && TH.materiality && f.impact && Math.abs(f.impact.amount * (f.impact.kind === 'ebitda' ? (+S.multiple || 1) : 1)) < TH.materiality) { f.firm = `Below the firm's materiality of ${fmtUSD(TH.materiality)}`; f.severity = 'Low'; } });
+  /* every risk is checked before it is stated: its citations re-read, the figures it rests on tested */
+  const citeTally = verifyFindings(findings, { docs, X, SM, M, readChecks, docUnits, fxDocs: new Set(fxNeeded.map(x => x.id).concat(docs.filter(d => docCur[d.id] !== CUR.code).map(d => d.id))) });
+  { const held = findings.filter(f => f.held);
+    if (citeTally.checked) dataChecks.push({ status: citeTally.unconfirmed ? 'warn' : 'ok', text: `${citeTally.checked} citation${citeTally.checked === 1 ? '' : 's'} behind the risks were re-read against the documents: ${citeTally.shown} show the cited figure${citeTally.moved ? `, ${citeTally.moved} pointed to the wrong line and ${citeTally.moved === 1 ? 'was' : 'were'} moved to the line that shows it` : ''}${citeTally.unconfirmed ? `, ${citeTally.unconfirmed} could not be confirmed` : ''}.` });
+    if (citeTally.moves.length) dataChecks.push({ status: 'fixed', text: `Citations corrected: ${citeTally.moves.slice(0, 6).join('; ')}${citeTally.moves.length > 6 ? `; and ${citeTally.moves.length - 6} more` : ''}.` });
+    if (held.length) dataChecks.push({ status: 'warn', text: `${held.length} possible risk${held.length === 1 ? ' is' : 's are'} held back until verified, not stated: ${held.map(f => `${f.id} ${f.title} (${f.verify.why[0]})`).join('; ')}.` }); }
   /* risk scores and the pre-LOI confidence score */
   const fired = findings.filter(f => f.severity).sort((a, b) => SEV_PEN[b.severity] - SEV_PEN[a.severity] || (a.id < b.id ? -1 : 1));
-  const covered = c => findings.some(f => f.category === c);
+  /* a test held back for verification has not passed: it is not counted as tested until its evidence checks out */
+  const covered = c => findings.some(f => f.category === c && !f.held);
   const risk = CATS_RISK.filter(covered).map(c => {
     const fs = fired.filter(f => f.category === c); const pen = fs.reduce((s, f) => s + SEV_PEN[f.severity], 0);
-    return { cat: c, score: Math.max(0, 100 - pen), penalty: pen, findings: fs, tested: findings.filter(f => f.category === c).length, weight: CAT_W[c] };
+    return { cat: c, score: Math.max(0, 100 - pen), penalty: pen, findings: fs, tested: findings.filter(f => f.category === c && !f.held).length, toVerify: findings.filter(f => f.category === c && f.held).length, weight: CAT_W[c] };
   });
   const wsum = risk.reduce((s, r) => s + r.weight, 0) || 1;
   const confidence = Math.round(risk.reduce((s, r) => s + r.score * r.weight, 0) / wsum);
@@ -2903,6 +3005,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   if (debtGaps && !done('req:payoff')) actions.push({ id: 'req:payoff', type: 'Send request', text: 'Request lender payoff letters for every facility, including any shareholder notes', gate: 'manager' });
   const unsup = M ? M.addbacks.filter(a => (a.support && a.support.status !== 'Supported' && a.support.status !== 'Not testable') || a.rule === 'K0') : [];
   if (unsup.length && !done('req:support')) actions.push({ id: 'req:support', type: 'Send request', text: `Request seller support for ${unsup.length} add-back${unsup.length > 1 ? 's' : ''}: ${unsup.map(a => a.label).join('; ')}`, gate: 'analyst' });
+  findings.filter(f => f.held && !done('ver:' + f.id)).forEach(f => actions.push({ id: 'ver:' + f.id, type: 'Verify before stating', text: `${f.id} ${f.title}: ${f.verify.why.join('; ')}. Check the source; if it holds, this is a ${f.held.toLowerCase()} risk.`, gate: 'analyst' }));
   if (!L && !done('req:ledger')) actions.push({ id: 'req:ledger', type: 'Send request', text: 'Request the general ledger and monthly balance sheets to run ledger-level QoE and the NWC peg', gate: 'analyst' });
 
   /* diligence questions: standard ones carry rule categories; every question is answered
@@ -5338,7 +5441,7 @@ function vQoE() {
 }
 function flagRow(f) {
   const cs = f.cites.length ? f.cites : f.evidence.map(e => e.src).filter(Boolean);
-  return `<div class="flag ${f.severity || ''}"><div class="body"><div class="top">${sev(f.severity)}<span class="chip id">${f.id}</span><h3>${esc(f.title)}</h3></div><p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p>${f.firm ? `<p class="muted" style="font-size:12px">${esc(f.firm)}</p>` : ''}${cites(cs, 5)}</div><span class="metric">${esc(f.metric)}</span>${evDetails(f.evidence)}</div>`;
+  return `<div class="flag ${f.severity || ''}"><div class="body"><div class="top">${sev(f.severity)}<span class="chip id">${f.id}</span><h3>${esc(f.title)}</h3></div><p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p>${f.firm ? `<p class="muted" style="font-size:12px">${esc(f.firm)}</p>` : ''}${f.verify && f.verify.note ? `<p class="muted" style="font-size:12px">${esc(f.verify.note)}</p>` : ''}${cites(cs, 5)}</div><span class="metric">${esc(f.metric)}</span>${evDetails(f.evidence)}</div>`;
 }
 
 /* ======================= Working capital ======================= */
@@ -5501,13 +5604,16 @@ function vEconomics() {
 /* ======================= Risk scoring ======================= */
 function vRisk() {
   if (!hasData()) return `${head('Deal Intelligence', 'Risk Scoring')}${emptyState('Nothing to score yet')}`;
-  const passed = R.findings.filter(f => !f.severity);
+  const passed = R.findings.filter(f => !f.severity && !f.held); const held = R.findings.filter(f => f.held);
   return `${head('Deal Intelligence', 'Risk Scoring')}
-  <section class="sec"><div class="score"><div class="big">${R.confidence}<small>/100</small></div><div style="display:flex;flex-direction:column;gap:8px;padding-bottom:8px"><span class="eyebrow">Pre-LOI confidence score</span><span class="chip ${R.verdict === 'Go' ? 'go' : R.verdict === 'Not ready' ? 'bad' : 'warn'}" style="font-size:12px;padding:6px 9px;align-self:flex-start">${R.verdict}</span></div></div>
+  <section class="sec"><div class="score"><div class="big">${R.verdict === 'Limited evidence' ? '–' : R.confidence}<small>/100</small></div><div style="display:flex;flex-direction:column;gap:8px;padding-bottom:8px"><span class="eyebrow">Pre-LOI confidence score</span><span class="chip ${R.verdict === 'Go' ? 'go' : R.verdict === 'Not ready' ? 'bad' : 'warn'}" style="font-size:12px;padding:6px 9px;align-self:flex-start">${R.verdict}</span></div></div>
     <p class="lede">Each category starts at 100 and loses 30 per high, 15 per medium and 5 per low finding. The confidence score weights the categories: earnings 30%, revenue 20%, working capital 15%, debt 15%, controls 10%, projections 10%, rescaled over the categories this record can test. 75 and above is Go; 50 to 74 proceeds with conditions; below 50 is not ready.</p></section>
   <section class="sec"><div class="sechead"><h2>By category</h2><span class="aside">${R.findings.length} tests run, ${R.fired.length} fired</span></div>
-    ${R.risk.map(r => `<div class="catrow"><div><h3>${r.cat}</h3><span class="muted" style="font-size:12px">${r.tested} tests, weight ${Math.round(r.weight * 100)}%${r.penalty ? `, −${r.penalty}` : ''}</span></div><div class="gauge"><i class="${r.score < 50 ? 'lo' : ''}" style="width:${r.score}%"></i><span class="mk" style="left:50%"></span><span class="mk" style="left:75%"></span></div><span class="s">${r.score}</span></div>`).join('')}</section>
+    ${R.risk.map(r => `<div class="catrow"><div><h3>${r.cat}</h3><span class="muted" style="font-size:12px">${r.tested} tests, weight ${Math.round(r.weight * 100)}%${r.penalty ? `, −${r.penalty}` : ''}${r.toVerify ? `, ${r.toVerify} to verify` : ''}</span></div><div class="gauge"><i class="${r.score < 50 ? 'lo' : ''}" style="width:${r.score}%"></i><span class="mk" style="left:50%"></span><span class="mk" style="left:75%"></span></div><span class="s">${r.score}</span></div>`).join('')}</section>
   ${R.risk.filter(r => r.findings.length).map(r => `<section class="sec"><div class="sechead"><h2>${r.cat}</h2><span class="aside">${r.findings.length} fired</span></div><div class="flags">${r.findings.map(flagRow).join('')}</div></section>`).join('')}
+  ${held.length ? `<section class="sec"><div class="sechead"><h2>To verify before stating</h2><span class="aside">${held.length} held back</span></div>
+    <p class="lede">These could be risks, but their evidence did not check out, so they are not stated or scored. Each says why; check the source and they are stated if they hold.</p>
+    <div class="flags">${held.map(f => `<div class="flag"><div class="body"><div class="top"><span class="chip warn">To verify</span><span class="chip id">${f.id}</span><h3>${esc(f.title)}</h3><span class="muted" style="font-size:12px">${esc(f.held)} if it holds</span></div><p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p><p class="neg" style="font-size:12.5px">Not stated because ${esc(f.verify.why.join('; '))}.</p>${cites(f.cites.length ? f.cites : (f.evidence || []).map(e => e.src).filter(Boolean), 5)}</div><span class="metric">${esc(f.metric)}</span></div>`).join('')}</div></section>` : ''}
   <section class="sec"><div class="sechead"><h2>Passed</h2><span class="aside">${passed.length}</span></div><div class="passlist">${passed.map(f => `<div><span><span class="mono muted">${f.id}</span> ${esc(f.title)}</span><span class="mono" style="font-size:12px">${esc(f.metric)}</span></div>`).join('')}</div></section>`;
 }
 
