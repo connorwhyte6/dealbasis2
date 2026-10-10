@@ -13,14 +13,14 @@
 })();
 </script>
 <link rel="canonical" href="https://dealbasis.vercel.app/">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#131417">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="DealBasis">
 <meta property="og:url" content="https://dealbasis.vercel.app/">
-<meta property="og:title" content="DealBasis: Financial Diligence and Deal Intelligence for Private Equity">
+<meta property="og:title" content="DealBasis: Catch the Bad Deal Early">
 <meta property="og:description" content="Financial Diligence and Deal Intelligence for Private Equity. DealBasis checks every figure in your CIM, statements or ledger against the others and builds your committee memo and deck, with every number linked to its source.">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="DealBasis: Financial Diligence and Deal Intelligence for Private Equity">
+<meta name="twitter:title" content="DealBasis: Catch the Bad Deal Early">
 <meta name="twitter:description" content="Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"DealBasis","applicationCategory":"BusinessApplication","operatingSystem":"Web browser","url":"https://dealbasis.vercel.app/","description":"Financial Diligence and Deal Intelligence for Private Equity: quality of earnings, working capital, debt tie-outs, risk scoring and a committee memo and deck, with every number linked to its source."}</script>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -28,9 +28,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <style>
 :root{
-  --bg:#ffffff; --soft:#f6f7f9; --ink:#0f1115; --ink2:#4a5160; --ink3:#7b8291; --line:#e6e8ec; --line2:#d6d9df;
-  --red:#ff3131; --red2:#e52222; --redsoft:#fff0f0; --green:#15803d; --greensoft:#ecfdf3; --amber:#b45309; --ambersoft:#fff7e6;
-  --dark:#0f1115; --radius:12px; --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.08);
+  --bg:#ffffff; --soft:#f5f5f6; --ink:#111214; --ink2:#4a5160; --ink3:#7b8291; --line:#e6e8ec; --line2:#d6d9df;
+  --brand:#d9431a; --brand2:#b8360f; --brandhi:#ff5a2a; --brandsoft:#fff1eb; --red:#c81e3a; --red2:#a3122c; --redsoft:#fdf0f2; --green:#15803d; --greensoft:#ecfdf3; --amber:#b45309; --ambersoft:#fff7e6;
+  --dark:#131417; --radius:12px; --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.08);
   --max:1180px; --gut:clamp(16px,4vw,32px);
   color-scheme:light;
 }
@@ -39,7 +39,7 @@ html{scroll-behavior:smooth}
 @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
-:focus-visible{outline:2px solid var(--red);outline-offset:2px;border-radius:4px}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
 .wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gut)}
 .skip{position:absolute;left:-9999px}.skip:focus{left:16px;top:12px;background:#fff;padding:8px 12px;z-index:100}
 h1,h2,h3,h4{margin:0;line-height:1.15;letter-spacing:-.02em}
@@ -47,8 +47,8 @@ p{margin:0}
 
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:15px;padding:12px 20px;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s;white-space:nowrap}
-.btn-primary{background:var(--red);color:#fff;box-shadow:0 1px 2px rgba(229,34,34,.3)}
-.btn-primary:hover{background:var(--red2)}
+.btn-primary{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(217,67,26,.3)}
+.btn-primary:hover{background:var(--brand2)}
 .btn-secondary{background:#fff;color:var(--ink);border-color:var(--line2)}
 .btn-secondary:hover{border-color:var(--ink3)}
 .btn-sm{padding:9px 14px;font-size:14px;border-radius:8px}
@@ -64,12 +64,14 @@ p{margin:0}
 .navcta .signin:hover{color:var(--ink)}
 
 /* hero */
-.hero{text-align:center;padding:clamp(56px,8vw,96px) 0 0;background:radial-gradient(1200px 500px at 50% -120px,#fff1f1 0%,rgba(255,241,241,0) 70%)}
+.hero{text-align:center;padding:clamp(56px,8vw,96px) 0 0;background:radial-gradient(1200px 500px at 50% -120px,#fff1eb 0%,rgba(255,241,235,0) 70%)}
 .badge{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;color:var(--ink2);background:#fff;border:1px solid var(--line);padding:6px 12px;border-radius:999px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--red)}
-.hero h1{font-size:clamp(34px,5.2vw,62px);font-weight:800;margin:22px auto 0;max-width:none;text-wrap:balance}
-.hero h1 .h1b{color:#ff3131}
-@media(min-width:1000px){.hero h1 .h1b{display:block}}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--brand)}
+@media(max-width:480px){.badge{font-size:11.5px;padding:5px 10px;gap:6px;letter-spacing:-.1px;white-space:nowrap}.badge .dot{flex:none;width:6px;height:6px}}
+@media(max-width:385px){.badge{white-space:normal;text-align:center;border-radius:14px;line-height:1.35}.badge .dot{display:none}}
+@media(max-width:385px){.navcta .btn-sm{display:none}}
+.hero h1{font-size:clamp(40px,6vw,68px);font-weight:800;margin:22px auto 0;max-width:none;text-wrap:balance}
+.hero h1 .h1b{color:var(--brandhi)}
 .hero .lead{font-size:clamp(17px,1.6vw,20px);color:var(--ink2);max-width:62ch;margin:20px auto 0}
 .hero .ctas{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:32px}
 .hero .ctas .btn{padding:14px 24px;font-size:16px}
@@ -85,8 +87,8 @@ p{margin:0}
 .rail .logo{color:#fff;font-size:14px;margin:0 6px 16px}
 .rail .grp{font-size:11px;color:#8b919e;margin:12px 8px 4px;font-weight:600}
 .rail span.it{padding:7px 8px;border-radius:6px;display:flex;justify-content:space-between}
-.rail span.on{background:#252830;color:#fff;box-shadow:inset 2px 0 0 var(--red)}
-.rail .ct{font-size:11px;background:var(--red);color:#fff;border-radius:999px;padding:0 6px}
+.rail span.on{background:#252830;color:#fff;box-shadow:inset 2px 0 0 var(--brand)}
+.rail .ct{font-size:11px;background:var(--brand);color:#fff;border-radius:999px;padding:0 6px}
 .pane{padding:22px 24px;background:#fff;display:flex;flex-direction:column;gap:16px;min-width:0}
 .pane .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
 .pane .top small{color:var(--ink3);font-size:12.5px}
@@ -107,13 +109,13 @@ p{margin:0}
 .sev.h{background:var(--redsoft);color:var(--red2)}
 .sev.m{background:var(--ambersoft);color:var(--amber)}
 .frow .src{font-size:12px;color:var(--ink3);white-space:nowrap}
-.frow .src u{text-decoration:none;color:var(--red2);border-bottom:1px dashed var(--red)}
+.frow .src u{text-decoration:none;color:var(--brand2);border-bottom:1px dashed var(--brand)}
 
 /* sections */
 section{padding:clamp(64px,8vw,104px) 0}
 .soft{background:var(--soft)}
 .head{text-align:center;max-width:720px;margin:0 auto clamp(36px,5vw,56px)}
-.eyebrow{font-size:14px;font-weight:600;color:var(--red2)}
+.eyebrow{font-size:14px;font-weight:600;color:var(--brand2)}
 .head h2{font-size:clamp(30px,3.6vw,44px);font-weight:800;margin-top:10px}
 .head p{color:var(--ink2);font-size:18px;margin-top:14px}
 
@@ -127,7 +129,7 @@ section{padding:clamp(64px,8vw,104px) 0}
 /* features */
 .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
 .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-.icon{width:44px;height:44px;border-radius:10px;background:var(--redsoft);color:var(--red2);display:grid;place-items:center;margin-bottom:16px}
+.icon{width:44px;height:44px;border-radius:10px;background:var(--brandsoft);color:var(--brand2);display:grid;place-items:center;margin-bottom:16px}
 .card h3{font-size:18px;font-weight:700}
 .card p{color:var(--ink2);margin-top:8px;font-size:15.5px}
 
@@ -135,7 +137,7 @@ section{padding:clamp(64px,8vw,104px) 0}
 .wsgroup + .wsgroup{margin-top:36px}
 .wshead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
 .wshead p{color:var(--ink2);font-size:16px;font-weight:500}
-.wsbadge{display:inline-flex;align-items:center;font-size:14px;font-weight:700;padding:7px 14px;border-radius:999px;background:var(--redsoft);color:var(--red2)}
+.wsbadge{display:inline-flex;align-items:center;font-size:14px;font-weight:700;padding:7px 14px;border-radius:999px;background:var(--brandsoft);color:var(--brand2)}
 .wsbadge.dark{background:var(--dark);color:#fff}
 .cards4{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:1100px){ .cards4{grid-template-columns:repeat(2,minmax(0,1fr))} }
@@ -187,7 +189,7 @@ section{padding:clamp(64px,8vw,104px) 0}
 /* cta */
 .cta{padding:0 0 clamp(64px,8vw,104px)}
 .ctabox{background:var(--dark);color:#fff;border-radius:20px;padding:clamp(36px,5vw,64px);display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap;position:relative;overflow:hidden}
-.ctabox::after{content:"";position:absolute;right:-80px;top:-80px;width:320px;height:320px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,49,49,.35),rgba(255,49,49,0))}
+.ctabox::after{content:"";position:absolute;right:-80px;top:-80px;width:320px;height:320px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,90,42,.35),rgba(255,90,42,0))}
 .ctabox h2{font-size:clamp(28px,3.4vw,40px);font-weight:800;max-width:20ch}
 .ctabox p{color:#c3c7cf;margin-top:10px;max-width:52ch}
 .ctabox .ctas{display:flex;gap:12px;flex-wrap:wrap;position:relative;z-index:1}
@@ -243,7 +245,7 @@ footer{border-top:1px solid var(--line);padding:48px 0 36px;font-size:14.5px;col
 .tourcopy p{color:var(--ink2);margin-top:12px;font-size:16.5px}
 .tourcopy ul{margin:18px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
 .tourcopy li{display:flex;gap:10px;color:var(--ink2);font-size:15.5px}
-.tourcopy li svg{flex:none;margin-top:3px;color:var(--red2)}
+.tourcopy li svg{flex:none;margin-top:3px;color:var(--brand2)}
 .screen{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
 .screen .sh{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);background:var(--soft)}
 .screen .sh b{font-size:15px}
@@ -265,7 +267,7 @@ footer{border-top:1px solid var(--line);padding:48px 0 36px;font-size:14.5px;col
 .miniKpis b{font-size:19px;font-variant-numeric:tabular-nums}
 .slidelist{padding:16px 18px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .slide{border:1px solid var(--line);border-radius:8px;padding:12px 14px;aspect-ratio:16/9;display:flex;flex-direction:column;justify-content:space-between;position:relative}
-.slide::before{content:"";width:18px;height:2px;background:var(--red)}
+.slide::before{content:"";width:18px;height:2px;background:var(--brand)}
 .slide b{font-size:13.5px;line-height:1.3}
 .slide small{font-size:11.5px;color:var(--ink3)}
 
@@ -277,7 +279,7 @@ footer{border-top:1px solid var(--line);padding:48px 0 36px;font-size:14.5px;col
 .compare{max-width:920px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)}
 .compare table{width:100%;border-collapse:collapse;font-size:15px}
 .compare th{padding:16px 20px;text-align:left;font-size:14px;background:var(--soft);border-bottom:1px solid var(--line)}
-.compare th:last-child{color:var(--red2)}
+.compare th:last-child{color:var(--brand2)}
 .compare td{padding:14px 20px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink2)}
 .compare tr:last-child td{border-bottom:0}
 .compare td:first-child{font-weight:600;color:var(--ink);width:24%}
@@ -285,13 +287,13 @@ footer{border-top:1px solid var(--line);padding:48px 0 36px;font-size:14.5px;col
 
 /* sources */
 sup.ref{font-size:.7em;line-height:0;margin-left:1px}
-sup.ref a{color:var(--red2);font-weight:600}
+sup.ref a{color:var(--brand2);font-weight:600}
 .compare tr.money td{background:#fffafa}
 .compare td b{font-weight:700;color:var(--ink)}
 /* why deals die */
 .deathgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
 .dstat{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px}
-.dstat b{display:block;font-size:clamp(30px,3.4vw,42px);font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--red2)}
+.dstat b{display:block;font-size:clamp(30px,3.4vw,42px);font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--brand2)}
 .dstat p{color:var(--ink2);font-size:15px;margin-top:6px}
 .reasons{margin-top:24px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:clamp(24px,4vw,48px);align-items:start}
 .rbars{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px}
@@ -300,7 +302,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 .rb{display:grid;grid-template-columns:minmax(0,1fr) 56px;gap:4px 12px;margin-top:14px;font-size:14.5px}
 .rb .bar{grid-column:1 / -1;height:10px;border-radius:999px;background:var(--soft);overflow:hidden}
 .rb .bar i{display:block;height:100%;border-radius:999px;background:var(--line2)}
-.rb.hit .bar i{background:var(--red)}
+.rb.hit .bar i{background:var(--brand)}
 .rb .v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .rb.hit span:first-child{font-weight:600}
 .helps{display:flex;flex-direction:column;gap:12px}
@@ -316,6 +318,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 .srcs a{color:var(--ink2);text-decoration:underline;text-underline-offset:2px}
 @media (max-width:980px){ .deathgrid{grid-template-columns:1fr 1fr} .reasons{grid-template-columns:1fr} }
 @media (max-width:640px){ .deathgrid{grid-template-columns:1fr} .costbox{grid-template-columns:1fr} }
+@media (max-width:400px){ .costbox b{font-size:30px;white-space:normal} .compare th,.compare td{padding:12px 12px} }
 /* faq */
 .faq{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
 .faq details{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:0 22px}
@@ -347,7 +350,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 
 <div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="#faq-text">How it works</a></div>
 <header class="nav" id="nav"><div class="wrap">
-  <a class="logo" href="/" aria-label="DealBasis home"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect y="1" width="22" height="1.5" fill="#ff3131"/><rect y="5.5" width="22" height="1.5" fill="#ff3131"/><rect y="10" width="22" height="1.5" fill="#ff3131"/><rect y="14.5" width="14" height="1.5" fill="#ff3131"/></svg>DEALBASIS</a>
+  <a class="logo" href="/" aria-label="DealBasis home"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect y="1" width="22" height="1.5" fill="var(--brandhi)"/><rect y="5.5" width="22" height="1.5" fill="var(--brandhi)"/><rect y="10" width="22" height="1.5" fill="var(--brandhi)"/><rect y="14.5" width="14" height="1.5" fill="var(--brandhi)"/></svg>DEALBASIS</a>
   <nav class="links" aria-label="Main"><a href="#tour">Product tour</a><a href="#features">Features</a><a href="#failed">Why deals die</a><a href="#example">Example</a><a href="#faq">FAQ</a></nav>
   <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
 </div>
@@ -357,8 +360,8 @@ sup.ref a{color:var(--red2);font-weight:600}
 <main id="main">
 <!-- hero -->
 <div class="hero"><div class="wrap">
-  <span class="badge"><span class="dot"></span>Catch the bad deal early</span>
-  <h1>Financial Diligence and Deal Intelligence <span class="h1b">for Private Equity</span></h1>
+  <span class="badge"><span class="dot"></span>Financial Diligence and Deal Intelligence for Private Equity</span>
+  <h1>Catch the Bad Deal <span class="h1b">Early</span></h1>
   <p class="lead">Upload a CIM, financial statements, a ledger, or whatever you have. DealBasis checks every figure against the others, finds what doesn't hold up, and builds your committee memo and deck, with every number linked to its source.</p>
   <div class="ctas"><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a><a class="btn btn-secondary" href="/signin">Sign in</a></div>
   <p class="note">No account needed for the sample deal.</p>
@@ -367,7 +370,7 @@ sup.ref a{color:var(--red2);font-weight:600}
     <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span class="url">dealbasis.vercel.app/app</span></div>
     <div class="app" aria-hidden="true">
       <div class="rail">
-        <span class="logo"><svg width="18" height="13" viewBox="0 0 22 16"><rect y="1" width="22" height="1.5" fill="#ff3131"/><rect y="5.5" width="22" height="1.5" fill="#ff3131"/><rect y="10" width="22" height="1.5" fill="#ff3131"/><rect y="14.5" width="14" height="1.5" fill="#ff3131"/></svg>DEALBASIS</span>
+        <span class="logo"><svg width="18" height="13" viewBox="0 0 22 16"><rect y="1" width="22" height="1.5" fill="var(--brandhi)"/><rect y="5.5" width="22" height="1.5" fill="var(--brandhi)"/><rect y="10" width="22" height="1.5" fill="var(--brandhi)"/><rect y="14.5" width="14" height="1.5" fill="var(--brandhi)"/></svg>DEALBASIS</span>
         <span class="grp">Workspace</span><span class="it on">Deal workspace</span><span class="it">Sources <span class="ct">4</span></span>
         <span class="grp">Financial diligence</span><span class="it">QoE &amp; revenue quality</span><span class="it">Working capital</span><span class="it">Debt tie-outs</span><span class="it">Cash flow review</span>
         <span class="grp">Deal intelligence</span><span class="it">Risk scoring</span><span class="it">Issues</span><span class="it">Committee readout</span>
@@ -638,7 +641,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 
 <footer><div class="wrap">
   <div class="fgrid">
-    <div><a class="logo" href="/"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect y="1" width="22" height="1.5" fill="#ff3131"/><rect y="5.5" width="22" height="1.5" fill="#ff3131"/><rect y="10" width="22" height="1.5" fill="#ff3131"/><rect y="14.5" width="14" height="1.5" fill="#ff3131"/></svg>DEALBASIS</a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
+    <div><a class="logo" href="/"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect y="1" width="22" height="1.5" fill="var(--brandhi)"/><rect y="5.5" width="22" height="1.5" fill="var(--brandhi)"/><rect y="10" width="22" height="1.5" fill="var(--brandhi)"/><rect y="14.5" width="14" height="1.5" fill="var(--brandhi)"/></svg>DEALBASIS</a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
     <div><h4>Product</h4><ul><li><a href="#tour">Product tour</a></li><li><a href="#financial-diligence">Financial Diligence</a></li><li><a href="#deal-intelligence">Deal Intelligence</a></li><li><a href="#how">How it works</a></li><li><a href="#example">Example</a></li><li><a href="#security">Security</a></li><li><a href="#faq">FAQ</a></li></ul></div>
     <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
   </div>

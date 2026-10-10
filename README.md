@@ -39,7 +39,8 @@ The notes in the full README still apply:
 
 | File | What it is |
 |---|---|
-| `index.html` | Sign-in page |
+| `index.html` | Homepage: what DealBasis does, with Sign in and Try the sample deal. Sign-in links from emails that land here go straight on to `/signin` |
+| `signin.html` | Sign-in page (at `/signin`): sign in, create account, email sign-in link, password reset |
 | `app.html` | The DealBasis platform (at `/app`; the sample is at `/app?demo=1`) |
 | `admin.html` | Workspace admin: invites, access, firm domain (at `/admin`) |
 | `adapter.js` | Connects the platform to Supabase |
