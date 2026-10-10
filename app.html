@@ -9,8 +9,8 @@
    stack of ruled schedules, each opening with its conclusion; a source drawer slides in from the right. */
 :root{
   --bg:#ffffff; --panel:#f5f5f6; --ink:#111214; --ink2:#4b4f58; --ink3:#80848d; --rule:#e5e6e9; --rule2:#cfd1d6;
-  --red:#c81e3a; --redtext:#a3122c; --redwash:#fdf0f2; --onred:#ffffff;
-  --brand:#d8381f; --brandtext:#d8381f; --brandwash:#fff0ec; --onbrand:#ffffff; --hl:#ffdcd3; --brandhi:#ff4a2e;
+  --red:#c4161c; --redtext:#a51217; --redwash:#fef2f2; --onred:#ffffff;
+  --brand:#d63222; --brandtext:#d63222; --brandwash:#fff0ed; --onbrand:#ffffff; --hl:#ffdad3; --brandhi:#f24a2f;
   --rail:#131417; --railink:#f2f3f5; --raildim:#8e929b; --railrule:#24262b;
   --btn:#131417; --btnink:#ffffff; --shadow:rgba(19,20,23,.16);
   --f-display:'Archivo','Arial Narrow','Helvetica Neue',Arial,sans-serif;
@@ -20,16 +20,16 @@
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#0d0e10; --panel:#17181c; --ink:#f2f3f5; --ink2:#b9bcc4; --ink3:#8b8f98; --rule:#2a2c31; --rule2:#3a3d44;
-    --red:#f0506e; --redtext:#ff8fa3; --redwash:#2e1219; --onred:#ffffff;
-    --brand:#ff5d42; --brandtext:#ff8068; --brandwash:#2e1810; --onbrand:#ffffff; --hl:#4a2010; --brandhi:#ff5d42;
+    --red:#f04438; --redtext:#fd8077; --redwash:#2e1219; --onred:#ffffff;
+    --brand:#ff5a42; --brandtext:#ff8068; --brandwash:#2e1810; --onbrand:#ffffff; --hl:#4a2010; --brandhi:#ff5a42;
     --rail:#08090a; --railink:#f2f3f5; --raildim:#8b8f98; --railrule:#1e2024;
     --btn:#f2f3f5; --btnink:#0d0e10; --shadow:rgba(0,0,0,.6); color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0d0e10; --panel:#17181c; --ink:#f2f3f5; --ink2:#b9bcc4; --ink3:#8b8f98; --rule:#2a2c31; --rule2:#3a3d44;
-  --red:#f0506e; --redtext:#ff8fa3; --redwash:#2e1219; --onred:#ffffff;
-  --brand:#ff5d42; --brandtext:#ff8068; --brandwash:#2e1810; --onbrand:#ffffff; --hl:#4a2010; --brandhi:#ff5d42;
+  --red:#f04438; --redtext:#fd8077; --redwash:#2e1219; --onred:#ffffff;
+  --brand:#ff5a42; --brandtext:#ff8068; --brandwash:#2e1810; --onbrand:#ffffff; --hl:#4a2010; --brandhi:#ff5a42;
   --rail:#08090a; --railink:#f2f3f5; --raildim:#8b8f98; --railrule:#1e2024;
   --btn:#f2f3f5; --btnink:#0d0e10; --shadow:rgba(0,0,0,.6); color-scheme:dark;
 }
@@ -46,7 +46,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .rail{background:var(--rail);color:var(--railink);position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:24px 0 18px;overflow-y:auto}
 .brand{display:flex;align-items:center;gap:12px;padding:0 24px 18px}
 .brand .word{font-family:var(--f-display);font-weight:800;font-stretch:100%;font-size:22px;letter-spacing:-.01em;white-space:nowrap}
-.brand .word .wb{font-weight:800;color:var(--brandhi)}
+.brand .word .wb{font-weight:800;color:var(--brand)}
 .mandsel{margin:0 16px 18px;display:flex;flex-direction:column;gap:6px}
 .mandsel label{font:500 10px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--raildim)}
 .mandsel select{background:var(--railrule);color:var(--railink);border:1px solid #34373e;border-radius:2px;padding:8px 10px;width:100%}
@@ -232,7 +232,7 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--brand);margin:0;c
 .drawer .body{overflow:auto;padding:12px 18px 24px;flex:1}
 .drawer .body .ln{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;padding:3px 6px;font-size:12.5px;border-radius:2px}
 .drawer .body .ln span:first-child{font:400 11px/1.7 var(--f-mono);color:var(--ink3);text-align:right}
-.pdfwrap{position:relative;background:#fff;border:1px solid var(--rule);overflow:hidden}.pdfwrap canvas{display:block}.pdfhl{position:absolute;background:rgba(255,74,46,.18);outline:2px solid var(--brand);border-radius:2px;pointer-events:none}
+.pdfwrap{position:relative;background:#fff;border:1px solid var(--rule);overflow:hidden}.pdfwrap canvas{display:block}.pdfhl{position:absolute;background:rgba(242,74,47,.18);outline:2px solid var(--brand);border-radius:2px;pointer-events:none}
 .drawer .body .ln.on{background:var(--hl);box-shadow:inset 3px 0 0 var(--brand)}
 .drawer .grid td,.drawer .grid th{font-size:11.5px;padding:4px 7px;white-space:nowrap}
 .drawer .grid td.rn{font-family:var(--f-mono);color:var(--ink3);text-align:right;background:var(--panel)}
@@ -253,8 +253,8 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--brand);margin:0;c
 #present{position:fixed;inset:0;background:#0d0e10;z-index:80;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
 #present .stage{position:relative;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.5)}#present .stage .slide{transform-origin:0 0;position:absolute;left:0;top:0}
 #present .bar{display:flex;gap:10px;align-items:center;padding:12px 16px;color:#bbb;font:500 12px/1 var(--f-mono)}
-#present .bar button{all:unset;cursor:pointer;color:#eee;padding:8px 12px;border:1px solid #333;border-radius:2px;font:500 12px/1 var(--f-body)}#present .bar button:hover{border-color:#ff4a2e}
-#present .notes{max-width:960px;width:calc(100% - 32px);color:#ddd;font:15px/1.55 var(--f-body);background:#17181c;padding:12px 16px;border-left:3px solid #ff4a2e;max-height:22vh;overflow:auto}
+#present .bar button{all:unset;cursor:pointer;color:#eee;padding:8px 12px;border:1px solid #333;border-radius:2px;font:500 12px/1 var(--f-body)}#present .bar button:hover{border-color:#f24a2f}
+#present .notes{max-width:960px;width:calc(100% - 32px);color:#ddd;font:15px/1.55 var(--f-body);background:#17181c;padding:12px 16px;border-left:3px solid #f24a2f;max-height:22vh;overflow:auto}
 #present .hit{position:absolute;top:0;bottom:0;width:50%;cursor:pointer}
 @media (max-width:959px){
   .app{grid-template-columns:minmax(0,1fr)}
@@ -307,7 +307,7 @@ textarea.inl{font:inherit;border:1px solid var(--rule2);border-radius:2px;paddin
 .lnk{all:unset;cursor:pointer;color:var(--ink2);text-decoration:underline;text-underline-offset:3px}
 .lnk:focus-visible{outline:2px solid var(--brand)}
 .authside{background:var(--rail);color:var(--railink);display:flex;align-items:flex-end;padding:56px;position:relative;overflow:hidden}
-.authside::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(180deg,transparent 0 46px,rgba(255,74,46,.9) 46px 48px);opacity:.14}
+.authside::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(180deg,transparent 0 46px,rgba(242,74,47,.9) 46px 48px);opacity:.14}
 .authside>div{position:relative;max-width:520px;display:flex;flex-direction:column;gap:16px}
 .authside .eyebrow{color:var(--brand)}
 .authside .big{font-family:var(--f-display);font-weight:800;font-stretch:112%;font-size:44px;line-height:1.02;margin:0}
@@ -4141,10 +4141,10 @@ body{font:15px/1.6 Georgia,'Times New Roman',serif;color:#111;margin:0;backgroun
 .cls{font:600 11px/1 Helvetica,Arial,sans-serif;letter-spacing:.18em;color:#C4151A;text-transform:uppercase}
 h1{font:700 30px/1.15 Helvetica,Arial,sans-serif;margin:14px 0 4px}h1+.proj{font:400 18px/1.4 Helvetica,Arial,sans-serif;color:#333;margin:0 0 20px}
 .hdr{border-top:4px solid #111;border-bottom:1px solid #ccc;padding:10px 0;margin:0 0 24px;font:13px/1.6 Helvetica,Arial,sans-serif}.hdr b{display:inline-block;width:80px;color:#666;font-weight:600}
-.rec{border-left:4px solid #D8381F;background:#f6f6f7;padding:16px 20px;margin:0 0 28px}.rec .v{font:700 19px/1.3 Helvetica,Arial,sans-serif}.rec .s{font:600 12px Helvetica,Arial,sans-serif;color:#666;margin-top:4px}
+.rec{border-left:4px solid #D63222;background:#f6f6f7;padding:16px 20px;margin:0 0 28px}.rec .v{font:700 19px/1.3 Helvetica,Arial,sans-serif}.rec .s{font:600 12px Helvetica,Arial,sans-serif;color:#666;margin-top:4px}
 h2{font:700 19px/1.3 Helvetica,Arial,sans-serif;border-bottom:1.5px solid #111;padding-bottom:6px;margin:40px 0 14px}h3{font:700 13px/1.3 Helvetica,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#333;margin:22px 0 8px}
 table{border-collapse:collapse;width:100%;font:13px/1.45 Helvetica,Arial,sans-serif;margin:4px 0 16px}th{background:#f2f2f2;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#555;text-align:left;padding:7px 8px;border-bottom:1px solid #bbb}td{padding:6px 8px;border-bottom:1px solid #e3e3e3;vertical-align:top}
-.r{text-align:right;font-variant-numeric:tabular-nums}tr.tot td{font-weight:700;border-top:1.5px solid #111}tr.emph td{font-weight:700}tr.sub td{color:#666;font-style:italic}td.hi{background:#fff0ec;font-weight:700}
+.r{text-align:right;font-variant-numeric:tabular-nums}tr.tot td{font-weight:700;border-top:1.5px solid #111}tr.emph td{font-weight:700}tr.sub td{color:#666;font-style:italic}td.hi{background:#fff0ed;font-weight:700}
 td.sev-High{color:#C4151A;font-weight:700}td.sev-Medium{color:#B05A00;font-weight:700}
 table.kv th{background:none;text-transform:none;letter-spacing:0;font-size:13px;color:#555;width:34%;border-bottom:1px solid #e3e3e3}.unit{font:italic 12px Helvetica,Arial,sans-serif;color:#666;margin-top:6px}
 .small{font-size:12.5px;color:#555;font-style:italic}sup a{color:#C4151A;text-decoration:none;font:600 10px Helvetica,Arial,sans-serif}ol.notes{font:12px/1.5 Helvetica,Arial,sans-serif;color:#444}
@@ -4159,7 +4159,7 @@ ${M.appendices.map((s, i) => `<h2>Appendix ${String.fromCharCode(65 + i)}. ${e(s
 
 /* ---------- Word ---------- */
 function memoDocx(M, X) {
-  const INK = '111111', GREY = '666666', RED = 'C4151A', RULE = 'D9D9D9', FILL = 'F2F2F2', SOFT = 'F6F6F7', BRAND = 'D8381F';
+  const INK = '111111', GREY = '666666', RED = 'C4151A', RULE = 'D9D9D9', FILL = 'F2F2F2', SOFT = 'F6F6F7', BRAND = 'D63222';
   const FONT = 'Arial';
   const run = (t, o) => new X.TextRun({ text: memoClean(t), font: FONT, size: 20, color: INK, ...(o || {}) });
   const sup = n => n && n.length ? [new X.TextRun({ text: n.join(','), superScript: true, font: FONT, size: 16, color: RED })] : [];
@@ -4245,7 +4245,7 @@ function memoPdf(M, jsPDF) {
   const W = 612, H = 792, ML = 60, MR = 60, CW = W - ML - MR, TOP = 74, BOT = 62;
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const clean = s => String(s ?? '').replace(/−/g, '-').replace(/Δ/g, 'change in ').replace(/→/g, '->').replace(/σ/g, 'sd').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x00-\xff–—•]/g, '');
-  const INK = [17, 17, 17], GREY = [102, 102, 102], RED = [196, 21, 26], BRAND = [216, 56, 31], RULE = [217, 217, 217];
+  const INK = [17, 17, 17], GREY = [102, 102, 102], RED = [196, 21, 26], BRAND = [214, 50, 34], RULE = [217, 217, 217];
   let y = TOP;
   const font = (w, s, c) => { doc.setFont('helvetica', w); doc.setFontSize(s); doc.setTextColor(...(c || INK)); };
   const newPage = () => { doc.addPage(); y = TOP; };
@@ -4438,7 +4438,7 @@ function riskAreas(R) {
 }
 
 /* ---------- deck model ---------- */
-const C = { ink: '111111', grey: '666666', red: 'C4151A', brand: 'D8381F', rule: 'D9D9D9', panel: 'F4F4F5', soft: 'FAFAFA', white: 'FFFFFF', mid: '9A9A9A' };
+const C = { ink: '111111', grey: '666666', red: 'C4151A', brand: 'D63222', rule: 'D9D9D9', panel: 'F4F4F5', soft: 'FAFAFA', white: 'FFFFFF', mid: '9A9A9A' };
 function deckModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
   opts = opts || {};
@@ -4796,7 +4796,7 @@ function chartGeom(el) {
   } else if (el.kind === 'waterfall') {
     let run = 0; const bw = Math.min(0.7, band * 0.62);
     el.series[0].values.forEach((v, i) => { const k = el.series[0].kinds[i]; const bx = pl + i * band + (band - bw) / 2; let a, b, fill;
-      if (k === 'total') { a = Y(Math.max(0, v)); b = Y(Math.min(0, v)); fill = '111111'; run = v; } else { const s = run, e = run + v; a = Y(Math.max(s, e)); b = Y(Math.min(s, e)); fill = v < 0 ? 'C81E3A' : '8C8C8C'; run = e; if (i < n - 1) out.push({ k: 'line', x1: bx + bw, y1: Y(e), x2: bx + band, y2: Y(e), color: 'BBBBBB', wt: 0.4 }); }
+      if (k === 'total') { a = Y(Math.max(0, v)); b = Y(Math.min(0, v)); fill = '111111'; run = v; } else { const s = run, e = run + v; a = Y(Math.max(s, e)); b = Y(Math.min(s, e)); fill = v < 0 ? 'C4161C' : '8C8C8C'; run = e; if (i < n - 1) out.push({ k: 'line', x1: bx + bw, y1: Y(e), x2: bx + band, y2: Y(e), color: 'BBBBBB', wt: 0.4 }); }
       out.push({ k: 'rect', x: bx, y: a, w: bw, h: Math.max(0.005, b - a), fill });
       if (el.showValues) out.push({ k: 'text', x: bx - 0.2, y: a - 0.17, w: bw + 0.4, text: (k === 'delta' && v > 0 ? '+' : '') + fmtV(v), size: 6.5, color: '333333', align: 'center' }); });
   } else if (el.kind === 'line') {
@@ -4840,7 +4840,7 @@ function deckPptx(D, PptxGenJS) {
         const rows = [];
         if (e.head.some(Boolean)) rows.push(e.head.map((h, j) => ({ text: String(h), options: { bold: true, fontSize: e.size - 1.5, color: '555555', fill: { color: 'F2F2F2' }, align: e.align[j] === 'r' ? 'right' : 'left', border: [{ type: 'none' }, { type: 'none' }, { type: 'solid', pt: 0.75, color: '999999' }, { type: 'none' }] } })));
         e.rows.forEach((r, i) => rows.push(r.map((c, j) => { const sev = e.sevCol === j; const hi = e.hi && e.hi.r === i && e.hi.c === j;
-          return { text: String(c).replace(/^ {2}/, '   '), options: { fontSize: e.size, bold: (e.totals || []).includes(i) || (e.emph || []).includes(i) || sev || hi, italic: (e.sub || []).includes(i), color: sev ? (c === 'High' ? C.red : c === 'Medium' ? 'B05A00' : '666666') : (e.sub || []).includes(i) ? '666666' : C.ink, align: e.align[j] === 'r' ? 'right' : 'left', fill: hi ? { color: 'FFF0EC' } : undefined, border: brd((e.totals || []).includes(i), 0.5) } }; })));
+          return { text: String(c).replace(/^ {2}/, '   '), options: { fontSize: e.size, bold: (e.totals || []).includes(i) || (e.emph || []).includes(i) || sev || hi, italic: (e.sub || []).includes(i), color: sev ? (c === 'High' ? C.red : c === 'Medium' ? 'B05A00' : '666666') : (e.sub || []).includes(i) ? '666666' : C.ink, align: e.align[j] === 'r' ? 'right' : 'left', fill: hi ? { color: 'FFF0ED' } : undefined, border: brd((e.totals || []).includes(i), 0.5) } }; })));
         sl.addTable(rows, { x: e.x, y: e.y, w: e.w, colW, fontFace: F, margin: [3, 4, 3, 4], valign: 'middle', autoPage: false });
       } else if (e.t === 'chart') {
         const yy = e.y + (e.unit ? 0.22 : 0); const hh = e.h - (e.unit ? 0.22 : 0);
@@ -4859,7 +4859,7 @@ function deckPptx(D, PptxGenJS) {
             if (k === 'total') { baseV.push(0); up.push(0); down.push(0); tot.push(scale(v)); run = v; }
             else { const s0 = run, s1 = run + v; baseV.push(scale(Math.min(s0, s1))); up.push(v > 0 ? scale(v) : 0); down.push(v < 0 ? scale(-v) : 0); tot.push(0); run = s1; } });
           sl.addChart(p.ChartType.bar, [{ name: 'Base', labels: e.labels, values: baseV }, { name: 'Total', labels: e.labels, values: tot }, { name: 'Increase', labels: e.labels, values: up }, { name: 'Decrease', labels: e.labels, values: down }],
-            { ...base, barDir: 'col', barGrouping: 'stacked', barGapWidthPct: 50, chartColors: ['FFFFFF', '111111', '8C8C8C', 'D8381F'], showLegend: false, showValue: false, valGridLine: { style: 'none' } });
+            { ...base, barDir: 'col', barGrouping: 'stacked', barGapWidthPct: 50, chartColors: ['FFFFFF', '111111', '8C8C8C', 'D63222'], showLegend: false, showValue: false, valGridLine: { style: 'none' } });
         }
       }
     });
@@ -4882,8 +4882,8 @@ function deckPdf(D, jsPDF) {
     if (Array.isArray(e.text)) {
       const cols = e.columns || 1; const cw = e.w / cols; const per = Math.ceil(e.text.length / cols);
       e.text.forEach((t, i) => { const c = Math.floor(i / per); if (i % per === 0) yy = e.y; const x = e.x + c * cw;
-        if (e.numbered) { font(true, false, e.size, e.color === '111111' ? 'D8381F' : e.color); doc.text(`${i + 1}.`, x, yy + e.size / 72); font(e.bold, e.italic, e.size, e.color); }
-        else if (e.bullets) { doc.setFillColor(...rgb('D8381F')); doc.rect(x + 0.01, yy + e.size / 72 * 0.45, 0.05, 0.05, 'F'); }
+        if (e.numbered) { font(true, false, e.size, e.color === '111111' ? 'D63222' : e.color); doc.text(`${i + 1}.`, x, yy + e.size / 72); font(e.bold, e.italic, e.size, e.color); }
+        else if (e.bullets) { doc.setFillColor(...rgb('D63222')); doc.rect(x + 0.01, yy + e.size / 72 * 0.45, 0.05, 0.05, 'F'); }
         write(t, x + 0.22, cw - 0.3); yy += (e.paraAfter || 0) / 72; });
     } else {
       const x = e.align === 'right' ? e.x + e.w : e.align === 'center' ? e.x + e.w / 2 : e.x;
@@ -4896,7 +4896,7 @@ function deckPdf(D, jsPDF) {
     if (!s.dark) {
       font(true, false, 8.5, 'C4151A'); doc.text(clean((s.section || '').toUpperCase()), 0.5, 0.42, { charSpace: 0.012 });
       font(true, false, 19, '111111'); const tl = doc.splitTextToSize(clean(s.title), 9); doc.text(tl.slice(0, 2), 0.5, 0.82);
-      doc.setFillColor(...rgb('D8381F')); doc.rect(0.5, 1.36, 0.55, 0.035, 'F');
+      doc.setFillColor(...rgb('D63222')); doc.rect(0.5, 1.36, 0.55, 0.035, 'F');
       if (s.source) { font(false, false, 6.5, '888888'); doc.text(doc.splitTextToSize(clean(s.source), 9)[0], 0.5, 5.15); }
       doc.setDrawColor(...rgb('D9D9D9')); doc.setLineWidth(0.007); doc.line(0.5, 5.24, 9.5, 5.24);
       font(false, false, 7, '888888'); doc.text(clean(`${D.meta.draft ? 'DRAFT  ·  ' : ''}${D.meta.project}  ·  Investment Committee  ·  Strictly confidential`), 0.5, 5.4); doc.text(`${si + 1} / ${total}`, 9.5, 5.4, { align: 'right' });
@@ -4946,9 +4946,9 @@ function deckSlideHTML(D, si) {
   const box = (x, y, w, h) => `left:${px(x)};top:${px(y)};width:${px(w)};${h != null ? 'height:' + px(h) + ';' : ''}`;
   let o = `<div class="slide" style="background:#${s.dark ? '111111' : 'FFFFFF'}">`;
   if (!s.dark) {
-    o += `<div class="el" style="${box(0.5, 0.3, 6, 0.25)}font:700 ${pt(8.5)} Arial,Helvetica,sans-serif;color:#D8381F;letter-spacing:.12em">${e((s.section || '').toUpperCase())}</div>`;
+    o += `<div class="el" style="${box(0.5, 0.3, 6, 0.25)}font:700 ${pt(8.5)} Arial,Helvetica,sans-serif;color:#D63222;letter-spacing:.12em">${e((s.section || '').toUpperCase())}</div>`;
     o += `<div class="el" style="${box(0.5, 0.55, 9, 0.8)}font:700 ${pt(19)}/1.18 Arial,Helvetica,sans-serif;color:#111">${e(s.title)}</div>`;
-    o += `<div class="el" style="${box(0.5, 1.36, 0.55, 0.035)}background:#D8381F"></div>`;
+    o += `<div class="el" style="${box(0.5, 1.36, 0.55, 0.035)}background:#D63222"></div>`;
     if (s.source) o += `<div class="el" style="${box(0.5, 5.02, 9, 0.18)}font:${pt(6.5)} Arial,Helvetica,sans-serif;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e(s.source)}</div>`;
     o += `<div class="el" style="${box(0.5, 5.24, 9, 0.006)}background:#D9D9D9"></div><div class="el" style="${box(0.5, 5.29, 7, 0.2)}font:${pt(7)} Arial,Helvetica,sans-serif;color:#888">${D.meta.draft ? 'DRAFT · ' : ''}${e(D.meta.project)} · Investment Committee · Strictly confidential</div><div class="el" style="${box(8.5, 5.29, 1, 0.2)}font:${pt(7)} Arial,Helvetica,sans-serif;color:#888;text-align:right">${si + 1} / ${total}</div>`;
   }
@@ -4959,7 +4959,7 @@ function deckSlideHTML(D, si) {
       if (Array.isArray(el.text)) o += `<div class="el" style="${st}"><${el.numbered ? 'ol' : 'ul'} class="${el.numbered ? 'num' : el.bullets ? 'sq' : 'plain'}" style="${el.columns > 1 ? 'columns:' + el.columns + ';' : ''}">${el.text.map(t => `<li style="margin-bottom:${pt(el.paraAfter || 0)}">${e(t)}</li>`).join('')}</${el.numbered ? 'ol' : 'ul'}></div>`;
       else o += `<div class="el" style="${st}">${e(el.text).replace(/\n/g, '<br>')}</div>`;
     } else if (el.t === 'kpi') {
-      o += `<div class="el kpi" style="${box(el.x, el.y, el.w, el.h)}background:#${el.accent ? C.soft : C.panel};border-left:${px(0.05)} solid #${el.accent ? 'D8381F' : '111111'}"><div style="font:700 ${pt(7.5)} Arial,Helvetica,sans-serif;color:#666;letter-spacing:.06em">${e(el.label.toUpperCase())}</div><div style="font:700 ${pt(17)}/1.1 Arial,Helvetica,sans-serif;color:#111;margin-top:${px(0.06)}">${e(el.value)}</div><div style="font:${pt(7.5)}/1.25 Arial,Helvetica,sans-serif;color:#666;position:absolute;top:${px(Math.max(0.66, el.h - 0.3))};left:${px(0.15)};right:${px(0.1)}">${e(el.note || '')}</div></div>`;
+      o += `<div class="el kpi" style="${box(el.x, el.y, el.w, el.h)}background:#${el.accent ? C.soft : C.panel};border-left:${px(0.05)} solid #${el.accent ? 'D63222' : '111111'}"><div style="font:700 ${pt(7.5)} Arial,Helvetica,sans-serif;color:#666;letter-spacing:.06em">${e(el.label.toUpperCase())}</div><div style="font:700 ${pt(17)}/1.1 Arial,Helvetica,sans-serif;color:#111;margin-top:${px(0.06)}">${e(el.value)}</div><div style="font:${pt(7.5)}/1.25 Arial,Helvetica,sans-serif;color:#666;position:absolute;top:${px(Math.max(0.66, el.h - 0.3))};left:${px(0.15)};right:${px(0.1)}">${e(el.note || '')}</div></div>`;
     } else if (el.t === 'table') {
       const colW = (el.colW || el.head.map(() => 1 / el.head.length));
       o += `<div class="el" style="${box(el.x, el.y, el.w)}"><table class="dt" style="font-size:${pt(el.size)}"><colgroup>${colW.map(f => `<col style="width:${(f * 100).toFixed(1)}%">`).join('')}</colgroup>${el.head.some(Boolean) ? `<thead><tr>${el.head.map((h, j) => `<th style="text-align:${el.align[j] === 'r' ? 'right' : 'left'}">${e(h)}</th>`).join('')}</tr></thead>` : ''}<tbody>${el.rows.map((r, i) => `<tr class="${(el.totals || []).includes(i) ? 'tot' : ''}${(el.emph || []).includes(i) ? ' emph' : ''}${(el.sub || []).includes(i) ? ' sub' : ''}">${r.map((c, j) => `<td style="text-align:${el.align[j] === 'r' ? 'right' : 'left'}" class="${el.sevCol === j ? 'sev-' + e(c) : ''}${el.hi && el.hi.r === i && el.hi.c === j ? ' hi' : ''}">${e(String(c).replace(/^ {2}/, ' '))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
@@ -4973,7 +4973,7 @@ function deckSlideHTML(D, si) {
   });
   return o + '</div>';
 }
-const DECK_CSS = `.slide{position:relative;width:960px;height:540px;overflow:hidden;color:#111;font-family:Arial,Helvetica,sans-serif}.slide .el{position:absolute;box-sizing:border-box}.slide ul,.slide ol{margin:0;padding:0 0 0 1.25em}.slide ul.sq{list-style:none;padding-left:1.25em}.slide ul.sq li{position:relative}.slide ul.sq li::before{content:'';position:absolute;left:-1.1em;top:.45em;width:.42em;height:.42em;background:#D8381F}.slide ol.num li::marker{color:#D8381F;font-weight:700}.slide ul.plain{list-style:none;padding:0}.slide table.dt{border-collapse:collapse;width:100%;font-family:Arial,Helvetica,sans-serif;color:#111}.slide table.dt th{background:#F2F2F2;color:#555;font-weight:700;font-size:.85em;padding:3px 5px;border-bottom:1px solid #999}.slide table.dt td{padding:3px 5px;border-bottom:.5px solid #E0E0E0;vertical-align:middle}.slide table.dt tr.tot td{font-weight:700;border-top:1.3px solid #111}.slide table.dt tr.emph td{font-weight:700}.slide table.dt tr.sub td{color:#666;font-style:italic}.slide td.hi{background:#FFF0EC;font-weight:700}.slide td.sev-High{color:#C4151A;font-weight:700}.slide td.sev-Medium{color:#B05A00;font-weight:700}.slide .kpi{padding:${(0.1 * 96).toFixed(0)}px ${(0.15 * 96).toFixed(0)}px}`;
+const DECK_CSS = `.slide{position:relative;width:960px;height:540px;overflow:hidden;color:#111;font-family:Arial,Helvetica,sans-serif}.slide .el{position:absolute;box-sizing:border-box}.slide ul,.slide ol{margin:0;padding:0 0 0 1.25em}.slide ul.sq{list-style:none;padding-left:1.25em}.slide ul.sq li{position:relative}.slide ul.sq li::before{content:'';position:absolute;left:-1.1em;top:.45em;width:.42em;height:.42em;background:#D63222}.slide ol.num li::marker{color:#D63222;font-weight:700}.slide ul.plain{list-style:none;padding:0}.slide table.dt{border-collapse:collapse;width:100%;font-family:Arial,Helvetica,sans-serif;color:#111}.slide table.dt th{background:#F2F2F2;color:#555;font-weight:700;font-size:.85em;padding:3px 5px;border-bottom:1px solid #999}.slide table.dt td{padding:3px 5px;border-bottom:.5px solid #E0E0E0;vertical-align:middle}.slide table.dt tr.tot td{font-weight:700;border-top:1.3px solid #111}.slide table.dt tr.emph td{font-weight:700}.slide table.dt tr.sub td{color:#666;font-style:italic}.slide td.hi{background:#FFF0ED;font-weight:700}.slide td.sev-High{color:#C4151A;font-weight:700}.slide td.sev-Medium{color:#B05A00;font-weight:700}.slide .kpi{padding:${(0.1 * 96).toFixed(0)}px ${(0.15 * 96).toFixed(0)}px}`;
 
 
 /* DealBasis Excel export: the deal's figures as a workbook for the firm's own model. Every number is a number

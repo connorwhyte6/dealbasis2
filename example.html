@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Example: Project Saguaro | DealBasis</title>
+<meta name="description" content="What DealBasis caught in Project Saguaro, a fictional sample deal: the EBITDA walk from management to diligence, and the findings behind it.">
+<link rel="canonical" href="https://dealbasis.vercel.app/example">
+<meta name="theme-color" content="#ffffff">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DealBasis">
+<meta property="og:url" content="https://dealbasis.vercel.app/example">
+<meta property="og:title" content="Example: Project Saguaro | DealBasis">
+<meta property="og:description" content="What DealBasis caught in Project Saguaro, a fictional sample deal: the EBITDA walk from management to diligence, and the findings behind it.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Example: Project Saguaro | DealBasis">
+<meta name="twitter:description" content="What DealBasis caught in Project Saguaro, a fictional sample deal: the EBITDA walk from management to diligence, and the findings behind it.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/home.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="/faq#faq-text">How it works</a></div>
+<header class="nav" id="nav"><div class="wrap">
+  <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
+  <nav class="links" aria-label="Main"><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example" aria-current="page">Example</a><a href="/faq">FAQ</a></nav>
+  <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
+</div>
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a><a href="/signin">Sign in</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
+</header>
+
+<main id="main">
+<div class="pagehead"><div class="wrap"><span class="eyebrow">Example</span><h1>Project Saguaro: what DealBasis caught</h1><p>A fictional commercial HVAC contractor in Mesa, Arizona, and the built-in sample deal.</p></div></div>
+<!-- example -->
+<section id="example"><div class="wrap">
+  <div class="example">
+    <div class="panel">
+      <h3>The EBITDA walk</h3><p class="sub">Management's figure to the figure diligence supports</p>
+      <div class="walk">
+        <div class="wrow total"><span>Management's Adjusted EBITDA</span><span class="v">$1,942,000</span><span class="bar"><i style="left:0;width:92.75%"></i></span></div>
+        <div class="wrow wstep"><span>Bridge doesn't add up (CIM p.5)</span><span class="v">−$18,000</span><span class="bar"><i style="left:90.5%;width:2.25%"></i></span></div>
+        <div class="wrow wstep"><span>Consulting fees with no ledger support</span><span class="v">−$38,000</span><span class="bar"><i style="left:85.75%;width:4.75%"></i></span></div>
+        <div class="wrow wstep"><span>Price increase not yet earned</span><span class="v">−$145,000</span><span class="bar"><i style="left:67.62%;width:18.12%"></i></span></div>
+        <div class="wrow wstep"><span>Savings from software deploying in 2027</span><span class="v">−$60,000</span><span class="bar"><i style="left:60.12%;width:7.5%"></i></span></div>
+        <div class="wrow wstep"><span>Employee Retention Credit is income</span><span class="v">−$84,000</span><span class="bar"><i style="left:49.62%;width:10.5%"></i></span></div>
+        <div class="wrow wstep"><span>Rent, non-operating income and cut-off, from the ledger</span><span class="v">−$246,849</span><span class="bar"><i style="left:18.77%;width:30.86%"></i></span></div>
+        <div class="wrow total"><span>Diligence-adjusted EBITDA</span><span class="v">$1,350,151</span><span class="bar"><i style="left:0;width:18.77%"></i></span></div>
+      </div>
+      <p class="axisnote">Bars run from $1.2M to $2.0M.</p>
+      <div class="result"><div><b>$592K</b><span>less EBITDA than management presents</span></div><div><b>$3.55M</b><span>less enterprise value at the 6.0x multiple</span></div></div>
+    </div>
+    <div class="flist2">
+      <div class="fcard"><span class="sev h">High</span><h4>Debt that isn't on the balance sheet</h4><p>The owner's answers mention a $150,000 shareholder note. No balance sheet line carries it, and the lender confirmations list the same balance.</p><span class="src">Management Responses.docx, section 4</span></div>
+      <div class="fcard"><span class="sev h">High</span><h4>Revenue booked, then reversed</h4><p>Two invoices dated in the last three days of August were reversed after period end, overstating revenue by $96,000.</p><span class="src">General Ledger.csv, row 4157</span></div>
+      <div class="fcard"><span class="sev h">High</span><h4>Payments just under the approval limit</h4><p>24 entries between $4,750 and $5,000, eleven of them with one supplier.</p><span class="src">General Ledger.csv, row 907 and 23 more</span></div>
+      <div class="fcard"><span class="sev h">High</span><h4>Receivables outpacing revenue</h4><p>Receivables grew 44.6% in a year while revenue grew 14.5%, and days to collect rose from 42 to 51.</p><span class="src">Balance Sheet and Debt.xlsx</span></div>
+      <div class="verdict"><b>22<small>/100</small></b><div><h4>Not ready for an LOI</h4><p>13 high-severity findings across six risk areas. All 139 citations re-read before any finding was shown.</p></div></div>
+    </div>
+  </div>
+<div class="next"><a class="btn btn-primary" href="/app?demo=1">Open the sample deal</a><a class="btn btn-secondary" href="/why">Why DealBasis</a></div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <div class="fgrid">
+    <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
+    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a></li><li><a href="/faq#security">Security</a></li><li><a href="/faq">FAQ</a></li></ul></div>
+    <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
+  </div>
+  <p class="legal">© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
+</div></footer>
+<script src="/home.js"></script>
+</body>
+</html>

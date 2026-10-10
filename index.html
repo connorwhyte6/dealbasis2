@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>DealBasis | Financial Diligence and Deal Intelligence for Private Equity</title>
-<meta name="description" content="Financial Diligence and Deal Intelligence for Private Equity. DealBasis reads the CIM, the financial statements and the ledger, checks every figure against the others, and builds your committee readout, with each number linked to its source.">
+<title>DealBasis | Catch the Bad Deal. Know When to Move Forward.</title>
+<meta name="description" content="Financial Diligence and Deal Intelligence for Private Equity. DealBasis checks every figure in your CIM, statements or ledger, shows what does not hold up, and tells you whether the deal is ready for an LOI.">
 <script>
 /* sign-in links in emails and the app's own redirects arrive here: send them on to the sign-in page with everything intact */
 (function () {
@@ -13,357 +13,39 @@
 })();
 </script>
 <link rel="canonical" href="https://dealbasis.vercel.app/">
-<meta name="theme-color" content="#131417">
+<meta name="theme-color" content="#ffffff">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="DealBasis">
 <meta property="og:url" content="https://dealbasis.vercel.app/">
-<meta property="og:title" content="DealBasis: Catch the Bad Deal Early">
-<meta property="og:description" content="Financial Diligence and Deal Intelligence for Private Equity. DealBasis checks every figure in your CIM, statements or ledger against the others and builds your committee memo and deck, with every number linked to its source.">
+<meta property="og:title" content="DealBasis | Catch the Bad Deal. Know When to Move Forward.">
+<meta property="og:description" content="Financial Diligence and Deal Intelligence for Private Equity. DealBasis checks every figure in your CIM, statements or ledger, shows what does not hold up, and tells you whether the deal is ready for an LOI.">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="DealBasis: Catch the Bad Deal Early">
-<meta name="twitter:description" content="Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.">
+<meta name="twitter:title" content="DealBasis | Catch the Bad Deal. Know When to Move Forward.">
+<meta name="twitter:description" content="Financial Diligence and Deal Intelligence for Private Equity. DealBasis checks every figure in your CIM, statements or ledger, shows what does not hold up, and tells you whether the deal is ready for an LOI.">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"DealBasis","applicationCategory":"BusinessApplication","operatingSystem":"Web browser","url":"https://dealbasis.vercel.app/","description":"Financial Diligence and Deal Intelligence for Private Equity: quality of earnings, working capital, debt tie-outs, risk scoring and a committee memo and deck, with every number linked to its source."}</script>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-<style>
-:root{
-  --bg:#ffffff; --soft:#f5f5f6; --ink:#111214; --ink2:#4a5160; --ink3:#7b8291; --line:#e6e8ec; --line2:#d6d9df;
-  --brand:#d8381f; --brand2:#b52c16; --brandhi:#ff4a2e; --brandsoft:#fff0ec; --red:#c81e3a; --red2:#a3122c; --redsoft:#fdf0f2; --green:#15803d; --greensoft:#ecfdf3; --amber:#b45309; --ambersoft:#fff7e6;
-  --dark:#131417; --radius:12px; --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.08);
-  --max:1180px; --gut:clamp(16px,4vw,32px);
-  color-scheme:light;
-}
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
-a{color:inherit;text-decoration:none}
-:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
-.wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gut)}
-.skip{position:absolute;left:-9999px}.skip:focus{left:16px;top:12px;background:#fff;padding:8px 12px;z-index:100}
-h1,h2,h3,h4{margin:0;line-height:1.15;letter-spacing:-.02em}
-p{margin:0}
-
-/* buttons */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:15px;padding:12px 20px;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s;white-space:nowrap}
-.btn-primary{background:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(216,56,31,.3)}
-.btn-primary:hover{background:var(--brand2)}
-.btn-secondary{background:#fff;color:var(--ink);border-color:var(--line2)}
-.btn-secondary:hover{border-color:var(--ink3)}
-.btn-sm{padding:9px 14px;font-size:14px;border-radius:8px}
-
-/* nav */
-.nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.85);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px);border-bottom:1px solid var(--line)}
-.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:68px;gap:20px}
-.logo{display:inline-flex;align-items:center;gap:8px;font-weight:800;letter-spacing:-.02em;font-size:20px}
-.logo .wb{font-weight:800;color:var(--brandhi)}
-.links{display:flex;gap:28px;font-size:15px;color:var(--ink2)}
-.links a:hover{color:var(--ink)}
-.navcta{display:flex;align-items:center;gap:10px}
-.navcta .signin{font-weight:600;font-size:15px;color:var(--ink2);padding:9px 10px}
-.navcta .signin:hover{color:var(--ink)}
-
-/* hero */
-.hero{text-align:center;padding:clamp(56px,8vw,96px) 0 0;background:radial-gradient(1200px 500px at 50% -120px,#fff0ec 0%,rgba(255,240,236,0) 70%)}
-.badge{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;color:var(--ink2);background:#fff;border:1px solid var(--line);padding:6px 12px;border-radius:999px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--brand)}
-@media(max-width:480px){.badge{font-size:11.5px;padding:5px 10px;gap:6px;letter-spacing:-.1px;white-space:nowrap}.badge .dot{flex:none;width:6px;height:6px}}
-@media(max-width:385px){.badge{white-space:normal;text-align:center;border-radius:14px;line-height:1.35}.badge .dot{display:none}}
-@media(max-width:385px){.navcta .btn-sm{display:none}}
-.hero h1{font-size:clamp(40px,6vw,68px);font-weight:800;margin:22px auto 0;max-width:none;text-wrap:balance}
-.hero h1 .h1b{color:var(--brandhi)}
-.hero .lead{font-size:clamp(17px,1.6vw,20px);color:var(--ink2);max-width:62ch;margin:20px auto 0}
-.hero .ctas{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:32px}
-.hero .ctas .btn{padding:14px 24px;font-size:16px}
-.hero .note{font-size:14px;color:var(--ink3);margin-top:14px}
-
-/* product preview */
-.preview{margin:clamp(40px,6vw,64px) auto 0;max-width:1080px;border-radius:14px 14px 0 0;border:1px solid var(--line2);border-bottom:0;background:#fff;box-shadow:0 30px 60px -20px rgba(16,24,40,.25),0 0 0 1px rgba(16,24,40,.02);overflow:hidden;text-align:left}
-.chrome{display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;background:var(--soft);border-bottom:1px solid var(--line)}
-.chrome i{width:11px;height:11px;border-radius:50%;background:#e2e4e8}
-.chrome .url{margin:0 auto;font-size:12.5px;color:var(--ink3);background:#fff;border:1px solid var(--line);border-radius:6px;padding:3px 14px}
-.app{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:440px}
-.rail{background:var(--dark);color:#d9dce2;padding:18px 14px;font-size:13px;display:flex;flex-direction:column;gap:4px}
-.rail .logo{color:#fff;font-size:16px;margin:0 6px 16px}
-.rail .grp{font-size:11px;color:#8b919e;margin:12px 8px 4px;font-weight:600}
-.rail span.it{padding:7px 8px;border-radius:6px;display:flex;justify-content:space-between}
-.rail span.on{background:#252830;color:#fff;box-shadow:inset 2px 0 0 var(--brand)}
-.rail .ct{font-size:11px;background:var(--brand);color:#fff;border-radius:999px;padding:0 6px}
-.pane{padding:22px 24px;background:#fff;display:flex;flex-direction:column;gap:16px;min-width:0}
-.pane .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
-.pane .top small{color:var(--ink3);font-size:12.5px}
-.pane .top h3{font-size:20px;font-weight:700}
-.pill{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px}
-.pill.bad{background:var(--redsoft);color:var(--red2)}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.kpi{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-.kpi small{display:block;font-size:12px;color:var(--ink3)}
-.kpi b{display:block;font-size:20px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
-.kpi span{font-size:12px;color:var(--ink2)}
-.kpi span.neg{color:var(--red2)}
-.flist{border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.flist .fh{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink3);background:var(--soft);padding:8px 14px;border-bottom:1px solid var(--line)}
-.frow{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
-.frow:last-child{border-bottom:0}
-.sev{font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 0;text-align:center}
-.sev.h{background:var(--redsoft);color:var(--red2)}
-.sev.m{background:var(--ambersoft);color:var(--amber)}
-.frow .src{font-size:12px;color:var(--ink3);white-space:nowrap}
-.frow .src u{text-decoration:none;color:var(--brand2);border-bottom:1px dashed var(--brand)}
-
-/* sections */
-section{padding:clamp(64px,8vw,104px) 0}
-.soft{background:var(--soft)}
-.head{text-align:center;max-width:720px;margin:0 auto clamp(36px,5vw,56px)}
-.eyebrow{font-size:14px;font-weight:600;color:var(--brand2)}
-.head h2{font-size:clamp(30px,3.6vw,44px);font-weight:800;margin-top:10px}
-.head p{color:var(--ink2);font-size:18px;margin-top:14px}
-
-/* stats */
-.stats{padding:clamp(40px,5vw,56px) 0;border-bottom:1px solid var(--line)}
-.stats .lab{text-align:center;font-size:14px;color:var(--ink3);margin-bottom:22px}
-.stats .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;text-align:center}
-.stats b{display:block;font-size:clamp(28px,3.2vw,40px);font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.stats span{color:var(--ink2);font-size:15px}
-
-/* features */
-.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
-.card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-.icon{width:44px;height:44px;border-radius:10px;background:var(--brandsoft);color:var(--brand2);display:grid;place-items:center;margin-bottom:16px}
-.card h3{font-size:18px;font-weight:700}
-.card p{color:var(--ink2);margin-top:8px;font-size:15.5px}
-
-/* two workspaces */
-.wsgroup + .wsgroup{margin-top:36px}
-.wshead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
-.wshead p{color:var(--ink2);font-size:16px;font-weight:500}
-.wsbadge{display:inline-flex;align-items:center;font-size:14px;font-weight:700;padding:7px 14px;border-radius:999px;background:var(--brandsoft);color:var(--brand2)}
-.wsbadge.dark{background:var(--dark);color:#fff}
-.cards4{grid-template-columns:repeat(4,minmax(0,1fr))}
-@media (max-width:1100px){ .cards4{grid-template-columns:repeat(2,minmax(0,1fr))} }
-@media (max-width:640px){ .cards4{grid-template-columns:1fr} }
-/* steps */
-.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;counter-reset:s}
-.step{position:relative;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:28px 26px}
-.step .n{width:36px;height:36px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;margin-bottom:16px}
-.step h3{font-size:18px;font-weight:700}
-.step p{color:var(--ink2);margin-top:8px;font-size:15.5px}
-
-/* example */
-.example{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(28px,4vw,48px);align-items:start}
-.panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
-.panel h3{font-size:18px;font-weight:700}
-.panel .sub{color:var(--ink3);font-size:14px;margin-top:4px}
-.walk{margin-top:18px;display:flex;flex-direction:column;gap:10px}
-.wrow{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:4px 14px;font-size:14.5px}
-.wrow .bar{grid-column:1 / -1;height:8px;border-radius:999px;background:var(--soft);position:relative;overflow:hidden}
-.wrow .bar i{position:absolute;top:0;bottom:0;border-radius:999px}
-.wrow.total .bar i{background:var(--ink)}
-.wrow.wstep .bar i{background:var(--red)}
-.wrow .v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
-.wrow.wstep .v{color:var(--red2)}
-.wrow.total{font-weight:600}
-.axisnote{font-size:12.5px;color:var(--ink3);margin-top:6px}
-.result{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
-.result div{background:var(--soft);border-radius:10px;padding:14px 16px}
-.result b{display:block;font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
-.result span{font-size:13.5px;color:var(--ink2)}
-.flist2{display:flex;flex-direction:column;gap:12px}
-.fcard{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px}
-.fcard .sev{grid-row:1 / span 3;align-self:start;padding:3px 8px}
-.fcard h4{font-size:16px;font-weight:700}
-.fcard p{color:var(--ink2);font-size:14.5px}
-.fcard .src{font-size:13px;color:var(--ink3)}
-.verdict{display:flex;align-items:center;gap:18px;background:var(--dark);color:#fff;border-radius:var(--radius);padding:20px 22px}
-.verdict b{font-size:40px;font-weight:800;line-height:1}
-.verdict b small{font-size:16px;color:#9aa0ab;font-weight:600}
-.verdict h4{font-size:16px;font-weight:700;color:#ff6b6b}
-.verdict p{color:#c3c7cf;font-size:14px;margin-top:2px}
-
-/* security */
-.sec3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px}
-.sec3 .icon{background:#fff;border:1px solid var(--line)}
-.sec3 h3{font-size:18px;font-weight:700}
-.sec3 p{color:var(--ink2);margin-top:8px;font-size:15.5px}
-
-/* cta */
-.cta{padding:0 0 clamp(64px,8vw,104px)}
-.ctabox{background:var(--dark);color:#fff;border-radius:20px;padding:clamp(36px,5vw,64px);display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap;position:relative;overflow:hidden}
-.ctabox::after{content:"";position:absolute;right:-80px;top:-80px;width:320px;height:320px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,74,46,.35),rgba(255,74,46,0))}
-.ctabox h2{font-size:clamp(28px,3.4vw,40px);font-weight:800;max-width:20ch}
-.ctabox p{color:#c3c7cf;margin-top:10px;max-width:52ch}
-.ctabox .ctas{display:flex;gap:12px;flex-wrap:wrap;position:relative;z-index:1}
-.ctabox .btn-secondary{background:transparent;color:#fff;border-color:rgba(255,255,255,.3)}
-.ctabox .btn-secondary:hover{border-color:#fff}
-
-/* footer */
-footer{border-top:1px solid var(--line);padding:48px 0 36px;font-size:14.5px;color:var(--ink2)}
-.fgrid{display:grid;grid-template-columns:minmax(0,2fr) repeat(2,minmax(0,1fr));gap:32px}
-.fgrid h4{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:12px}
-.fgrid ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.fgrid a:hover{color:var(--ink)}
-.fgrid .blurb{max-width:36ch;margin-top:12px}
-.legal{border-top:1px solid var(--line);margin-top:36px;padding-top:20px;font-size:13.5px;color:var(--ink3)}
-
-@media (max-width:980px){
-  .links{display:none}
-  .cards,.steps,.sec3{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .example{grid-template-columns:1fr}
-  .app{grid-template-columns:1fr} .rail{display:none}
-  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-@media (max-width:640px){
-  .cards,.steps,.sec3,.fgrid{grid-template-columns:1fr}
-  .stats .grid{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:28px}
-  .navcta .signin{display:none}
-  .frow{grid-template-columns:54px minmax(0,1fr)} .frow .src{grid-column:2}
-  .pane{padding:16px}
-  .result{grid-template-columns:1fr}
-}
-
-/* announcement bar */
-.announce{background:var(--dark);color:#e6e8ec;font-size:14px;text-align:center;padding:9px 16px}
-.announce b{color:#fff;font-weight:600}
-.announce a{color:#fff;text-decoration:underline;text-underline-offset:3px;margin-left:6px}
-
-/* nav on scroll, and the phone menu */
-.nav.scrolled{box-shadow:0 4px 18px rgba(16,24,40,.07)}
-.menu-btn{display:none;width:42px;height:42px;border-radius:8px;border:1px solid var(--line2);background:#fff;align-items:center;justify-content:center;cursor:pointer}
-.mobile-menu{display:none;border-top:1px solid var(--line);background:#fff;padding:8px var(--gut) 18px}
-.mobile-menu a{display:block;padding:12px 4px;font-size:16px;font-weight:500;border-bottom:1px solid var(--line)}
-.mobile-menu .btn{display:flex;width:100%;margin-top:14px;border-bottom:0}
-.nav.open .mobile-menu{display:block}
-
-/* product tour */
-.tabs{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:28px}
-.tab{font:600 15px/1 inherit;font-family:inherit;padding:11px 18px;border-radius:999px;border:1px solid var(--line2);background:#fff;color:var(--ink2);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
-.tab:hover{color:var(--ink);border-color:var(--ink3)}
-.tab[aria-selected="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
-.tourpanel{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.3fr);gap:clamp(24px,4vw,48px);align-items:center}
-.tourpanel[hidden]{display:none}
-.tourcopy h3{font-size:clamp(24px,2.6vw,30px);font-weight:800}
-.tourcopy p{color:var(--ink2);margin-top:12px;font-size:16.5px}
-.tourcopy ul{margin:18px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
-.tourcopy li{display:flex;gap:10px;color:var(--ink2);font-size:15.5px}
-.tourcopy li svg{flex:none;margin-top:3px;color:var(--brand2)}
-.screen{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
-.screen .sh{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);background:var(--soft)}
-.screen .sh b{font-size:15px}
-.screen .sh span{font-size:12.5px;color:var(--ink3)}
-.screen table{width:100%;border-collapse:collapse;font-size:14px}
-.screen th{text-align:left;font-size:12px;font-weight:600;color:var(--ink3);padding:10px 18px;border-bottom:1px solid var(--line)}
-.screen td{padding:10px 18px;border-bottom:1px solid var(--line);vertical-align:top}
-.screen tr:last-child td{border-bottom:0}
-.screen td.n,.screen th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.screen td small{display:block;color:var(--ink3);font-size:12.5px}
-.tag{display:inline-block;font-size:12px;font-weight:600;padding:3px 8px;border-radius:6px;white-space:nowrap}
-.tag.ok{background:var(--greensoft);color:var(--green)}
-.tag.no{background:var(--redsoft);color:var(--red2)}
-.tag.warn{background:var(--ambersoft);color:var(--amber)}
-.screen tr.tot td{font-weight:700;background:var(--soft)}
-.miniKpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
-.miniKpis div{background:#fff;padding:14px 18px}
-.miniKpis small{display:block;font-size:12px;color:var(--ink3)}
-.miniKpis b{font-size:19px;font-variant-numeric:tabular-nums}
-.slidelist{padding:16px 18px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.slide{border:1px solid var(--line);border-radius:8px;padding:12px 14px;aspect-ratio:16/9;display:flex;flex-direction:column;justify-content:space-between;position:relative}
-.slide::before{content:"";width:18px;height:2px;background:var(--brand)}
-.slide b{font-size:13.5px;line-height:1.3}
-.slide small{font-size:11.5px;color:var(--ink3)}
-
-/* who it's for */
-.who{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
-.who .card h3{font-size:18px}
-
-/* comparison */
-.compare{max-width:920px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.04)}
-.compare table{width:100%;border-collapse:collapse;font-size:15px}
-.compare th{padding:16px 20px;text-align:left;font-size:14px;background:var(--soft);border-bottom:1px solid var(--line)}
-.compare th:last-child{color:var(--brand2)}
-.compare td{padding:14px 20px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink2)}
-.compare tr:last-child td{border-bottom:0}
-.compare td:first-child{font-weight:600;color:var(--ink);width:24%}
-.compare td:last-child{color:var(--ink)}
-
-/* sources */
-sup.ref{font-size:.7em;line-height:0;margin-left:1px}
-sup.ref a{color:var(--brand2);font-weight:600}
-.compare tr.money td{background:#fffafa}
-.compare td b{font-weight:700;color:var(--ink)}
-/* why deals die */
-.deathgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
-.dstat{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px}
-.dstat b{display:block;font-size:clamp(30px,3.4vw,42px);font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--brand2)}
-.dstat p{color:var(--ink2);font-size:15px;margin-top:6px}
-.reasons{margin-top:24px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:clamp(24px,4vw,48px);align-items:start}
-.rbars{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px}
-.rbars h3{font-size:18px;font-weight:700}
-.rbars .sub{color:var(--ink3);font-size:14px;margin-top:4px}
-.rb{display:grid;grid-template-columns:minmax(0,1fr) 56px;gap:4px 12px;margin-top:14px;font-size:14.5px}
-.rb .bar{grid-column:1 / -1;height:10px;border-radius:999px;background:var(--soft);overflow:hidden}
-.rb .bar i{display:block;height:100%;border-radius:999px;background:var(--line2)}
-.rb.hit .bar i{background:var(--brand)}
-.rb .v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
-.rb.hit span:first-child{font-weight:600}
-.helps{display:flex;flex-direction:column;gap:12px}
-.help{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px}
-.help h4{font-size:16px;font-weight:700}
-.help p{color:var(--ink2);font-size:14.5px;margin-top:4px}
-.costbox{margin-top:24px;background:var(--dark);color:#fff;border-radius:var(--radius);padding:clamp(22px,3vw,32px);display:grid;grid-template-columns:auto minmax(0,1fr);gap:clamp(20px,3vw,40px);align-items:center}
-.costbox b{font-size:clamp(34px,4vw,52px);font-weight:800;letter-spacing:-.02em;white-space:nowrap}
-.costbox h3{font-size:19px;font-weight:700}
-.costbox p{color:#c3c7cf;margin-top:6px;font-size:15px;max-width:70ch}
-.srcs{margin-top:28px;font-size:13px;color:var(--ink3)}
-.srcs ol{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
-.srcs a{color:var(--ink2);text-decoration:underline;text-underline-offset:2px}
-@media (max-width:980px){ .deathgrid{grid-template-columns:1fr 1fr} .reasons{grid-template-columns:1fr} }
-@media (max-width:640px){ .deathgrid{grid-template-columns:1fr} .costbox{grid-template-columns:1fr} }
-@media (max-width:400px){ .costbox b{font-size:30px;white-space:normal} .compare th,.compare td{padding:12px 12px} }
-/* faq */
-.faq{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
-.faq details{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:0 22px}
-.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 0;font-weight:600;font-size:16.5px}
-.faq summary::-webkit-details-marker{display:none}
-.faq summary::after{content:"+";font-size:22px;font-weight:400;color:var(--ink3);transition:transform .2s}
-.faq details[open] summary::after{transform:rotate(45deg)}
-.faq details p{color:var(--ink2);padding:0 0 20px;margin-top:-4px}
-@media (prefers-reduced-motion: reduce){ .faq summary::after{transition:none} }
-
-@media (max-width:980px){
-  .menu-btn{display:inline-flex}
-  .tourpanel{grid-template-columns:1fr}
-  .who{grid-template-columns:1fr 1fr}
-}
-@media (max-width:640px){
-  .who{grid-template-columns:1fr}
-  .miniKpis{grid-template-columns:1fr}
-  .slidelist{grid-template-columns:1fr}
-  .compare td:first-child{width:auto}
-  .compare th,.compare td{padding:12px 14px}
-  .screen th,.screen td{padding:9px 12px}
-  .announce{font-size:13px}
-}
-</style>
+<link rel="stylesheet" href="/home.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
-<div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="#faq-text">How it works</a></div>
+<div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="/faq#faq-text">How it works</a></div>
 <header class="nav" id="nav"><div class="wrap">
   <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
-  <nav class="links" aria-label="Main"><a href="#tour">Product tour</a><a href="#features">Features</a><a href="#failed">Why deals die</a><a href="#example">Example</a><a href="#faq">FAQ</a></nav>
+  <nav class="links" aria-label="Main"><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a></nav>
   <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
 </div>
-<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="#tour">Product tour</a><a href="#features">Features</a><a href="#how">How it works</a><a href="#failed">Why deals die</a><a href="#example">Example</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a><a href="/signin">Sign in</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
 </header>
 
 <main id="main">
 <!-- hero -->
 <div class="hero"><div class="wrap">
   <span class="badge"><span class="dot"></span>Financial Diligence and Deal Intelligence for Private Equity</span>
-  <h1>Catch the Bad Deal <span class="h1b">Early</span></h1>
-  <p class="lead">Upload a CIM, financial statements, a ledger, or whatever you have. DealBasis checks every figure against the others, finds what doesn't hold up, and builds your committee memo and deck, with every number linked to its source.</p>
+  <h1>Catch the Bad Deal. <span class="h1b">Know When to Move Forward.</span></h1>
+  <p class="lead">Upload a CIM, financial statements, a ledger, or whatever you have. DealBasis checks every figure against the others, shows what doesn't hold up, and tells you whether the deal is ready for an LOI, with every number linked to its source.</p>
   <div class="ctas"><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a><a class="btn btn-secondary" href="/signin">Sign in</a></div>
   <p class="note">No account needed for the sample deal.</p>
 
@@ -408,96 +90,6 @@ sup.ref a{color:var(--brand2);font-weight:600}
   </div>
 </div></div>
 
-
-<!-- product tour -->
-<section id="tour"><div class="wrap">
-  <div class="head"><span class="eyebrow">Product tour</span><h2>Inside Financial Diligence and Deal Intelligence</h2><p>Every screen below is from the Project Saguaro sample deal, exactly as DealBasis produces it. Quality of earnings, working capital and debt are Financial Diligence; the committee deck is Deal Intelligence.</p></div>
-  <div class="tabs" role="tablist" aria-label="Product tour">
-    <button class="tab" role="tab" id="t-qoe" aria-selected="true" aria-controls="p-qoe">Quality of earnings</button>
-    <button class="tab" role="tab" id="t-nwc" aria-selected="false" aria-controls="p-nwc" tabindex="-1">Working capital</button>
-    <button class="tab" role="tab" id="t-debt" aria-selected="false" aria-controls="p-debt" tabindex="-1">Debt tie-outs</button>
-    <button class="tab" role="tab" id="t-deck" aria-selected="false" aria-controls="p-deck" tabindex="-1">Committee deck</button>
-  </div>
-
-  <div class="tourpanel" role="tabpanel" id="p-qoe" aria-labelledby="t-qoe">
-    <div class="tourcopy"><h3>Every add-back tested</h3><p>Each line of management's EBITDA bridge is checked against the ledger and a set of tested rules, then accepted or rejected with the reason shown.</p>
-      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Pro forma and run-rate items rejected</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Income items caught when they're added back</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>"One-time" costs that recur every year flagged</li></ul></div>
-    <div class="screen"><div class="sh"><b>Management's add-backs, LTM Aug-26</b><span>CIM p.5</span></div>
-      <table><thead><tr><th>Add-back</th><th class="n">Amount</th><th>Diligence view</th></tr></thead><tbody>
-        <tr><td>Owner compensation normalization</td><td class="n">$206,000</td><td><span class="tag ok">Accepted</span></td></tr>
-        <tr><td>Legal fees, Hendricks matter</td><td class="n">$174,000</td><td><span class="tag ok">Accepted</span></td></tr>
-        <tr><td>Run-rate impact of 2026 price increase<small>Not yet earned</small></td><td class="n">$145,000</td><td><span class="tag no">Rejected</span></td></tr>
-        <tr><td>Employee Retention Credit<small>Income, not a cost</small></td><td class="n">$84,000</td><td><span class="tag no">Rejected</span></td></tr>
-        <tr><td>Pro forma savings, route optimization<small>Software deploys in 2027</small></td><td class="n">$60,000</td><td><span class="tag no">Rejected</span></td></tr>
-        <tr><td>One-time consulting fees<small>Recurs every year; no ledger support</small></td><td class="n">$38,000</td><td><span class="tag no">Rejected</span></td></tr>
-        <tr><td>Inventory write-off, severance, owner expenses</td><td class="n">$97,000</td><td><span class="tag ok">Accepted</span></td></tr>
-        <tr><td>Ledger adjustments management left out<small>Related-party rent, non-operating income, revenue cut-off</small></td><td class="n">−$246,500</td><td><span class="tag warn">Added</span></td></tr>
-        <tr class="tot"><td>Diligence-adjusted EBITDA<small>Management stated $1,942,000</small></td><td class="n">$1,350,151</td><td><span class="tag no">−$592K</span></td></tr>
-      </tbody></table></div>
-  </div>
-
-  <div class="tourpanel" role="tabpanel" id="p-nwc" aria-labelledby="t-nwc" hidden>
-    <div class="tourcopy"><h3>The working capital peg, worked out</h3><p>Working capital is measured four ways from the same balance sheet lines, with a trailing twelve-month peg and the closing adjustment for the definition in your deal.</p>
-      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Cash, debt and debt-like items kept out</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Monthly trend and days to collect</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Every line cited to its balance sheet cell</li></ul></div>
-    <div class="screen"><div class="sh"><b>Net working capital, Aug 2026</b><span>Balance Sheet and Debt.xlsx</span></div>
-      <div class="miniKpis"><div><small>Peg (TTM average)</small><b>$475,886</b></div><div><small>Delivered, Aug 2026</small><b>$915,415</b></div><div><small>Days to collect</small><b>42 → 51</b></div></div>
-      <table><thead><tr><th>Definition</th><th class="n">Aug 2026</th><th></th></tr></thead><tbody>
-        <tr><td>Operating<small>Excluding cash and debt</small></td><td class="n">$915,415</td><td><span class="tag ok">Selected</span></td></tr>
-        <tr><td>Purchase agreement<small>Also excluding debt-like items</small></td><td class="n">$946,615</td><td></td></tr>
-        <tr><td>Trade<small>Receivables + inventory − payables</small></td><td class="n">$1,334,819</td><td></td></tr>
-        <tr class="tot"><td>Closing adjustment vs the peg</td><td class="n">+$439,530</td><td></td></tr>
-      </tbody></table></div>
-  </div>
-
-  <div class="tourpanel" role="tabpanel" id="p-debt" aria-labelledby="t-debt" hidden>
-    <div class="tourcopy"><h3>Every facility tied out</h3><p>Balance sheet debt is matched to the lenders' own confirmations, and any debt mentioned in the documents but never recorded is found.</p>
-      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Variances between the books and the lender</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Unrecorded notes and obligations</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Debt-like items you choose to deduct from the price</li></ul></div>
-    <div class="screen"><div class="sh"><b>Debt tie-out, Aug 2026</b><span>Balance sheet vs lender confirmations</span></div>
-      <table><thead><tr><th>Facility</th><th class="n">Books</th><th class="n">Lender</th><th>Status</th></tr></thead><tbody>
-        <tr><td>Revolving line of credit<small>Sun Corridor Bank</small></td><td class="n">$255,000</td><td class="n">$255,000</td><td><span class="tag ok">Agreed</span></td></tr>
-        <tr><td>Senior term loan<small>Sun Corridor Bank</small></td><td class="n">$1,275,000</td><td class="n">$1,275,000</td><td><span class="tag ok">Agreed</span></td></tr>
-        <tr><td>Equipment notes (fleet)<small>Saguaro Equipment Finance</small></td><td class="n">$243,400</td><td class="n">$268,900</td><td><span class="tag warn">$25,500 off</span></td></tr>
-        <tr><td>Shareholder note<small>Dale Calloway</small></td><td class="n">—</td><td class="n">$150,000</td><td><span class="tag no">Unrecorded</span></td></tr>
-        <tr class="tot"><td>Funded debt, per lenders</td><td class="n"></td><td class="n">$1,948,900</td><td></td></tr>
-      </tbody></table></div>
-  </div>
-
-  <div class="tourpanel" role="tabpanel" id="p-deck" aria-labelledby="t-deck" hidden>
-    <div class="tourcopy"><h3>A committee deck that writes itself</h3><p>The memo and a 19-slide deck are drafted from the evidence, with headlines that state the conclusion, a source line on every slide and talking points in the speaker notes.</p>
-      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Download as PowerPoint, PDF or Word</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Present full screen from the browser</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Says plainly what the documents don't cover yet</li></ul></div>
-    <div class="screen"><div class="sh"><b>Investment committee deck</b><span>19 slides</span></div>
-      <div class="slidelist">
-        <div class="slide"><b>Diligence supports $1.35M of Adjusted EBITDA, $592K below management</b><small>Quality of earnings</small></div>
-        <div class="slide"><b>NWC peg $476K; Aug 2026 at $915K, DSO up 9 days; net debt $1.45M</b><small>Working capital and debt</small></div>
-        <div class="slide"><b>6.0x diligence-adjusted EBITDA implies $8.10M EV and $7.12M equity value</b><small>Valuation</small></div>
-        <div class="slide"><b>13 high-severity findings across 6 risk areas; $2.83M of value at stake</b><small>Risks</small></div>
-      </div></div>
-  </div>
-</div></section>
-
-<!-- features -->
-<section id="features" class="soft"><div class="wrap">
-  <div class="head"><span class="eyebrow">Features</span><h2>Two workspaces: Financial Diligence and Deal Intelligence</h2><p>Financial Diligence tests the numbers. Deal Intelligence turns them into a price, a risk score and a committee decision. Both work from the same record, with the source of every number one click away.</p></div>
-  <div class="wsgroup" id="financial-diligence">
-    <div class="wshead"><span class="wsbadge">Financial Diligence</span><p>Are the numbers real?</p></div>
-    <div class="cards cards4">
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div><h3>Quality of earnings</h3><p>Every add-back in management's bridge tested and accepted or rejected with a reason, ending in an EBITDA you can defend.</p></div>
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></div><h3>Working capital</h3><p>Four definitions side by side, with the trailing twelve-month peg and the closing adjustment for the one in your deal.</p></div>
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><h3>Debt tie-outs</h3><p>Balances tied to the balance sheet and lender confirmations, plus debt mentioned in the documents but never recorded.</p></div>
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></div><h3>Cash flow and cross-checks</h3><p>How much of EBITDA turns into cash, and every figure in the text checked against the statements and ledger.</p></div>
-    </div>
-  </div>
-  <div class="wsgroup" id="deal-intelligence">
-    <div class="wshead"><span class="wsbadge dark">Deal Intelligence</span><p>What is it worth, and should we do it?</p></div>
-    <div class="cards cards4">
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div><h3>Deal economics</h3><p>Enterprise value and equity value at your multiple, with the sensitivity and the returns case, all on diligence-adjusted EBITDA.</p></div>
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div><h3>Risk scoring</h3><p>Over 30 tests run against the record, each finding with its source, rolled into a pre-LOI confidence score.</p></div>
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>Issues and seller questions</h3><p>Every finding becomes an issue with an owner, and the questions to put to the seller are drafted for you.</p></div>
-      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Committee readout</h3><p>The memo and a committee deck drafted from the evidence, ready to present or download as PowerPoint, Word, PDF or Excel.</p></div>
-    </div>
-  </div>
-</div></section>
-
 <!-- how it works -->
 <section id="how"><div class="wrap">
   <div class="head"><span class="eyebrow">How it works</span><h2>From documents to committee in three steps</h2><p>No templates to fill in and no figures to retype.</p></div>
@@ -508,128 +100,14 @@ sup.ref a{color:var(--brand2);font-weight:600}
   </div>
 </div></section>
 
-
-<!-- who it's for -->
+<!-- explore -->
 <section class="soft"><div class="wrap">
-  <div class="head"><span class="eyebrow">Who it's for</span><h2>Built for the people who screen deals</h2><p>Anyone who has to decide, before the LOI, whether a company's numbers hold up.</p></div>
-  <div class="who">
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>Private equity deal teams</h3><p>Screen more CIMs, put the same tests on every deal, and walk into committee with a memo and deck already drafted.</p></div>
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div><h3>Independent sponsors and searchers</h3><p>Get a diligence team's first pass on a lower-middle-market target before you commit to a full quality of earnings.</p></div>
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg></div><h3>Corporate development</h3><p>Test an add-on's numbers against its own ledger and balance sheet before the business case goes to the board.</p></div>
-  </div>
-</div></section>
-
-<!-- comparison -->
-<section><div class="wrap">
-  <div class="head"><span class="eyebrow">Why DealBasis</span><h2>Pre-LOI diligence, by hand or with DealBasis</h2><p>The same questions, answered before you spend weeks and fees finding out.</p></div>
-  <div class="compare"><table>
-    <thead><tr><th scope="col">The work</th><th scope="col">By hand</th><th scope="col">With DealBasis</th></tr></thead>
-    <tbody>
-      <tr class="money"><td>Time to know if the numbers hold up</td><td><b>4 to 6 weeks</b> for a buy-side quality of earnings report<sup class="ref"><a href="#src-2">2</a></sup></td><td><b>Seconds.</b> Every document is read and checked as soon as you upload it</td></tr>
-      <tr class="money"><td>Cost of that first answer</td><td><b>$25,000 to $50,000</b> for a buy-side quality of earnings on a $5M to $15M company<sup class="ref"><a href="#src-2">2</a></sup></td><td>A DealBasis subscription. Pricing on request</td></tr>
-      <tr><td>Reading the documents</td><td>Retyping figures from PDFs into a spreadsheet</td><td>Figures read from every page, table and sentence</td></tr>
-      <tr><td>Testing add-backs</td><td>Judgment calls that vary by analyst</td><td>The same rules on every deal, with the reason shown</td></tr>
-      <tr><td>Checking the numbers</td><td>Spot checks when there's time</td><td>Every figure cross-checked against the statements and ledger</td></tr>
-      <tr><td>Finding the source</td><td>Searching the PDF for where a number came from</td><td>One click to the page, row or cell</td></tr>
-      <tr><td>Committee materials</td><td>Building the memo and deck from scratch</td><td>Drafted from the record, ready to download</td></tr>
-    </tbody></table></div>
-</div></section>
-
-
-<!-- why deals die -->
-<section id="failed" class="soft"><div class="wrap">
-  <div class="head"><span class="eyebrow">Why deals die</span><h2>Most broken deals fail on what diligence finds</h2><p>Axial, a deal platform for the lower middle market, studied 75 deals sourced through it that broke after a signed LOI in 2025. Nearly half died on diligence findings, often after months of exclusivity.<sup class="ref"><a href="#src-1">1</a></sup></p></div>
-  <div class="deathgrid">
-    <div class="dstat"><b>46.6%</b><p>of broken deals died on diligence findings: quality of earnings or otherwise<sup class="ref"><a href="#src-1">1</a></sup></p></div>
-    <div class="dstat"><b>2x</b><p>Deals killed by QoE EBITDA discrepancies rose from 10.6% in 2023 to 21.3% in 2025<sup class="ref"><a href="#src-1">1</a></sup></p></div>
-    <div class="dstat"><b>106 days</b><p>Average time a private equity buyer spent in exclusivity before the deal broke<sup class="ref"><a href="#src-1">1</a></sup></p></div>
-    <div class="dstat"><b>$338M</b><p>Broken-deal expenses at one large private equity firm, KKR, over six years<sup class="ref"><a href="#src-4">4</a></sup></p></div>
-  </div>
-
-  <div class="costbox">
-    <b>$25,000 to $50,000</b>
-    <div><h3>The quality of earnings fee alone, on a $5M to $15M company</h3><p>That is the typical buy-side QoE fee<sup class="ref"><a href="#src-2">2</a></sup>, and it is paid whether or not the deal closes, though some QoE firms discount it when a deal dies<sup class="ref"><a href="#src-3">3</a></sup>. On top of it come legal fees (a median of $28,500 on closed searcher acquisitions<sup class="ref"><a href="#src-3">3</a></sup>), travel, lender deposits and the deal team's months in exclusivity.</p></div>
-  </div>
-
-  <div class="reasons">
-    <div class="rbars">
-      <h3>Why 2025's broken LOIs failed</h3><p class="sub">Share of 75 broken deals, Axial Dead Deal Report<sup class="ref"><a href="#src-1">1</a></sup></p>
-      <div class="rb hit"><span>Diligence findings, other than QoE</span><span class="v">25.3%</span><span class="bar"><i style="width:84.3%"></i></span></div>
-      <div class="rb hit"><span>QoE EBITDA discrepancies</span><span class="v">21.3%</span><span class="bar"><i style="width:71%"></i></span></div>
-      <div class="rb"><span>Renegotiation</span><span class="v">14.7%</span><span class="bar"><i style="width:49%"></i></span></div>
-      <div class="rb"><span>Seller decisions</span><span class="v">13.3%</span><span class="bar"><i style="width:44.3%"></i></span></div>
-      <div class="rb"><span>Financing constraints</span><span class="v">10.7%</span><span class="bar"><i style="width:35.7%"></i></span></div>
-      <div class="rb"><span>Business underperformance</span><span class="v">8.0%</span><span class="bar"><i style="width:26.7%"></i></span></div>
-    </div>
-    <div class="helps">
-      <div class="help"><h4>QoE EBITDA discrepancies</h4><p>DealBasis tests management's EBITDA bridge before you sign. On Project Saguaro it found $592,000 of Adjusted EBITDA the documents don't support, $3.55M of enterprise value at 6.0x.</p></div>
-      <div class="help"><h4>Other diligence findings</h4><p>Unrecorded debt, revenue reversed after period end, receivables outpacing sales and entries just under approval limits surface in the first pass, not week five.</p></div>
-      <div class="help"><h4>Renegotiation</h4><p>Bid on the EBITDA the evidence supports from the start, so there is less to re-trade after diligence.</p></div>
-      <div class="help"><h4>Months lost in exclusivity</h4><p>Know which deals to walk away from before you sign an LOI and start the clock.</p></div>
-    </div>
-  </div>
-
-  <div class="srcs" id="sources"><b>Sources</b>
-    <ol>
-      <li id="src-1">Axial, <a href="https://www.axial.net/forum/dead-deal-report-unpacking-2025s-broken-lois/" rel="noopener" target="_blank">Dead Deal Report: Unpacking 2025's Broken LOIs</a>, January 2026. Figures cover 75 deals sourced on Axial that broke after a signed LOI; 46.6% is its two diligence categories added together.</li>
-      <li id="src-2">BD Emerson, <a href="https://www.bdemerson.com/article/quality-of-earnings-report-cost" rel="noopener" target="_blank">How Much Does a Quality of Earnings Report Cost?</a>, July 2026. Buy-side fees by enterprise value; four to six weeks for a buy-side report.</li>
-      <li id="src-3">Big Deal Small Business, <a href="https://bigdealsmallbusiness.substack.com/p/results-of-deal-cost-survey" rel="noopener" target="_blank">Results of Deal Cost Survey</a>, July 2021. Median legal spend across 15 searcher acquisitions; some respondents reported dead-deal discounts on QoE fees.</li>
-      <li id="src-4">U.S. Securities and Exchange Commission, <a href="https://www.sec.gov/news/press-release/2015-131" rel="noopener" target="_blank">SEC Charges KKR With Misallocating Broken Deal Expenses</a>, June 2015. $338 million over six years ending 2011.</li>
-    </ol>
-  </div>
-</div></section>
-
-<!-- example -->
-<section id="example" class="soft"><div class="wrap">
-  <div class="head"><span class="eyebrow">Example</span><h2>Project Saguaro: what DealBasis caught</h2><p>The built-in sample deal is a fictional commercial HVAC contractor in Mesa, Arizona. The CIM presents $1.94M of Adjusted EBITDA. Here is what the documents actually support.</p></div>
-  <div class="example">
-    <div class="panel">
-      <h3>The EBITDA walk</h3><p class="sub">Management's figure to the figure diligence supports</p>
-      <div class="walk">
-        <div class="wrow total"><span>Management's Adjusted EBITDA</span><span class="v">$1,942,000</span><span class="bar"><i style="left:0;width:92.75%"></i></span></div>
-        <div class="wrow wstep"><span>Bridge doesn't add up (CIM p.5)</span><span class="v">−$18,000</span><span class="bar"><i style="left:90.5%;width:2.25%"></i></span></div>
-        <div class="wrow wstep"><span>Consulting fees with no ledger support</span><span class="v">−$38,000</span><span class="bar"><i style="left:85.75%;width:4.75%"></i></span></div>
-        <div class="wrow wstep"><span>Price increase not yet earned</span><span class="v">−$145,000</span><span class="bar"><i style="left:67.62%;width:18.12%"></i></span></div>
-        <div class="wrow wstep"><span>Savings from software deploying in 2027</span><span class="v">−$60,000</span><span class="bar"><i style="left:60.12%;width:7.5%"></i></span></div>
-        <div class="wrow wstep"><span>Employee Retention Credit is income</span><span class="v">−$84,000</span><span class="bar"><i style="left:49.62%;width:10.5%"></i></span></div>
-        <div class="wrow wstep"><span>Rent, non-operating income and cut-off, from the ledger</span><span class="v">−$246,849</span><span class="bar"><i style="left:18.77%;width:30.86%"></i></span></div>
-        <div class="wrow total"><span>Diligence-adjusted EBITDA</span><span class="v">$1,350,151</span><span class="bar"><i style="left:0;width:18.77%"></i></span></div>
-      </div>
-      <p class="axisnote">Bars run from $1.2M to $2.0M.</p>
-      <div class="result"><div><b>$592K</b><span>less EBITDA than management presents</span></div><div><b>$3.55M</b><span>less enterprise value at the 6.0x multiple</span></div></div>
-    </div>
-    <div class="flist2">
-      <div class="fcard"><span class="sev h">High</span><h4>Debt that isn't on the balance sheet</h4><p>The owner's answers mention a $150,000 shareholder note. No balance sheet line carries it, and the lender confirmations list the same balance.</p><span class="src">Management Responses.docx, section 4</span></div>
-      <div class="fcard"><span class="sev h">High</span><h4>Revenue booked, then reversed</h4><p>Two invoices dated in the last three days of August were reversed after period end, overstating revenue by $96,000.</p><span class="src">General Ledger.csv, row 4157</span></div>
-      <div class="fcard"><span class="sev h">High</span><h4>Payments just under the approval limit</h4><p>24 entries between $4,750 and $5,000, eleven of them with one supplier.</p><span class="src">General Ledger.csv, row 907 and 23 more</span></div>
-      <div class="fcard"><span class="sev h">High</span><h4>Receivables outpacing revenue</h4><p>Receivables grew 44.6% in a year while revenue grew 14.5%, and days to collect rose from 42 to 51.</p><span class="src">Balance Sheet and Debt.xlsx</span></div>
-      <div class="verdict"><b>22<small>/100</small></b><div><h4>Not ready for an LOI</h4><p>13 high-severity findings across six risk areas. All 139 citations re-read before any finding was shown.</p></div></div>
-    </div>
-  </div>
-</div></section>
-
-<!-- security -->
-<section id="security"><div class="wrap">
-  <div class="head"><span class="eyebrow">Security</span><h2>Built for confidential deal documents</h2><p>Your documents stay under your firm's control, and every conclusion can be traced.</p></div>
-  <div class="sec3">
-    <div><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Read in your browser</h3><p>Documents are read on your own computer when you upload them. Results and originals are stored in your firm's private workspace.</p></div>
-    <div><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><h3>No AI reads your files</h3><p>DealBasis uses fixed, tested rules. The same documents always give the same answer, and you can see the rule behind every finding.</p></div>
-    <div><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><h3>Access for your team only</h3><p>Invite colleagues and choose who can edit or only view. Access rules are enforced by the database itself.</p></div>
-  </div>
-</div></section>
-
-
-<!-- faq -->
-<section id="faq" class="soft"><div class="wrap">
-  <div class="head"><span class="eyebrow">FAQ</span><h2>Questions deal teams ask</h2></div>
-  <div class="faq">
-    <details><summary>What do I need to upload?</summary><p>CIMs and management presentations, financial statements, general ledgers, monthly balance sheets, lender confirmations, management's answers to diligence questions and SEC filings. PDF, Excel, Word, PowerPoint, CSV, text and email files all work, and so does a zipped folder of them; scanned pages are read with text recognition. You don't need a full data room: one CIM or a seller's notes is enough to start, and each document you add is checked against the others.</p></details>
-    <details><summary>Does AI read my documents?</summary><p>No. DealBasis uses fixed, tested rules, so the same documents always produce the same result, and every finding shows the rule behind it.</p></details>
-    <details id="faq-text"><summary>What happens when a figure only appears in the text?</summary><p>DealBasis reads figures written in sentences, like "revenue of $3.3 million in 2024", and compares them with the financial statements for the same line and year, allowing for rounding. A match is confirmed; a difference is reported and the statement figure is used. If no statement covers it, the figure from the text is used and labeled as such.</p></details>
-    <details><summary>How do I know a finding is right?</summary><p>Every figure links to the page and line, spreadsheet cell or ledger row it came from. Before a finding is shown, each of its citations is re-read against the document to confirm it shows the figure.</p></details>
-    <details><summary>Where are my files stored?</summary><p>Documents are read in your browser when you upload them. The results and the original files are stored in your firm's own workspace, and access rules are enforced by the database.</p></details>
-    <details><summary>Can my team work on the same deal?</summary><p>Yes. Invite colleagues, set who can edit or only view, assign issues and leave comments on findings.</p></details>
-    <details><summary>Do I need an account to try it?</summary><p>No. The Project Saguaro sample deal opens without an account, including the memo and deck downloads. Create an account when you want to upload your own deals.</p></details>
+  <div class="head"><span class="eyebrow">Learn more</span><h2>Everything you need to make the call</h2><p>See what DealBasis checks, why deals fall apart, and what it found in a real-looking deal.</p></div>
+  <div class="explore">
+    <a href="/product"><h3>Product</h3><p>Financial Diligence tests the numbers. Deal Intelligence turns them into a price, a risk score and a committee decision.</p><span class="go">Take the tour →</span></a>
+    <a href="/why"><h3>Why DealBasis</h3><p>Nearly half of broken deals die on what diligence finds. See the time and cost of finding out by hand.</p><span class="go">See the data →</span></a>
+    <a href="/example"><h3>Example</h3><p>Project Saguaro's EBITDA walk: $592K management couldn't support, and the findings behind it.</p><span class="go">See the example →</span></a>
+    <a href="/faq"><h3>FAQ and security</h3><p>What to upload, how findings are verified, and where your files are kept.</p><span class="go">Read the answers →</span></a>
   </div>
 </div></section>
 
@@ -643,34 +121,11 @@ sup.ref a{color:var(--brand2);font-weight:600}
 <footer><div class="wrap">
   <div class="fgrid">
     <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
-    <div><h4>Product</h4><ul><li><a href="#tour">Product tour</a></li><li><a href="#financial-diligence">Financial Diligence</a></li><li><a href="#deal-intelligence">Deal Intelligence</a></li><li><a href="#how">How it works</a></li><li><a href="#example">Example</a></li><li><a href="#security">Security</a></li><li><a href="#faq">FAQ</a></li></ul></div>
+    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a></li><li><a href="/faq#security">Security</a></li><li><a href="/faq">FAQ</a></li></ul></div>
     <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
   </div>
   <p class="legal">© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
 </div></footer>
-<script>
-(function () {
-  var nav = document.getElementById('nav'), btn = document.getElementById('menuBtn');
-  /* phone menu */
-  btn.addEventListener('click', function () { var open = nav.classList.toggle('open'); btn.setAttribute('aria-expanded', open); btn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); });
-  document.querySelectorAll('#mobileMenu a').forEach(function (a) { a.addEventListener('click', function () { nav.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }); });
-  /* shadow under the nav once the page scrolls */
-  var onScroll = function () { nav.classList.toggle('scrolled', window.scrollY > 8); }; window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
-  /* product tour tabs, with arrow keys */
-  var tabs = [].slice.call(document.querySelectorAll('[role="tab"]'));
-  function show(t) { tabs.forEach(function (x) { var on = x === t; x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; document.getElementById(x.getAttribute('aria-controls')).hidden = !on; }); }
-  tabs.forEach(function (t, i) { t.addEventListener('click', function () { show(t); });
-    t.addEventListener('keydown', function (e) { var k = e.key, j = k === 'ArrowRight' ? i + 1 : k === 'ArrowLeft' ? i - 1 : k === 'Home' ? 0 : k === 'End' ? tabs.length - 1 : null; if (j == null) return; e.preventDefault(); var n = tabs[(j + tabs.length) % tabs.length]; show(n); n.focus(); }); });
-  /* stats count up once, when they come into view */
-  var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var nums = document.querySelectorAll('[data-count]');
-  if (!still && 'IntersectionObserver' in window) {
-    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (!e.isIntersecting) return; io.unobserve(e.target); var el = e.target, end = +el.dataset.count, pre = el.dataset.pre || '', suf = el.dataset.suf || '', t0 = null;
-      function step(ts) { if (!t0) t0 = ts; var p = Math.min(1, (ts - t0) / 900), v = Math.round(end * (1 - Math.pow(1 - p, 3))); el.textContent = pre + v + suf; if (p < 1) requestAnimationFrame(step); }
-      requestAnimationFrame(step); }); }, { threshold: .4 });
-    nums.forEach(function (n) { io.observe(n); });
-  }
-})();
-</script>
+<script src="/home.js"></script>
 </body>
 </html>

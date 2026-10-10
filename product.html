@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Product | DealBasis</title>
+<meta name="description" content="Inside Financial Diligence and Deal Intelligence: quality of earnings, working capital, debt, risk scoring and a committee memo and deck, with every number linked to its source.">
+<link rel="canonical" href="https://dealbasis.vercel.app/product">
+<meta name="theme-color" content="#ffffff">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DealBasis">
+<meta property="og:url" content="https://dealbasis.vercel.app/product">
+<meta property="og:title" content="Product | DealBasis">
+<meta property="og:description" content="Inside Financial Diligence and Deal Intelligence: quality of earnings, working capital, debt, risk scoring and a committee memo and deck, with every number linked to its source.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Product | DealBasis">
+<meta name="twitter:description" content="Inside Financial Diligence and Deal Intelligence: quality of earnings, working capital, debt, risk scoring and a committee memo and deck, with every number linked to its source.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/home.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="/faq#faq-text">How it works</a></div>
+<header class="nav" id="nav"><div class="wrap">
+  <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
+  <nav class="links" aria-label="Main"><a href="/product" aria-current="page">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a></nav>
+  <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
+</div>
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a><a href="/signin">Sign in</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
+</header>
+
+<main id="main">
+<div class="pagehead"><div class="wrap"><span class="eyebrow">Product</span><h1>Inside Financial Diligence and Deal Intelligence</h1><p>Every screen is from the Project Saguaro sample deal, exactly as DealBasis produces it.</p></div></div>
+<!-- product tour -->
+<section id="tour"><div class="wrap">
+  <div class="tabs" role="tablist" aria-label="Product tour">
+    <button class="tab" role="tab" id="t-qoe" aria-selected="true" aria-controls="p-qoe">Quality of earnings</button>
+    <button class="tab" role="tab" id="t-nwc" aria-selected="false" aria-controls="p-nwc" tabindex="-1">Working capital</button>
+    <button class="tab" role="tab" id="t-debt" aria-selected="false" aria-controls="p-debt" tabindex="-1">Debt tie-outs</button>
+    <button class="tab" role="tab" id="t-deck" aria-selected="false" aria-controls="p-deck" tabindex="-1">Committee deck</button>
+  </div>
+
+  <div class="tourpanel" role="tabpanel" id="p-qoe" aria-labelledby="t-qoe">
+    <div class="tourcopy"><h3>Every add-back tested</h3><p>Each line of management's EBITDA bridge is checked against the ledger and a set of tested rules, then accepted or rejected with the reason shown.</p>
+      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Pro forma and run-rate items rejected</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Income items caught when they're added back</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>"One-time" costs that recur every year flagged</li></ul></div>
+    <div class="screen"><div class="sh"><b>Management's add-backs, LTM Aug-26</b><span>CIM p.5</span></div>
+      <table><thead><tr><th>Add-back</th><th class="n">Amount</th><th>Diligence view</th></tr></thead><tbody>
+        <tr><td>Owner compensation normalization</td><td class="n">$206,000</td><td><span class="tag ok">Accepted</span></td></tr>
+        <tr><td>Legal fees, Hendricks matter</td><td class="n">$174,000</td><td><span class="tag ok">Accepted</span></td></tr>
+        <tr><td>Run-rate impact of 2026 price increase<small>Not yet earned</small></td><td class="n">$145,000</td><td><span class="tag no">Rejected</span></td></tr>
+        <tr><td>Employee Retention Credit<small>Income, not a cost</small></td><td class="n">$84,000</td><td><span class="tag no">Rejected</span></td></tr>
+        <tr><td>Pro forma savings, route optimization<small>Software deploys in 2027</small></td><td class="n">$60,000</td><td><span class="tag no">Rejected</span></td></tr>
+        <tr><td>One-time consulting fees<small>Recurs every year; no ledger support</small></td><td class="n">$38,000</td><td><span class="tag no">Rejected</span></td></tr>
+        <tr><td>Inventory write-off, severance, owner expenses</td><td class="n">$97,000</td><td><span class="tag ok">Accepted</span></td></tr>
+        <tr><td>Ledger adjustments management left out<small>Related-party rent, non-operating income, revenue cut-off</small></td><td class="n">−$246,500</td><td><span class="tag warn">Added</span></td></tr>
+        <tr class="tot"><td>Diligence-adjusted EBITDA<small>Management stated $1,942,000</small></td><td class="n">$1,350,151</td><td><span class="tag no">−$592K</span></td></tr>
+      </tbody></table></div>
+  </div>
+
+  <div class="tourpanel" role="tabpanel" id="p-nwc" aria-labelledby="t-nwc" hidden>
+    <div class="tourcopy"><h3>The working capital peg, worked out</h3><p>Working capital is measured four ways from the same balance sheet lines, with a trailing twelve-month peg and the closing adjustment for the definition in your deal.</p>
+      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Cash, debt and debt-like items kept out</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Monthly trend and days to collect</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Every line cited to its balance sheet cell</li></ul></div>
+    <div class="screen"><div class="sh"><b>Net working capital, Aug 2026</b><span>Balance Sheet and Debt.xlsx</span></div>
+      <div class="miniKpis"><div><small>Peg (TTM average)</small><b>$475,886</b></div><div><small>Delivered, Aug 2026</small><b>$915,415</b></div><div><small>Days to collect</small><b>42 → 51</b></div></div>
+      <table><thead><tr><th>Definition</th><th class="n">Aug 2026</th><th></th></tr></thead><tbody>
+        <tr><td>Operating<small>Excluding cash and debt</small></td><td class="n">$915,415</td><td><span class="tag ok">Selected</span></td></tr>
+        <tr><td>Purchase agreement<small>Also excluding debt-like items</small></td><td class="n">$946,615</td><td></td></tr>
+        <tr><td>Trade<small>Receivables + inventory − payables</small></td><td class="n">$1,334,819</td><td></td></tr>
+        <tr class="tot"><td>Closing adjustment vs the peg</td><td class="n">+$439,530</td><td></td></tr>
+      </tbody></table></div>
+  </div>
+
+  <div class="tourpanel" role="tabpanel" id="p-debt" aria-labelledby="t-debt" hidden>
+    <div class="tourcopy"><h3>Every facility tied out</h3><p>Balance sheet debt is matched to the lenders' own confirmations, and any debt mentioned in the documents but never recorded is found.</p>
+      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Variances between the books and the lender</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Unrecorded notes and obligations</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Debt-like items you choose to deduct from the price</li></ul></div>
+    <div class="screen"><div class="sh"><b>Debt tie-out, Aug 2026</b><span>Balance sheet vs lender confirmations</span></div>
+      <table><thead><tr><th>Facility</th><th class="n">Books</th><th class="n">Lender</th><th>Status</th></tr></thead><tbody>
+        <tr><td>Revolving line of credit<small>Sun Corridor Bank</small></td><td class="n">$255,000</td><td class="n">$255,000</td><td><span class="tag ok">Agreed</span></td></tr>
+        <tr><td>Senior term loan<small>Sun Corridor Bank</small></td><td class="n">$1,275,000</td><td class="n">$1,275,000</td><td><span class="tag ok">Agreed</span></td></tr>
+        <tr><td>Equipment notes (fleet)<small>Saguaro Equipment Finance</small></td><td class="n">$243,400</td><td class="n">$268,900</td><td><span class="tag warn">$25,500 off</span></td></tr>
+        <tr><td>Shareholder note<small>Dale Calloway</small></td><td class="n">—</td><td class="n">$150,000</td><td><span class="tag no">Unrecorded</span></td></tr>
+        <tr class="tot"><td>Funded debt, per lenders</td><td class="n"></td><td class="n">$1,948,900</td><td></td></tr>
+      </tbody></table></div>
+  </div>
+
+  <div class="tourpanel" role="tabpanel" id="p-deck" aria-labelledby="t-deck" hidden>
+    <div class="tourcopy"><h3>A committee deck that writes itself</h3><p>The memo and a 19-slide deck are drafted from the evidence, with headlines that state the conclusion, a source line on every slide and talking points in the speaker notes.</p>
+      <ul><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Download as PowerPoint, PDF or Word</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Present full screen from the browser</li><li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Says plainly what the documents don't cover yet</li></ul></div>
+    <div class="screen"><div class="sh"><b>Investment committee deck</b><span>19 slides</span></div>
+      <div class="slidelist">
+        <div class="slide"><b>Diligence supports $1.35M of Adjusted EBITDA, $592K below management</b><small>Quality of earnings</small></div>
+        <div class="slide"><b>NWC peg $476K; Aug 2026 at $915K, DSO up 9 days; net debt $1.45M</b><small>Working capital and debt</small></div>
+        <div class="slide"><b>6.0x diligence-adjusted EBITDA implies $8.10M EV and $7.12M equity value</b><small>Valuation</small></div>
+        <div class="slide"><b>13 high-severity findings across 6 risk areas; $2.83M of value at stake</b><small>Risks</small></div>
+      </div></div>
+  </div>
+</div></section>
+
+<!-- features -->
+<section id="features" class="soft"><div class="wrap">
+  <div class="head"><span class="eyebrow">Features</span><h2>Two workspaces: Financial Diligence and Deal Intelligence</h2><p>Financial Diligence tests the numbers. Deal Intelligence turns them into a price, a risk score and a committee decision. Both work from the same record, with the source of every number one click away.</p></div>
+  <div class="wsgroup" id="financial-diligence">
+    <div class="wshead"><span class="wsbadge">Financial Diligence</span><p>Are the numbers real?</p></div>
+    <div class="cards cards4">
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div><h3>Quality of earnings</h3><p>Every add-back in management's bridge tested and accepted or rejected with a reason, ending in an EBITDA you can defend.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></div><h3>Working capital</h3><p>Four definitions side by side, with the trailing twelve-month peg and the closing adjustment for the one in your deal.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><h3>Debt tie-outs</h3><p>Balances tied to the balance sheet and lender confirmations, plus debt mentioned in the documents but never recorded.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></div><h3>Cash flow and cross-checks</h3><p>How much of EBITDA turns into cash, and every figure in the text checked against the statements and ledger.</p></div>
+    </div>
+  </div>
+  <div class="wsgroup" id="deal-intelligence">
+    <div class="wshead"><span class="wsbadge dark">Deal Intelligence</span><p>What is it worth, and should we do it?</p></div>
+    <div class="cards cards4">
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div><h3>Deal economics</h3><p>Enterprise value and equity value at your multiple, with the sensitivity and the returns case, all on diligence-adjusted EBITDA.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div><h3>Risk scoring</h3><p>Over 30 tests run against the record, each finding with its source, rolled into a pre-LOI confidence score.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>Issues and seller questions</h3><p>Every finding becomes an issue with an owner, and the questions to put to the seller are drafted for you.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Committee readout</h3><p>The memo and a committee deck drafted from the evidence, ready to present or download as PowerPoint, Word, PDF or Excel.</p></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- who it's for -->
+<section class="soft"><div class="wrap">
+  <div class="head"><span class="eyebrow">Who it's for</span><h2>Built for the people who screen deals</h2><p>Anyone who has to decide, before the LOI, whether a company's numbers hold up.</p></div>
+  <div class="who">
+    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>Private equity deal teams</h3><p>Screen more CIMs, put the same tests on every deal, and walk into committee with a memo and deck already drafted.</p></div>
+    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div><h3>Independent sponsors and searchers</h3><p>Get a diligence team's first pass on a lower-middle-market target before you commit to a full quality of earnings.</p></div>
+    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg></div><h3>Corporate development</h3><p>Test an add-on's numbers against its own ledger and balance sheet before the business case goes to the board.</p></div>
+  </div>
+<div class="next"><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a><a class="btn btn-secondary" href="/example">See the example</a></div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <div class="fgrid">
+    <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
+    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a></li><li><a href="/faq#security">Security</a></li><li><a href="/faq">FAQ</a></li></ul></div>
+    <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
+  </div>
+  <p class="legal">© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
+</div></footer>
+<script src="/home.js"></script>
+</body>
+</html>
