@@ -5117,6 +5117,12 @@ const sampleMandate = () => ({
   ] }
 });
 const cache = { sample: sampleMandate() };
+/* the public sample (/app?demo=1): view only, Financial Diligence and Deal Intelligence, nothing else */
+const SHOWCASE = /[?&]demo=1\b/.test(location.search);
+const SHOWCASE_VIEWS = ['qoe', 'nwc', 'debt', 'cash', 'economics', 'risk', 'issues', 'seller', 'readout'];
+const showcaseOk = v => !SHOWCASE || SHOWCASE_VIEWS.includes(v);
+const SHOWCASE_SAFE = ['nav', 'ci', 'close', 'dmode', 'goto', 'present', 'pv', 'deck', 'memo', 'xlsx', 'export', 'open', 'ifilter'];
+const showcaseSafe = el => SHOWCASE_SAFE.some(k => el.dataset && el.dataset[k] !== undefined) && (!el.dataset.nav || showcaseOk(el.dataset.nav));
 let curId = 'sample', dealIndex = [], R = null, view = 'deals', actingAs = 'partner', drawer = null, confirmKey = null;
 const store = { db: null, assets: null, user: null, mode: 'connecting', note: '', lastSaved: null, saving: 0, usage: null, loaded: false };
 const msgs = {};
@@ -5981,6 +5987,7 @@ function renderAuth() {
 }
 async function enter(demo) {
   auth.demo = !!demo; auth.phase = 'in'; auth.legal = null;
+  if (SHOWCASE && !showcaseOk(view)) view = 'qoe';
   sessSet(demo ? 'demo' : auth.me.id);
   if (!demo) { applyRole(); markSeen(); } else { store.mode = 'off'; store.note = 'Sample mode: nothing is saved.'; }
   renderAuth(); render();
@@ -5992,6 +5999,7 @@ async function markSeen() {
   try { await store.db.doc('people/' + auth.me.id).set({ firstSeen: (p && p.firstSeen) || now, lastSeen: now }); } catch (e) { }
 }
 async function initIdentity() {
+  if (SHOWCASE) { curId = 'sample'; return enter(true); }
   const u = store.user;
   if (!u) { auth.me = null; auth.admin = false; }
   else { try { auth.me = typeof u.me === 'function' ? await u.me() : null; } catch (e) { auth.me = null; } auth.admin = !!(auth.me && (auth.me.isOwner || auth.me.canEdit)); }
@@ -6113,6 +6121,12 @@ function renderRail() {
   const opts = allDeals().filter(d => !d.archived || d.id === curId);
   document.getElementById('mandsel').innerHTML = `<label for="msel">Deal</label><select id="msel">${opts.map(x => `<option value="${esc(x.id)}" ${x.id === curId ? 'selected' : ''}>${esc(x.name)}${x.id === 'sample' ? ' (sample)' : ''}</option>`).join('')}<option value="new">+ New deal</option><option value="db">All deals\u2026</option></select><span class="stage">${esc(m.target || 'No target')} \u00b7 ${esc(m.stage)}</span>`;
   const counts = { seller: (MD().rv.sq || []).filter(q => q.status === 'Draft' || q.status === 'Sent').length, issues: R.issues.filter(i => i.status !== 'Resolved' && i.finding.severity === 'High').length, workspace: R.actions.length, sources: m.docs.length };
+  if (SHOWCASE) {
+    document.getElementById('mandsel').innerHTML = `<label>Sample deal</label><div style="font-weight:600;padding:2px 0">${esc(m.name)}</div><span class="stage">${esc(m.target || '')}</span>`;
+    document.getElementById('nav').innerHTML = NAV.filter(g => g.items.some(([k]) => SHOWCASE_VIEWS.includes(k))).map(g => `<div class="navgrp"><h6>${g.group}</h6><div class="nav">${g.items.filter(([k]) => SHOWCASE_VIEWS.includes(k)).map(([k, l]) => `<button data-nav="${k}" ${k === view ? 'aria-current="page"' : ''}><span>${l}</span>${counts[k] ? `<span class="count ${k === 'issues' ? '' : 'g'}">${counts[k]}</span>` : ''}</button>`).join('')}</div></div>`).join('');
+    document.getElementById('railfoot').innerHTML = `<div style="line-height:1.45">Sample deal, view only. Nothing you change is saved.</div><div class="row" style="gap:6px"><a class="btn sm" href="/signin" style="text-decoration:none">Create an account</a><a class="btn sm ghost rl" href="/" style="text-decoration:none">Back to home</a></div><div>Deterministic \u00b7 no models</div>`;
+    return;
+  }
   document.getElementById('nav').innerHTML = NAV.map(g => `<div class="navgrp"><h6>${g.group}</h6><div class="nav">${g.items.filter(it => scopeOn(it[2])).map(([k, l]) => `<button data-nav="${k}" ${k === view ? 'aria-current="page"' : ''}><span>${l}</span>${counts[k] ? `<span class="count ${k === 'issues' ? '' : 'g'}">${counts[k]}</span>` : ''}</button>`).join('')}</div></div>`).join('');
   const me = auth.me;
   document.getElementById('railfoot').innerHTML = (auth.demo || !me || !me.id ? `<label for="role" style="font:inherit">Acting as (sample mode)</label><select id="role">${ROLES.map(r => `<option value="${r}" ${r === actingAs ? 'selected' : ''}>${esc(m.owners[r] || r)} (${r})</option>`).join('')}</select>`
@@ -6124,16 +6138,22 @@ function render() {
   CITES = [];
   renderRail();
   if (!scopeOn((NAV.flatMap(g => g.items).find(i => i[0] === view) || [])[2])) view = 'workspace';
+  if (!showcaseOk(view)) { view = 'qoe'; renderRail(); }
   const host = document.getElementById('view');
   try { host.innerHTML = (RUN_ERR && !['team', 'activity', 'help', 'legal', 'deals', 'firm'].includes(view) ? `<div class="callout"><b>Part of this deal could not be processed.</b><p>${esc(RUN_ERR)}</p></div>` : '') + (RENDER[view] || vNotFound)(); if (view === 'team') afterTeam(); }
   catch (e) { try { console.error('DealBasis render', e); } catch (_) { }
     host.innerHTML = `<header class="vh"><div class="eyebrow">Something went wrong</div><h1>This page could not be shown</h1></header><div class="callout"><b>${esc(e.message || String(e))}</b><p>Your deal, documents and decisions are safe. Other pages still work.</p></div><div class="row"><button class="btn" data-nav="workspace">Go to the workspace</button><button class="btn ghost" data-nav="deals">Deal pipeline</button></div>`; }
   try { drawCharts(); } catch (e) { }
+  if (SHOWCASE) {
+    host.querySelectorAll('[data-nav], #drop, #screendrop, [data-newdeal], [data-savesample]').forEach(el => { if (!el.dataset.nav || !showcaseOk(el.dataset.nav)) el.remove(); });
+    host.querySelectorAll('button').forEach(b => { if (!showcaseSafe(b)) b.remove(); });
+    host.querySelectorAll('input, select, textarea').forEach(f => { f.disabled = true; f.setAttribute('aria-readonly', 'true'); if (f.tagName === 'TEXTAREA' && !f.value) f.remove(); });
+  }
   if (drawer) { const h = document.getElementById('drawerhost'); try { h.innerHTML = drawerHTML(drawer); afterDrawer(); } catch (e) { drawer = null; h.innerHTML = ''; } }
 }
 function rerun() { run(); render(); scheduleSave(); }
 function refresh() { run(); render(); }
-function setView(v) { view = v; try { localStorage.setItem('sorai.view', v); history.replaceState(null, '', '#' + v); } catch (e) { } render(); window.scrollTo(0, 0); }
+function setView(v) { if (!showcaseOk(v)) v = 'qoe'; view = v; try { localStorage.setItem('sorai.view', v); history.replaceState(null, '', '#' + v); } catch (e) { } render(); window.scrollTo(0, 0); }
 
 /* ======================= intake in the browser ======================= */
 const LIBS = {
@@ -6240,7 +6260,7 @@ function friendlyReadError(name, e) {
   return `${name} could not be read (${msg.slice(0, 120)}).`;
 }
 async function readFile(file) { return readAny(file.name, () => typeof file.arrayBuffer === 'function' ? file.arrayBuffer() : viaReader(file, 'readAsArrayBuffer'), () => typeof file.text === 'function' ? file.text() : viaReader(file, 'readAsText')); }
-async function ingest(files) {
+async function ingest(files) { if (SHOWCASE) return;
   /* the sample deal belongs to a fictional company and is never saved: files dropped on it start a deal of their own,
      so another company's figures are never mixed with the sample's */
   let fresh = false; if (MD().id === 'sample' || MD().sample) { await newDeal(false); fresh = true; }
@@ -6299,6 +6319,7 @@ async function copyText(text, btn) {
   setTimeout(() => { btn.textContent = old; }, 1400);
 }
 document.addEventListener('click', e => {
+  if (SHOWCASE) { const b = e.target.closest('button, [data-nav]'); if (b && b.closest('#view, #rail, #drawerhost, #present, .app') && !showcaseSafe(b) && !b.closest('.drawer .x, [data-close]')) { e.preventDefault(); return; } }
   const t = e.target.closest('[data-addsq],[data-copysq],[data-delsq],[data-asksq],[data-revert],[data-xlsx],[data-auth],[data-signout],[data-rolego],[data-nav],[data-ci],[data-dmode],[data-close],[data-goto],[data-open],[data-rmdoc],[data-act],[data-adj],[data-export],[data-ifilter],[data-addq],[data-delq],[data-icreset],[data-asrole],[data-unfix],[data-oflag],[data-screen],[data-unset],[data-deal],[data-newdeal],[data-savesample],[data-arch],[data-deldeal],[data-dbcopy],[data-cancel],[data-memo],[data-present],[data-deck],[data-pv]'); if (!t) return;
   const m = MD();
   if (t.dataset.nav) return setView(t.dataset.nav);
@@ -6349,6 +6370,7 @@ document.addEventListener('click', e => {
   if (t.dataset.unset) { delete m.S[t.dataset.unset]; return rerun(); }
 });
 document.addEventListener('change', e => {
+  if (SHOWCASE) return; /* nothing in the sample can be changed */
   const t = e.target, m = MD();
   if (t.dataset && t.dataset.setrole) return setRole(t.dataset.setrole, t.value);
   if (t.dataset && t.dataset.fx != null) { const v = parseFloat(String(t.value).replace(/,/g, '')); m.fx = { ...(m.fx || {}) }; if (v > 0 && v < 100000) { m.fx[t.dataset.fx] = v; const [fc, tc] = t.dataset.fx.split('>'); log(`Set the exchange rate 1 ${fc} = ${v} ${tc}`); } else delete m.fx[t.dataset.fx]; DECK = null; return rerun(); }
@@ -6595,14 +6617,14 @@ function dealsCSV() {
   return toCSV(['deal', 'target', 'stage', 'revenue', 'reported_ebitda', 'management_ebitda', 'diligence_ebitda', 'confidence', 'verdict', 'high_issues', 'documents', 'updated', 'currency'],
     filteredDeals().filter(d => !d.sample).map(d => { const s = d.summary || {}; const r = v => v == null ? '' : Math.round(v); return { deal: d.name, target: d.target, stage: d.stage, revenue: r(s.revenue), reported_ebitda: r(s.reported), management_ebitda: r(s.management), diligence_ebitda: r(s.diligence), confidence: s.confidence ?? '', verdict: s.verdict || '', high_issues: s.highs ?? '', documents: d.docsN, updated: d.updatedAt || '', currency: s.currency || 'USD' }; }));
 }
-function openDeal(id) {
+function openDeal(id) { if (SHOWCASE) return;
   if (!cache[id]) { const rec = dealIndex.find(r => r.id === id); if (!rec) return; cache[id] = recordToMandate(rec); }
   curId = id; confirmKey = null; drawer = null; document.getElementById('drawerhost').innerHTML = '';
   if (view === 'deals') view = 'workspace';
   try { history.replaceState(null, '', '#' + view); } catch (e) { }
   refresh(); window.scrollTo(0, 0); loadDocs(cache[id]);
 }
-async function newDeal(fromSample) {
+async function newDeal(fromSample) { if (SHOWCASE) return;
   const persist = store.mode === 'ready';
   const id = persist ? store.db.collection('deals').doc().id : 'local-' + Date.now().toString(36);
   const now = new Date().toISOString(); const src = cache.sample;
@@ -6628,7 +6650,7 @@ function guessName(m) {
   const first = lines.find(t => t && t.length >= 3 && t.length <= 60 && /[A-Za-z]/.test(t) && !bad.test(t) && !/^(opening|executive summary|table of contents)$/i.test(t));
   return (corp || first || d.name.replace(/\.[^.]+$/, '')).replace(/\s+/g, ' ').trim().slice(0, 80);
 }
-async function screenFiles(files) {
+async function screenFiles(files) { if (SHOWCASE) return;
   const back = curId; const owners = { ...MD().owners }; const persist = store.mode === 'ready'; let n = 0; const errs = [];
   msgs.screen = { err: false, text: `Screening ${files.length} file${files.length > 1 ? 's' : ''}…` }; render();
   for (const f of files) {
@@ -6666,7 +6688,7 @@ async function removeDoc(docId) {
   m.docs = m.docs.filter(x => x !== d); m.removed = [...(m.removed || []), ...[d.asset, d.original].filter(Boolean)].slice(-500); log(`Removed ${d.name}`); rerun();
   if (canPersist(m) && store.assets) { await saveNow(m); for (const a of [d.asset, d.original].filter(Boolean)) { try { await store.assets.delete(a); } catch (e) { } } refreshUsage(); }
 }
-document.addEventListener('keydown', e => { const t = e.target; if (e.key !== 'Enter' || !t || !t.dataset) return;
+document.addEventListener('keydown', e => { const t = e.target; if (SHOWCASE || e.key !== 'Enter' || !t || !t.dataset) return;
   if (t.dataset.comment && t.value.trim()) { e.preventDefault(); const m = MD(); const k = 'cm:' + t.dataset.comment; m.rv[k] = [...(m.rv[k] || []), { t: new Date().toISOString(), who: auth.me && auth.me.name && !auth.demo ? auth.me.name : (m.owners[actingAs] || actingAs), ...(auth.me && auth.me.id && !auth.demo ? { by: auth.me.id } : {}), text: t.value.trim().slice(0, 2000) }]; log('Commented on ' + t.dataset.comment.replace(/^sq:.*/, 'a seller question')); rerun(); }
   if (t.id === 'newsq' && t.value.trim()) { e.preventDefault(); addSellerQ(t.value.trim()); } });
 document.addEventListener('input', e => { if (e.target.id === 'actq') { actFilter = e.target.value; const tb = document.getElementById('actrows'); if (tb) { const q = actFilter.toLowerCase(); const ev = []; allDeals().forEach(d => { const m = cache[d.id] || dealIndex.find(r => r.id === d.id); ((m && m.rv && m.rv.activity) || []).forEach(a => ev.push({ ...a, deal: d.name, id: d.id })); }); ev.sort((a, b) => String(b.t).localeCompare(String(a.t))); tb.innerHTML = actRows(ev.filter(a => !q || (a.text + ' ' + whoName(a) + ' ' + a.deal).toLowerCase().includes(q)).slice(0, 400)); } return; }

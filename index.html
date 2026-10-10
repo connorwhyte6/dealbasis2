@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>DealBasis | Pre-LOI financial diligence for private equity</title>
-<meta name="description" content="DealBasis reads the CIM, the financial statements and the ledger, checks every figure against the others, and builds your committee readout, with each number linked to its source.">
+<meta name="description" content="Financial diligence and deal intelligence for private equity. DealBasis reads the CIM, the financial statements and the ledger, checks every figure against the others, and builds your committee readout, with each number linked to its source.">
 <script>
 /* sign-in links in emails and the app's own redirects arrive here: send them on to the sign-in page with everything intact */
 (function () {
@@ -129,6 +129,15 @@ section{padding:clamp(64px,8vw,104px) 0}
 .card h3{font-size:18px;font-weight:700}
 .card p{color:var(--ink2);margin-top:8px;font-size:15.5px}
 
+/* two workspaces */
+.wsgroup + .wsgroup{margin-top:36px}
+.wshead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.wshead p{color:var(--ink2);font-size:16px;font-weight:500}
+.wsbadge{display:inline-flex;align-items:center;font-size:14px;font-weight:700;padding:7px 14px;border-radius:999px;background:var(--redsoft);color:var(--red2)}
+.wsbadge.dark{background:var(--dark);color:#fff}
+.cards4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:1100px){ .cards4{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:640px){ .cards4{grid-template-columns:1fr} }
 /* steps */
 .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;counter-reset:s}
 .step{position:relative;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:28px 26px}
@@ -346,7 +355,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 <main id="main">
 <!-- hero -->
 <div class="hero"><div class="wrap">
-  <span class="badge"><span class="dot"></span>Pre-LOI financial diligence for private equity</span>
+  <span class="badge"><span class="dot"></span>Financial diligence and deal intelligence for private equity</span>
   <h1>Catch the bad deal before the LOI</h1>
   <p class="lead">Upload a CIM, financial statements, a ledger, or whatever you have. DealBasis checks every figure against the others, finds what doesn't hold up, and builds your committee memo and deck, with every number linked to its source.</p>
   <div class="ctas"><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a><a class="btn btn-secondary" href="/signin">Sign in</a></div>
@@ -396,7 +405,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 
 <!-- product tour -->
 <section id="tour"><div class="wrap">
-  <div class="head"><span class="eyebrow">Product tour</span><h2>See what DealBasis builds from your documents</h2><p>Every screen below is from the Project Saguaro sample deal, exactly as DealBasis produces it.</p></div>
+  <div class="head"><span class="eyebrow">Product tour</span><h2>Inside Financial Diligence and Deal Intelligence</h2><p>Every screen below is from the Project Saguaro sample deal, exactly as DealBasis produces it. Quality of earnings, working capital and debt are Financial Diligence; the committee deck is Deal Intelligence.</p></div>
   <div class="tabs" role="tablist" aria-label="Product tour">
     <button class="tab" role="tab" id="t-qoe" aria-selected="true" aria-controls="p-qoe">Quality of earnings</button>
     <button class="tab" role="tab" id="t-nwc" aria-selected="false" aria-controls="p-nwc" tabindex="-1">Working capital</button>
@@ -462,14 +471,24 @@ sup.ref a{color:var(--red2);font-weight:600}
 
 <!-- features -->
 <section id="features" class="soft"><div class="wrap">
-  <div class="head"><span class="eyebrow">Features</span><h2>Everything a pre-LOI diligence team checks, done for you</h2><p>The same tests on every deal, with the source of every number one click away.</p></div>
-  <div class="cards">
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div><h3>Quality of earnings</h3><p>Every add-back in management's bridge tested and either accepted or rejected with a reason, ending in an EBITDA you can defend.</p></div>
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></div><h3>Working capital</h3><p>Four working capital definitions side by side, with the peg and the closing adjustment for the one in your deal.</p></div>
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><h3>Debt and debt-like items</h3><p>Balances tied to the balance sheet and lender confirmations, plus any debt mentioned in the documents but never recorded.</p></div>
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></div><h3>Every figure cross-checked</h3><p>Numbers in sentences are compared with the statements. Where they disagree, you're told, and the statement figure is used.</p></div>
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div><h3>Risk scoring</h3><p>Over 30 tests run against the record, each finding with its source, rolled into a pre-LOI confidence score.</p></div>
-    <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Committee memo and deck</h3><p>Drafted from the evidence and downloadable as PowerPoint, Word, PDF or Excel, ready for your investment committee.</p></div>
+  <div class="head"><span class="eyebrow">Features</span><h2>Two workspaces: Financial Diligence and Deal Intelligence</h2><p>Financial Diligence tests the numbers. Deal Intelligence turns them into a price, a risk score and a committee decision. Both work from the same record, with the source of every number one click away.</p></div>
+  <div class="wsgroup" id="financial-diligence">
+    <div class="wshead"><span class="wsbadge">Financial Diligence</span><p>Are the numbers real?</p></div>
+    <div class="cards cards4">
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div><h3>Quality of earnings</h3><p>Every add-back in management's bridge tested and accepted or rejected with a reason, ending in an EBITDA you can defend.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></div><h3>Working capital</h3><p>Four definitions side by side, with the trailing twelve-month peg and the closing adjustment for the one in your deal.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><h3>Debt tie-outs</h3><p>Balances tied to the balance sheet and lender confirmations, plus debt mentioned in the documents but never recorded.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></div><h3>Cash flow and cross-checks</h3><p>How much of EBITDA turns into cash, and every figure in the text checked against the statements and ledger.</p></div>
+    </div>
+  </div>
+  <div class="wsgroup" id="deal-intelligence">
+    <div class="wshead"><span class="wsbadge dark">Deal Intelligence</span><p>What is it worth, and should we do it?</p></div>
+    <div class="cards cards4">
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div><h3>Deal economics</h3><p>Enterprise value and equity value at your multiple, with the sensitivity and the returns case, all on diligence-adjusted EBITDA.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div><h3>Risk scoring</h3><p>Over 30 tests run against the record, each finding with its source, rolled into a pre-LOI confidence score.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>Issues and seller questions</h3><p>Every finding becomes an issue with an owner, and the questions to put to the seller are drafted for you.</p></div>
+      <div class="card"><div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Committee readout</h3><p>The memo and a committee deck drafted from the evidence, ready to present or download as PowerPoint, Word, PDF or Excel.</p></div>
+    </div>
   </div>
 </div></section>
 
@@ -610,7 +629,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 
 <!-- cta -->
 <div class="cta"><div class="wrap"><div class="ctabox">
-  <div><h2>See DealBasis on Project Saguaro</h2><p>Open the sample deal, click any number to see its source, and download the memo and committee deck. No account needed.</p></div>
+  <div><h2>See DealBasis on Project Saguaro</h2><p>Explore the sample deal's Financial Diligence and Deal Intelligence, click any number to see its source, and download the memo and committee deck. No account needed.</p></div>
   <div class="ctas"><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a><a class="btn btn-secondary" href="/signin">Sign in</a></div>
 </div></div></div>
 </main>
@@ -618,7 +637,7 @@ sup.ref a{color:var(--red2);font-weight:600}
 <footer><div class="wrap">
   <div class="fgrid">
     <div><a class="logo" href="/"><svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><rect y="1" width="22" height="1.5" fill="#ff3131"/><rect y="5.5" width="22" height="1.5" fill="#ff3131"/><rect y="10" width="22" height="1.5" fill="#ff3131"/><rect y="14.5" width="14" height="1.5" fill="#ff3131"/></svg>DEALBASIS</a><p class="blurb">Pre-LOI financial diligence for private equity, with every number traced to its source.</p></div>
-    <div><h4>Product</h4><ul><li><a href="#tour">Product tour</a></li><li><a href="#features">Features</a></li><li><a href="#how">How it works</a></li><li><a href="#example">Example</a></li><li><a href="#security">Security</a></li><li><a href="#faq">FAQ</a></li></ul></div>
+    <div><h4>Product</h4><ul><li><a href="#tour">Product tour</a></li><li><a href="#financial-diligence">Financial Diligence</a></li><li><a href="#deal-intelligence">Deal Intelligence</a></li><li><a href="#how">How it works</a></li><li><a href="#example">Example</a></li><li><a href="#security">Security</a></li><li><a href="#faq">FAQ</a></li></ul></div>
     <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
   </div>
   <p class="legal">© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
