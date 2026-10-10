@@ -1362,6 +1362,9 @@ function yearNear(s, at, len) {
   if (before) return before.y;
   return ys.length === 1 ? ys[0].y : null;
 }
+const scaleOfU = u => { const x = String(u || '').toLowerCase(); return /^(b|bn|billion)/.test(x) ? 1e9 : /^(m|mm|million)/.test(x) ? 1e6 : /^(k|thousand)/.test(x) ? 1e3 : 1; };
+const precOf = (n, u, phrase) => { const dec = String(n).includes('.') ? String(n).split('.')[1].length : 0; const step = Math.pow(10, -dec) * scaleOfU(u);
+  return step * (/\b(approximately|about|roughly|around|nearly|almost|over|some|close to)\b|~/i.test(phrase || '') ? 1 : 0.5); };
 function figuresFromText(s, src, out, dated) {
   const R = proseRes(); const asOf = asOfIn(s) || (/\b(year[- ]end|at the end of the year|period end)\b/i.test(s) ? dated : null) || null;
   const took = [];
@@ -1369,14 +1372,14 @@ function figuresFromText(s, src, out, dated) {
   for (const m of s.matchAll(R.debt)) {
     const name = m[3]; const t = BS_TERM[termKey(name)]; if (!t || !isAmount(m[0], m[1], m[2]) || !keep(m.index, m.index + m[0].length)) continue;
     if (NOT_A_BALANCE.test(s.slice(Math.max(0, m.index - 20), m.index + m[0].length))) continue;
-    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[1], m[2]), asOf, text: s, src });
+    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[1], m[2]), prec: precOf(m[1], m[2], m[0]), asOf, text: s, src });
   }
   for (const m of s.matchAll(R.bs)) {
     const name = m[1]; const t = BS_TERM[termKey(name)]; if (!t || !isAmount(m[0], m[2], m[3])) continue;
     const win = s.slice(Math.max(0, m.index - 25), m.index + m[0].length + 18);
     if (NOT_A_BALANCE.test(win.replace(name, '')) || !keep(m.index, m.index + m[0].length)) continue;
     if (t.concept === 'revolver' && !/outstanding|drawn|balance|owed|borrowed|due/i.test(s.slice(Math.max(0, m.index - 40), m.index + m[0].length + 40))) continue;
-    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[2], m[3]), asOf, text: s, src });
+    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[2], m[3]), prec: precOf(m[2], m[3], m[0]), asOf, text: s, src });
   }
   const plHits = [...[...s.matchAll(R.pl)].map(m => ({ m, name: m[1], n: m[2], u: m[3] })), ...[...s.matchAll(R.plAfter)].map(m => ({ m, name: m[3], n: m[1], u: m[2] }))].sort((a, b) => a.m.index - b.m.index);
   /* "for the past 3 years", "each year": one figure for several years before the year the document is written in */
@@ -1392,7 +1395,7 @@ function figuresFromText(s, src, out, dated) {
     const name = m[1].toLowerCase(); const metric = /adj/.test(name) ? 'adjEbitdaPct' : /ebitda/.test(name) ? 'ebitdaPct' : /gross/.test(name) ? 'gmPct' : null;
     const v = +m[2]; if (!metric || !(v > 0 && v < 100) || !keep(m.index, m.index + m[0].length)) continue;
     const w = when(m, m[0].length); if (!w) continue;
-    out.facts.push({ kind: 'plMention', metric, pct: true, amount: v, ...w, label: m[1], text: s, src });
+    out.facts.push({ kind: 'plMention', metric, pct: true, amount: v, prec: precOf(m[2], null, m[0]), ...w, label: m[1], text: s, src });
   }
   for (const { m, name, n, u } of plHits) {
     let metric = PL_TERM[termKey(name)]; if (!metric || !isAmount(m[0], n, u)) continue;
@@ -1400,7 +1403,7 @@ function figuresFromText(s, src, out, dated) {
     if (metric === 'ebitda' && /\b(adjusted|adj\.?|normali[sz]ed|recast|pro forma)\s*$/i.test(pre)) metric = 'adjEbitda';
     if (/\b(increase|decrease|growth|change|grew|declin|improvement|reduction)\w*\s+(by|of|in)\s*$/i.test(pre)) continue;
     const w = when(m, m[0].length); if (!w || !keep(m.index, m.index + m[0].length)) continue;
-    out.facts.push({ kind: 'plMention', metric, ...w, amount: amt(n, u), label: name, text: s, src });
+    out.facts.push({ kind: 'plMention', metric, ...w, amount: amt(n, u), prec: precOf(n, u, m[0]), label: name, text: s, src });
   }
   return asOf || dated;
 }
@@ -1673,22 +1676,30 @@ function inferBS(d, out, c0, tagged) {
     const units = o.units || o.pageUnits || (fullDollars.has(pageOf(o)) ? 1 : o.docUnits || 1);
     out.bsItems.push({ label: o.label, cls, value: o.scale ? o.v * o.scale : o.v * units, asOf: o.asOf, src: o.src, doc: o.doc || d.id, inferred: 'line', ...(o.scale ? { abs: true } : { unit: units }) });
   });
-  if (!tagged) out.facts.slice(c0.facts).filter(f => f.kind === 'bsMention' && f.amount > 0).forEach(f => out.bsItems.push({ label: f.label, cls: f.cls, value: f.amount, asOf: f.asOf, src: f.src, doc: d.id, inferred: 'text', abs: true, text: f.text }));
+  if (!tagged) out.facts.slice(c0.facts).filter(f => f.kind === 'bsMention' && f.amount > 0).forEach(f => out.bsItems.push({ label: f.label, cls: f.cls, value: f.amount, prec: f.prec, asOf: f.asOf, src: f.src, doc: d.id, inferred: 'text', abs: true, text: f.text }));
 }
 const PL_LABEL = { gmPct: 'Gross margin', ebitdaPct: 'EBITDA margin', adjEbitdaPct: 'Adjusted EBITDA margin', revenue: 'Revenue', ebitda: 'EBITDA', adjEbitda: 'Adjusted EBITDA', gp: 'Gross profit', cogs: 'Cost of revenue', opex: 'Operating expenses', operatingIncome: 'Operating income', netIncome: 'Net income', da: 'Depreciation and amortization', interest: 'Interest expense' };
 /* income statement figures stated only in sentences ("fiscal 2025 revenue of $18.6 million"): used for a year and line
    no table in any document covers, so a table always wins where there is one */
 function proseBlocks(out) {
   const pm = out.facts.filter(f => f.kind === 'plMention' && f.amount > 0); if (!pm.length) return;
-  const covered = new Set();
-  out.blocks.forEach(b => b.rows.forEach(r => { if (r.metric) b.periods.forEach((p, i) => { if (r.values[i] != null && (!r.srcs || r.srcs[i])) covered.add(r.metric + '|' + p.key); }); }));
+  const covered = new Set(); const latestH = {};
+  out.blocks.forEach(b => { if (b.prose) return; b.rows.forEach(r => { if (r.metric) b.periods.forEach((p, i) => { if (r.values[i] != null && (!r.srcs || r.srcs[i])) { covered.add(r.metric + '|' + p.key);
+    if (p.type === 'H' && p.key !== 'LTM' && (!latestH[r.metric] || p.year > latestH[r.metric].year)) latestH[r.metric] = { key: p.key, year: p.year }; } }); }); });
+  /* a margin is covered where a statement gives both its profit line and revenue */
+  [['gmPct', 'gp'], ['ebitdaPct', 'ebitda'], ['adjEbitdaPct', 'adjEbitda']].forEach(([pc, num]) => [...covered].filter(k => k.startsWith(num + '|')).forEach(k => { const per = k.split('|')[1];
+    if (covered.has('revenue|' + per)) { covered.add(pc + '|' + per); if (latestH[num] && latestH[num].key === per) latestH[pc] = latestH[num]; } }));
+  /* a statement covers it: the text figure is checked against the statement (in buildRecord), not used */
+  const cmp = (f, k) => { f.cmp = f.cmp || []; if (!f.cmp.includes(k)) f.cmp.push(k); };
   const byDoc = {}; pm.forEach(f => (byDoc[f.src.d] = byDoc[f.src.d] || []).push(f));
   Object.entries(byDoc).forEach(([doc, fs]) => {
     /* the year a document is written in: the first year it projects, else the year after the latest actual it names */
     const projY = fs.filter(f => f.proj && typeof f.year === 'number').map(f => f.year), actY = fs.filter(f => !f.proj && typeof f.year === 'number').map(f => f.year);
     const now = projY.length ? Math.min(...projY) : actY.length ? Math.max(...actY) + 1 : null;
     const key = (y, proj) => y === 'LTM' ? 'LTM' : y + (proj ? 'E' : 'A');
-    const cand = {}; const add = (k, f, rank) => { if (covered.has(f.metric + '|' + k)) return; ((cand[f.metric + '|' + k] = cand[f.metric + '|' + k] || {})[rank] = (cand[f.metric + '|' + k][rank] || [])).push(f); };
+    const cand = {}; const add = (k, f, rank) => { if (covered.has(f.metric + '|' + k)) return cmp(f, k);
+      /* a current figure with no year, when the statements have years: it is compared with the latest one */
+      if (k === 'LTM' && latestH[f.metric]) return cmp(f, latestH[f.metric].key); ((cand[f.metric + '|' + k] = cand[f.metric + '|' + k] || {})[rank] = (cand[f.metric + '|' + k][rank] || [])).push(f); };
     /* the actual years the document covers: those it names, and those "the past N years" points to */
     const span = new Set(actY); fs.forEach(f => { if (!f.proj && f.year === 'LTM' && f.past > 0 && now) for (let k = 1; k <= f.past; k++) span.add(now - k); });
     fs.forEach(f => {
@@ -2064,6 +2075,7 @@ const RECORD_RULES = [
   { id: 'C10', kind: 'Flag', name: 'Add-backs growing', logic: 'Basis-period add-backs vs the prior column of the bridge. Medium above 1.5x.' },
   { id: 'C11', kind: 'Flag', name: 'Income added back', logic: 'Fires on any positive K5 add-back. High.' },
   { id: 'C13', kind: 'Flag', name: 'Stated margins do not match', logic: 'Stated margin rows vs margins computed from the same table. Medium above 0.5 points.' },
+  { id: 'C16', kind: 'Flag', name: 'Text and statements disagree', logic: 'A figure stated in the text (revenue, EBITDA, a margin, a balance) differs from the statements, ledger or balance sheet for the same line and period by more than the text\'s rounding. Medium. The statement figure is used.' },
   { id: 'C15', kind: 'Flag', name: 'Adjustments not itemized', logic: 'Adjusted EBITDA stated without any listed add-backs. High if the gap exceeds 10% of reported EBITDA, else Medium. Diligence uses reported EBITDA.' },
   { id: 'C14', kind: 'Flag', name: '"Non-recurring" items that recur', logic: 'K3 add-backs present in every column of a bridge with 3+ periods. Medium.' },
   { id: 'SA1', kind: 'Flag', name: 'Net revenue retention (SaaS)', logic: 'Net revenue retention stated below the firm minimum (default 100%). High below 90%. SaaS deals only.' },
@@ -2516,14 +2528,16 @@ function verifyFindings(findings, ctx) {
       why.push(`${bad.length} of its ${res.length} citation${res.length === 1 ? '' : 's'} could not be confirmed: ${miss === bad.length ? `the cited ${bad.length === 1 ? 'place does' : 'places do'} not exist in the document` : `the cited ${bad.length === 1 ? 'place does' : 'places do'} not show the figure, and no other line in the document does`}${bad[0].a ? ` (${anchorWhere(bad[0].a)})` : ''}`); }
     if (!res.length && !['C10', 'SA3'].includes(f.id)) why.push('it has no citation to check');
     const fromText = res.filter(r => r.a && (r.a.x === 'text' || textKeys.has(citeKey(r.a))));
-    if (fromText.length) why.push(`it rests on ${fromText.length === 1 ? 'a figure' : 'figures'} written in the text, usually rounded, with no table to check against`);
-    const shaky = res.filter(r => r.a && weakFig.has(citeKey(r.a)));
-    if (shaky.length) why.push('a figure it uses is stated differently elsewhere or is implausible');
-    if (!res.length && ['C10', 'SA3'].includes(f.id) && (readChecks || []).some(r => ['revenue', 'ebitda'].includes(r.key) && r.status !== 'verified')) why.push('the revenue or EBITDA it is computed from is not verified');
+    const allTC = ctx.textChecks || []; const tc = allTC.filter(c => res.some(r => r.a && (citeKey(r.a) === citeKey(c.textSrc) || (c.stmtSrc && citeKey(r.a) === citeKey(c.stmtSrc)))));
+    const uncovered = fromText.filter(r => !allTC.some(c => citeKey(c.textSrc) === citeKey(r.a)));
+    const basis = [tc.length && (tc.every(c => c.agree) ? ' The figures stated in the text match the statements.' : ' The text was compared with the statements; where they differ, the statement figures are used.'),
+      uncovered.length && ` ${uncovered.length === 1 ? 'One figure comes' : `${uncovered.length} figures come`} from the text alone, because no financial statement in the documents covers ${uncovered.length === 1 ? 'it' : 'them'}.`].filter(Boolean).join('');
+    const shaky = !/^C0[45]$|^C1[36]$|^X0[1-3]$/.test(f.id) ? res.filter(r => r.a && weakFig.has(citeKey(r.a))) : [];
+    if (shaky.length) why.push('a figure it uses failed a check: it is stated differently elsewhere or is implausible');
     const moved = res.filter(r => r.status === 'moved');
     if (why.length) { f.verify = { status: 'to verify', why, res, would: f.severity }; f.held = f.severity; f.severity = null; }
     else { const ok = res.length - moved.length;
-      f.verify = { status: 'verified', res, note: `Checked: ${!res.length ? 'computed from verified figures' : [ok && `${ok} citation${ok === 1 ? '' : 's'} show${ok === 1 ? 's' : ''} the figure`, moved.length && `${moved.length} citation${moved.length === 1 ? '' : 's'} corrected to the line that shows it`].filter(Boolean).join('; ')}.` }; }
+      f.verify = { status: 'verified', res, note: `Checked: ${!res.length ? 'computed from the figures above' : [ok && `${ok} citation${ok === 1 ? '' : 's'} show${ok === 1 ? 's' : ''} the figure`, moved.length && `${moved.length} citation${moved.length === 1 ? '' : 's'} corrected to the line that shows it`].filter(Boolean).join('; ')}.${basis}` }; }
   });
   /* the citations behind the key figures are re-read too, and moved when they point to the wrong line */
   (readChecks || []).forEach(r => { if (!r.src || r.src.t === 'xbrl') return; const c = checkOne(r.src); r.cite = c.status;
@@ -2621,13 +2635,32 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       } else dataChecks.push({ status: 'ok', text: `Table revenue agrees with the revenue stated in the text (${fmtUSD(near[0].f.amount)}).`, src: near[0].f.src });
     }
   }
-  /* income statement figures read from sentences because no table states them */
-  if (SM) { const lc = s => s.charAt(0).toLowerCase() + s.slice(1); const used = [];
-    Object.entries(SM.pl).forEach(([m, byP]) => Object.entries(byP).forEach(([k, o]) => { if (o && o.src && o.src.x === 'text') used.push({ m, k, o }); }));
+  /* figures stated in sentences are cross-checked against the statements (and the ledger) for the same line and year,
+     allowing for the rounding the text uses: a match confirms both; a difference is reported and the statement is used;
+     a figure no statement covers is used as stated */
+  const textChecks = [];
+  { const lc = s => s.charAt(0).toLowerCase() + s.slice(1); const fv = (m, v) => /Pct$/.test(m) ? pctS(v) : fmtUSD(v);
+    const perLabel = k => SM && (SM.periods.find(p => p.key === k) || {}).label || k;
+    const PCT_OF = { gmPct: 'gp', ebitdaPct: 'ebitda', adjEbitdaPct: 'adjEbitda' };
+    const stmtOf = (m, k) => { const o = SM && SM.pl[m] && SM.pl[m][k]; if (o && o.src && o.src.x !== 'text' && !(o.computed && /Pct$/.test(m))) return o;
+      /* a margin the statements imply: their profit line over their revenue */
+      const n = PCT_OF[m] && SM && SM.pl[PCT_OF[m]] && SM.pl[PCT_OF[m]][k], r = SM && SM.pl.revenue && SM.pl.revenue[k];
+      if (n && r && r.v && n.src && r.src && n.src.x !== 'text' && r.src.x !== 'text' && !n.computed) return { v: n.v / r.v, src: n.src }; return null; };
+    factsOf('plMention').forEach(f => (f.cmp || []).forEach(k => { const o = stmtOf(f.metric, k); if (!o) return;
+      const tv = f.pct ? f.amount / 100 : f.amount; const tol = f.pct ? (f.prec || 0.5) / 100 + 0.0005 : (f.prec || 0) + Math.max(1, Math.abs(o.v) * 0.002);
+      textChecks.push({ kind: 'pl', metric: f.metric, key: k, label: `${lc(PL_LABEL[f.metric] || f.metric)}, ${perLabel(k)}`, text: tv, stmt: o.v, agree: Math.abs(tv - o.v) <= tol, textSrc: f.src, stmtSrc: o.src, against: o.src.t === 'xbrl' ? 'the filing' : 'the statements', fmt: v => fv(f.metric, v) }); }));
+    /* the ledger's trailing twelve months, for a current revenue or EBITDA figure in the text */
+    if (L) factsOf('plMention').filter(f => !f.proj && f.year === 'LTM' && ['revenue', 'ebitda'].includes(f.metric)).forEach(f => { const v = f.metric === 'revenue' ? L.T.Revenue : L.T.EBITDA; if (v == null) return;
+      textChecks.push({ kind: 'pl', metric: f.metric, key: 'TTM', label: `${f.metric === 'revenue' ? 'revenue' : 'EBITDA'}, trailing twelve months`, text: f.amount, stmt: v, agree: Math.abs(f.amount - v) <= (f.prec || 0) + Math.max(1, Math.abs(v) * 0.002), textSrc: f.src, stmtSrc: null, against: 'the general ledger', fmt: fmtUSD }); });
+    const ok = textChecks.filter(c => c.agree), bad = textChecks.filter(c => !c.agree);
+    if (ok.length) dataChecks.push({ status: 'ok', text: `Checked against ${[...new Set(ok.map(c => c.against))].join(' and ')}: ${ok.map(c => `${c.label} stated in the text as ${c.fmt(c.text)} matches ${c.fmt(c.stmt)}`).join('; ')}.`, src: ok[0].stmtSrc || ok[0].textSrc });
+    if (bad.length) dataChecks.push({ status: 'warn', text: `The text and ${[...new Set(bad.map(c => c.against))].join(' and ')} disagree: ${bad.map(c => `${c.label} is ${c.fmt(c.text)} in the text but ${c.fmt(c.stmt)} in ${c.against}`).join('; ')}. The ${bad.length === 1 ? 'figure from the statements is' : 'figures from the statements are'} used.`, src: bad[0].textSrc });
+    const used = []; if (SM) Object.entries(SM.pl).forEach(([m, byP]) => Object.entries(byP).forEach(([k, o]) => { if (o && !o.computed && o.src && o.src.x === 'text') used.push({ m, k, o }); }));
     if (used.length) { used.sort((a, b) => a.k < b.k ? 1 : -1);
-      dataChecks.push({ status: 'warn', text: `No table states ${used.map(u => `${lc(PL_LABEL[u.m] || u.m)} for ${(SM.periods.find(p => p.key === u.k) || {}).label || u.k} (${/Pct$/.test(u.m) ? pctS(u.o.v) : fmtUSD(u.o.v)})`).join(', ')}, so ${used.length === 1 ? 'it was' : 'they were'} read from the text. Figures in text are usually rounded; check ${used.length === 1 ? 'it' : 'them'} against the source.`, src: used[0].o.src }); } }
+      dataChecks.push({ status: 'ok', text: `${used.length === 1 ? 'One figure comes' : 'These figures come'} from the text, because no financial statement in the documents covers ${used.length === 1 ? 'it' : 'them'}: ${used.map(u => `${lc(PL_LABEL[u.m] || u.m)} for ${perLabel(u.k)} (${fv(u.m, u.o.v)})`).join(', ')}. ${textChecks.length ? 'Where a statement does cover a figure, it was checked above.' : 'Adding the income statements would let each one be cross-checked automatically.'}`, src: used[0].o.src }); } }
   /* one balance sheet: the latest date only, each line once (filings and CIMs often repeat it), with
      contra-assets negative and liabilities positive so NWC = operating assets less operating liabilities */
+  const bsTextChecks = [];
   if (X.bsItems.length) {
     const dates = [...new Set(X.bsItems.map(i => i.asOf).filter(Boolean))].sort();
     const latest = dates[dates.length - 1] || null;
@@ -2635,21 +2668,27 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     const pool = X.bsItems.filter(i => !latest || i.asOf === latest || !i.asOf && (i.inferred || !X.bsItems.some(j => j.doc === i.doc && j.asOf)));
     /* order of trust: SEC tagged data, a labeled balance sheet, another table of balance sheet lines, a line on its own, a sentence */
     const pri = i => (docs.find(d => d.id === i.doc) || {}).xbrl && (docs.find(d => d.id === i.doc).xbrl || []).length ? 0 : !i.inferred ? 1 : i.inferred === 'table' ? 2 : i.inferred === 'line' ? 3 : 4;
-    const seen = new Map(); const items = new Set(); const fromOutside = []; let sameItem = 0;
+    const seen = new Map(); const items = new Map(); const fromOutside = []; let sameItem = 0;
     pool.slice().sort((a, b) => pri(a) - pri(b) || (b.asOf === latest) - (a.asOf === latest)).forEach(i => {
-      const k = normLabel(i.label); if (seen.has(k)) return;
+      const k = normLabel(i.label); const lc0 = s => s.charAt(0).toLowerCase() + s.slice(1); const tol = Math.max(i.prec || 0, 1) + Math.max(1, Math.abs(i.value) * 0.002);
+      if (seen.has(k)) { const j = seen.get(k); if (i.inferred === 'text' && !j.inferred) bsTextChecks.push({ label: lc0(i.label), text: i.value, stmt: Math.abs(j.value), stmtLabel: j.label, agree: Math.abs(i.value - Math.abs(j.value)) <= tol, textSrc: i.src, stmtSrc: j.src }); return; }
       /* the same item under another name ("Trade debtors" in a table, "accounts receivable" in a sentence) is counted once */
       const t = bsTerm(i.label); const ck = t ? 'term:' + t.concept : null;
-      if (i.inferred && ck && items.has(ck)) { sameItem++; return; }
+      if (i.inferred && ck && items.has(ck)) { sameItem++; const j = items.get(ck);
+        if (i.inferred === 'text' && !j.inferred) bsTextChecks.push({ label: lc0(i.label), text: i.value, stmt: Math.abs(j.value), stmtLabel: j.label, agree: Math.abs(i.value - Math.abs(j.value)) <= tol, textSrc: i.src, stmtSrc: j.src }); return; }
       /* a figure from a sentence fills a gap; where a balance sheet already lists that kind of item, the sentence is
-         usually describing those lines (or a total of them), so it is not added */
-      if (i.inferred === 'text' && pool.some(j => !j.inferred && j.cls === i.cls)) { sameItem++; return; }
-      seen.set(k, i); if (ck) items.add(ck); if (i.inferred) fromOutside.push(i);
+         usually describing those lines (or a total of them): it is checked against them, not added */
+      if (i.inferred === 'text' && pool.some(j => !j.inferred && j.cls === i.cls)) { sameItem++; const js = pool.filter(j => !j.inferred && j.cls === i.cls && (!latest || j.asOf === latest)); const tot = js.reduce((a, j) => a + Math.abs(j.value), 0);
+        if (js.length) bsTextChecks.push({ label: lc0(i.label), text: i.value, stmt: tot, stmtLabel: js.length === 1 ? js[0].label : `the ${js.length} ${i.cls === 'Debt' ? 'debt' : i.cls === 'Cash' ? 'cash' : 'balance sheet'} lines`, agree: Math.abs(i.value - tot) <= tol, textSrc: i.src, stmtSrc: js[0].src }); return; }
+      seen.set(k, i); if (ck && !items.has(ck)) items.set(ck, i); if (i.inferred) fromOutside.push(i);
     });
+    if (bsTextChecks.length) { const okB = bsTextChecks.filter(c => c.agree), badB = bsTextChecks.filter(c => !c.agree);
+      if (okB.length) dataChecks.push({ status: 'ok', text: `Checked against the balance sheet: ${okB.map(c => `${c.label} stated in the text as ${fmtUSD(c.text)} matches ${normLabel(c.stmtLabel) !== normLabel(c.label) ? c.stmtLabel.charAt(0).toLowerCase() + c.stmtLabel.slice(1) + ' ' : 'the balance sheet '}(${fmtUSD(c.stmt)})`).join('; ')}.`, src: okB[0].stmtSrc });
+      if (badB.length) dataChecks.push({ status: 'warn', text: `The text and the balance sheet disagree: ${badB.map(c => `${c.label} is ${fmtUSD(c.text)} in the text but ${fmtUSD(c.stmt)} on the balance sheet${normLabel(c.stmtLabel) !== normLabel(c.label) ? ` (${c.stmtLabel.charAt(0).toLowerCase() + c.stmtLabel.slice(1)})` : ''}`).join('; ')}. The balance sheet figure${badB.length === 1 ? ' is' : 's are'} used.`, src: badB[0].textSrc }); }
     const before = X.bsItems.length - sameItem - X.bsItems.filter(i => i.inferred && !pool.includes(i)).length;
     if (fromOutside.length) { const lc = s => /^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s; const where = { table: 'a table not headed balance sheet', line: 'a line on its own', text: 'the text' };
       const groups = ['table', 'line', 'text'].map(w => [w, fromOutside.filter(i => i.inferred === w)]).filter(([, a]) => a.length);
-      dataChecks.push({ status: 'warn', text: `${fromOutside.length} balance sheet figure${fromOutside.length === 1 ? ' was' : 's were'} read from outside a labeled balance sheet: ${groups.map(([w, a]) => `${a.map(i => `${lc(i.label)} ${fmtUSD(i.value)}`).join(', ')} (from ${where[w]})`).join('; ')}. Each one cites where it was found; check ${fromOutside.length === 1 ? 'it' : 'them'} against the source${fromOutside.some(i => !i.asOf) ? ', including the date, which the document does not state for every one' : ''}.`, src: fromOutside[0].src }); }
+      dataChecks.push({ status: 'warn', text: `${fromOutside.length} balance sheet figure${fromOutside.length === 1 ? ' was' : 's were'} read from outside a labeled balance sheet: ${groups.map(([w, a]) => `${a.map(i => `${lc(i.label)} ${fmtUSD(i.value)}`).join(', ')} (from ${where[w]})`).join('; ')}. Each one cites where it was found${fromOutside.some(i => !i.asOf) ? '; the document does not state a date for every one, so those are taken as current' : ''}.`, src: fromOutside[0].src }); }
     X.bsItems = [...seen.values()].map(i => ({ ...i, value: /allowance|doubtful|reserve for|less:/i.test(i.label) && i.cls === 'NWC asset' ? -Math.abs(i.value) : ['NWC liability', 'Debt', 'Debt-like'].includes(i.cls) ? Math.abs(i.value) : i.value }));
     if (before > X.bsItems.length && dates.length > 1) dataChecks.push({ status: 'ok', text: `Balance sheets at ${dates.length} dates were found; working capital, debt and cash use the latest (${latest}).` });
     else if (before > X.bsItems.length) dataChecks.push({ status: 'ok', text: `${before - X.bsItems.length} balance sheet line${before - X.bsItems.length === 1 ? ' appears' : 's appear'} in more than one document and ${before - X.bsItems.length === 1 ? 'is' : 'are'} counted once.` });
@@ -2812,6 +2851,11 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       F('C14', 'Earnings quality', rc.length ? 'Medium' : null, '"Non-recurring" items that recur', rc.length ? `${rc.map(a => a.label).join('; ')} is added back in every period shown.` : 'No "one-time" add-back repeats every period.', { metric: fmtUSD(rc.reduce((s, a) => s + a.amount, 0)), cites: rc.map(a => a.src), impact: rc.length ? { kind: 'ebitda', amount: -rc.reduce((s, a) => s + a.amount, 0), note: 'Recurring cost treated as recurring' } : null }); }
   }
 
+  /* the text and the statements disagree on the same figure */
+  { const bad = textChecks.filter(c => !c.agree).concat(bsTextChecks.filter(c => !c.agree).map(c => ({ ...c, against: 'the balance sheet', fmt: fmtUSD })));
+    if (textChecks.length || bsTextChecks.length) F('C16', 'Controls & data integrity', bad.length ? 'Medium' : null, 'Text and statements disagree',
+      bad.length ? bad.map(c => `${c.label.charAt(0).toUpperCase() + c.label.slice(1)}: ${c.fmt(c.text)} in the text, ${c.fmt(c.stmt)} in ${c.against}`).join('; ') + '. The statement figures are used.' : `Every figure stated in the text matches ${textChecks.length && bsTextChecks.length ? 'the statements and the balance sheet' : bsTextChecks.length ? 'the balance sheet' : 'the statements'}.`,
+      { metric: `${bad.length} of ${textChecks.length + bsTextChecks.length}`, cites: bad.flatMap(c => [c.textSrc, c.stmtSrc]).filter(Boolean) }); }
   /* cross-document tie-outs */
   if (L && M && M.basis === 'LTM') {
     if (M.revenue != null) { const d = pctDiff(M.revenue, L.T.Revenue);
@@ -2869,6 +2913,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       else if (ties[m]) { status = 'verified'; how = ties[m][0]; }
       else if (o.computed) { status = 'verified'; how = o.parts ? 'Sum of the lines it is built from: ' + o.parts.join(', ') : 'Computed from operating income and D&A as read'; }
       else if (blocks.size >= 2) { status = 'verified'; how = `Stated the same in ${blocks.size} places`; }
+      else if (o.src && o.src.x === 'text') { status = 'single'; how = 'Stated in the text; no financial statement in the documents covers it to cross-check'; }
       else if (o.conflict) { status = 'conflict'; how = `Stated differently elsewhere (${o.conflict.slice(0, 3).map(x => fmtUSD(x.v)).join(' vs ')})`; }
       else { status = 'single'; how = 'Read from one place; nothing in the documents to check it against'; }
       if (o.corrected) how += `. Corrected from ${fmtUSD(o.corrected.was)} so that ${o.corrected.by}`;
@@ -2884,7 +2929,9 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   if (X.bsItems.length && !L) { const tied = dataChecks.filter(c => /tie to the stated total/.test(c.text)).length;
     readChecks.push({ key: 'bs', figure: `Balance sheet lines, ${X.bsItems[0].asOf || ''}`, value: null, status: tied >= 2 ? 'verified' : tied ? 'partial' : 'single', how: tied >= 2 ? 'Current assets and current liabilities add to the totals the statement states' : tied ? 'One side ties to its stated total' : 'No stated totals to check the lines against' }); }
   { const weak = readChecks.filter(r => ['conflict', 'implausible'].includes(r.status) || (r.status === 'single' && ['revenue', 'ebitda'].includes(r.key)));
-    if (weak.length) dataChecks.push({ status: 'warn', text: `${weak.length} key figure${weak.length === 1 ? '' : 's'} could not be verified: ${weak.map(r => `${r.figure.toLowerCase()} (${r.how.toLowerCase()})`).join('; ')}. Check ${weak.length === 1 ? 'it' : 'them'} against the source before relying on ${weak.length === 1 ? 'it' : 'them'}.`, src: weak[0].src });
+    const bad = weak.filter(r => r.status !== 'single'), one = weak.filter(r => r.status === 'single' && !(r.src && r.src.x === 'text'));
+    if (bad.length) dataChecks.push({ status: 'warn', text: `${bad.length} key figure${bad.length === 1 ? '' : 's'} failed a check: ${bad.map(r => `${r.figure.toLowerCase()} (${r.how.toLowerCase()})`).join('; ')}.`, src: bad[0].src });
+    if (one.length) dataChecks.push({ status: 'ok', text: `${one.map(r => r.figure).join(' and ')} ${one.length === 1 ? 'is' : 'are'} stated in only one place in the documents, so there is nothing else to cross-check ${one.length === 1 ? 'it' : 'them'} against.`, src: one[0].src });
     else if (readChecks.length) { const v = readChecks.filter(r => r.status === 'verified'), one = readChecks.filter(r => r.status !== 'verified');
       dataChecks.push({ status: 'ok', text: `${v.length} of ${readChecks.length} key figures were verified against the statements' own arithmetic or a second place they are stated${one.length ? `; ${one.map(r => r.figure.split(',')[0].toLowerCase()).join(' and ')} ${one.length === 1 ? 'is' : 'are'} read from one place with nothing to check against` : ''}.` }); } }
   /* EBITDA must include depreciation and amortization; when the documents state no EBITDA and no D&A can be found,
@@ -2967,7 +3014,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     if (f.severity && p.sev) { f.firm = `Severity set to ${p.sev} in Firm Settings`; f.severity = p.sev; }
     if (f.severity && f.severity !== 'Low' && TH.materiality && f.impact && Math.abs(f.impact.amount * (f.impact.kind === 'ebitda' ? (+S.multiple || 1) : 1)) < TH.materiality) { f.firm = `Below the firm's materiality of ${fmtUSD(TH.materiality)}`; f.severity = 'Low'; } });
   /* every risk is checked before it is stated: its citations re-read, the figures it rests on tested */
-  const citeTally = verifyFindings(findings, { docs, X, SM, M, readChecks, docUnits, fxDocs: new Set(fxNeeded.map(x => x.id).concat(docs.filter(d => docCur[d.id] !== CUR.code).map(d => d.id))) });
+  const citeTally = verifyFindings(findings, { docs, X, SM, M, readChecks, docUnits, textChecks, fxDocs: new Set(fxNeeded.map(x => x.id).concat(docs.filter(d => docCur[d.id] !== CUR.code).map(d => d.id))) });
   { const held = findings.filter(f => f.held);
     if (citeTally.checked) dataChecks.push({ status: citeTally.unconfirmed ? 'warn' : 'ok', text: `${citeTally.checked} citation${citeTally.checked === 1 ? '' : 's'} behind the risks were re-read against the documents: ${citeTally.shown} show the cited figure${citeTally.moved ? `, ${citeTally.moved} pointed to the wrong line and ${citeTally.moved === 1 ? 'was' : 'were'} moved to the line that shows it` : ''}${citeTally.unconfirmed ? `, ${citeTally.unconfirmed} could not be confirmed` : ''}.` });
     if (citeTally.moves.length) dataChecks.push({ status: 'fixed', text: `Citations corrected: ${citeTally.moves.slice(0, 6).join('; ')}${citeTally.moves.length > 6 ? `; and ${citeTally.moves.length - 6} more` : ''}.` });
