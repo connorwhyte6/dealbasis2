@@ -1351,14 +1351,17 @@ function proseRes() {
 }
 const NOT_A_BALANCE = /\b(by|increase[sd]?|decrease[sd]?|grew|growth|declin\w*|change[sd]?|average|per (month|year|week|day)|monthly|annual(ly)?|forecast\w*|project\w*|expect\w*|budget\w*|target\w*|plan(s|ned)?|run-?rate|guidance|limit|capacity|availability|available|commitment|maximum|up to)\b/i;
 const NOT_AN_ACTUAL = /\b(forecast\w*|project(s|ed|ing|ion|ions)|expect\w*|budget\w*|target\w*|plan(s|ned)?|guidance|run-?rate|pipeline|backlog|estimat\w*|anticipat\w*|outlook|pro forma for|would|could|will)\b/i;
+/* a goal someone is paid or measured against is neither an actual nor a forecast */
+const NOT_A_FIGURE = /\b(compensation|bonus\w*|incentive\w*|award\w*|vesting|vest|stretch|threshold|payout|performance goal|performance target|psu|rsu|covenant|minimum|maximum|cap of|up to|at least)\b/i;
 function yearNear(s, at, len) {
   if (/\b(ltm|ttm|trailing (?:twelve|12)[- ]months?|last (?:twelve|12) months)\b/i.test(s.slice(Math.max(0, at - 40), at + len + 40))) return 'LTM';
   const ys = [...s.matchAll(/\b(?:fiscal(?: year)?\s*|fy\s*'?|calendar(?: year)?\s*|year ended [a-z]+ \d{1,2},?\s*|for |in |during )?((?:19|20)\d{2})\b|\bfy'?(\d{2})\b/gi)]
     .map(m => ({ y: m[1] ? +m[1] : 2000 + +m[2], at: m.index, end: m.index + m[0].length, tagged: /fiscal|fy|year|for |in |during /i.test(m[0]) }));
   if (!ys.length) return null;
-  const after = ys.find(o => o.at >= at + len && o.at - (at + len) <= 30 && o.tagged);
+  const CMP = /\b(from|compared (?:to|with)|versus|vs\.?|over|than|against|prior|previous|a year (?:ago|earlier)|last year)\b[\s\w]{0,14}$/i;
+  const after = ys.find(o => o.at >= at + len && o.at - (at + len) <= 30 && o.tagged && !CMP.test(s.slice(Math.max(at + len, o.at - 30), o.at)));
   if (after) return after.y;
-  const before = ys.filter(o => o.end <= at).pop();
+  const before = ys.filter(o => o.end <= at && !CMP.test(s.slice(Math.max(0, o.at - 30), o.at))).pop();
   if (before) return before.y;
   return ys.length === 1 ? ys[0].y : null;
 }
@@ -1366,6 +1369,8 @@ const scaleOfU = u => { const x = String(u || '').toLowerCase(); return /^(b|bn|
 const precOf = (n, u, phrase) => { const dec = String(n).includes('.') ? String(n).split('.')[1].length : 0; const step = Math.pow(10, -dec) * scaleOfU(u);
   return step * (/\b(approximately|about|roughly|around|nearly|almost|over|some|close to)\b|~/i.test(phrase || '') ? 1 : 0.5); };
 function figuresFromText(s, src, out, dated) {
+  /* a table flattened into text (many figures, column headings) is read by the table reader instead */
+  if ((s.match(/\d[\d,.]*/g) || []).length > 8 || /\(\$ in (thousands|millions|billions)|in millions, except|\$\s+[\d,]+\s+\$\s+[\d,]+/i.test(s)) return asOfIn(s) || dated;
   const R = proseRes(); const asOf = asOfIn(s) || (/\b(year[- ]end|at the end of the year|period end)\b/i.test(s) ? dated : null) || null;
   const took = [];
   const keep = (at, end) => { if (took.some(([a, b]) => at < b && end > a)) return false; took.push([at, end]); return true; };
@@ -1377,7 +1382,7 @@ function figuresFromText(s, src, out, dated) {
   for (const m of s.matchAll(R.bs)) {
     const name = m[1]; const t = BS_TERM[termKey(name)]; if (!t || !isAmount(m[0], m[2], m[3])) continue;
     const win = s.slice(Math.max(0, m.index - 25), m.index + m[0].length + 18);
-    if (NOT_A_BALANCE.test(win.replace(name, '')) || !keep(m.index, m.index + m[0].length)) continue;
+    if (NOT_A_BALANCE.test(win.replace(name, '')) || /\b(accumulated|amorti[sz]ation|depreciation|impairment|allowance|reserve for|interest (on|expense)|payments? (on|of|for|under)|portion of|cost of|fair value of|weighted|average)\b/i.test(s.slice(Math.max(0, m.index - 70), m.index)) || NOT_A_FIGURE.test(win) || !keep(m.index, m.index + m[0].length)) continue;
     if (t.concept === 'revolver' && !/outstanding|drawn|balance|owed|borrowed|due/i.test(s.slice(Math.max(0, m.index - 40), m.index + m[0].length + 40))) continue;
     out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[2], m[3]), prec: precOf(m[2], m[3], m[0]), asOf, text: s, src });
   }
@@ -1386,19 +1391,41 @@ function figuresFromText(s, src, out, dated) {
   const pastM = s.match(/\b(?:past|last|prior|previous|recent)\s+(\d{1,2}|two|three|four|five|six|seven|eight|nine|ten)\s+(?:fiscal\s+|calendar\s+|full\s+)?years\b/i);
   /* "maintained", "consistently", "each year" with no count: the same figure in every year the document covers (-1) */
   const past = pastM ? (WORDN[pastM[1].toLowerCase()] || +pastM[1]) : /\b(each|every) (?:of the )?(?:last |past )?(?:few )?years?\b|\bannually\b|\bconsistent(ly)?\b|\bmaintain\w*|\bsteady\b|\bstable\b|\bheld\b|\bhistorically\b/i.test(s) ? -1 : 0;
+  const resp = /respectively/i.test(s) ? (s.match(/\b(?:fiscal |calendar )?(?:years?|fy)\s*((?:19|20)\d{2})(?:\s*,\s*((?:19|20)\d{2}))?\s*,?\s*and\s*((?:19|20)\d{2})/i) || null) : null;
   const when = (m, len) => { /* a projection needs a stated year to be placed; an actual with none is the current figure */
-    const projected = NOT_AN_ACTUAL.test(s.slice(Math.max(0, m.index - 60), m.index + len + 40));
+    if (resp) { const ys = [resp[1], resp[2], resp[3]].filter(Boolean).map(Number); const before = (s.slice(0, m.index + len).match(/(?:\$\s?)?\d[\d,]*(?:\.\d+)?\s*(?:billion|million|thousand|%)/gi) || []).length;
+      const y = ys[Math.max(0, before - 1)]; if (y) return { year: y, past: 0 }; }
+    if (NOT_A_FIGURE.test(s.slice(Math.max(0, m.index - 120), m.index + len + 60))) return null;
+    const projected = /\b(forecast\w*|project(s|ed|ing|ion|ions)|expect\w*|budget\w*|guidance|outlook|anticipat\w*|estimat\w*)\b/i.test(s.slice(Math.max(0, m.index - 60), m.index + len + 40))
+      || (NOT_AN_ACTUAL.test(s.slice(Math.max(0, m.index - 60), m.index + len + 40)) ? 'skip' : false);
+    if (projected === 'skip') return null;
     let y = yearNear(s, m.index, len); if (projected && y === 'LTM') y = null;
     if (projected) return y ? { year: y, proj: true } : null;
     return { year: y || 'LTM', past: y ? 0 : past }; };
+  const PART = /\b(quarter|quarterly|q[1-4]|three months|six months|nine months|first half|second half|segment|division|unit|platform|product line)\b/i;
+  /* the word before a line's name says whose it is: a name ("Automotive revenue", "Data Center revenue") or a kind of
+     revenue ("product revenue", "service revenue") is a part of the company's; anything else is the company's own */
+  const PART_NOUN = /^(product|products|service|services|hardware|software|subscription|subscriptions|license|licensing|licence|segment|segments|regional|international|domestic|foreign|maintenance|equipment|parts|gaming|automotive|retail|wholesale|online|digital|advertising|consulting|installation|recurring|non-recurring|contract|channel|customer|customers|division|unit|platform|other|related-party|intercompany|quarterly|monthly|weekly|daily)$/i;
+  const ownedBy = (at) => { const pre = s.slice(Math.max(0, at - 40), at); const w = (pre.match(/([\w'&.-]+)[\s,]*$/) || [])[1]; if (!w) return true;
+    const word = w.replace(/[.,]$/, ''); if (PART_NOUN.test(word)) return false;
+    if (/['’]s?$/.test(word)) return true; /* "Mesa Ridge's revenue": the company's own */
+    /* a capitalized word that does not start the sentence is a name: a segment, product or region */
+    const atStart = !/\S/.test(s.slice(0, Math.max(0, at - w.length - 1)).replace(/[\s"“(]+$/, '').slice(-1)) || /[.!?:;]\s*$/.test(s.slice(0, at - (pre.length - pre.lastIndexOf(w)))); 
+    if (/^[A-Z][a-z]/.test(word) && !atStart && !/^(Total|Net|Consolidated|Annual|Our|Its|The|Their|Company|Fiscal|Group|GAAP|Reported|Record|FY\d*)$/.test(word)) return false;
+    return true; };
   for (const m of s.matchAll(R.margin)) {
-    const name = m[1].toLowerCase(); const metric = /adj/.test(name) ? 'adjEbitdaPct' : /ebitda/.test(name) ? 'ebitdaPct' : /gross/.test(name) ? 'gmPct' : null;
+    const name = m[1].toLowerCase();
+    if (/\b(increase\w*|decrease\w*|declin\w*|expan\w*|contract\w*|improv\w*|up|down|grew|fell|rose|change\w*|points?|pts|bps|basis points|percentage points?)\b/i.test(s.slice(m.index, m.index + m[0].length + 25)) || PART.test(s.slice(Math.max(0, m.index - 50), m.index + m[0].length)) || !ownedBy(m.index)) continue; const metric = /adj/.test(name) ? 'adjEbitdaPct' : /ebitda/.test(name) ? 'ebitdaPct' : /gross/.test(name) ? 'gmPct' : null;
     const v = +m[2]; if (!metric || !(v > 0 && v < 100) || !keep(m.index, m.index + m[0].length)) continue;
     const w = when(m, m[0].length); if (!w) continue;
     out.facts.push({ kind: 'plMention', metric, pct: true, amount: v, prec: precOf(m[2], null, m[0]), ...w, label: m[1], text: s, src });
   }
   for (const { m, name, n, u } of plHits) {
     let metric = PL_TERM[termKey(name)]; if (!metric || !isAmount(m[0], n, u)) continue;
+    { const nameAt0 = m.index + m[0].toLowerCase().indexOf(name.toLowerCase());
+      if (PART.test(s.slice(Math.max(0, nameAt0 - 50), m.index + m[0].length + 30)) || !ownedBy(nameAt0)) continue;
+      /* a slice of it: revenue recognized from deferred revenue, attributable to a customer, related to a contract */
+      if (/\b(that|which) (was|were|is|are) (included|recognized|attributable|related|recorded)|\bincluded in\b|\battributable to\b|\brelated to\b|\bassociated with\b|\bfrom (?:the |our )?(?:prior|deferred|backlog|remaining|existing)|deferred revenue|performance obligations?/i.test(s.slice(m.index + m[0].length, m.index + m[0].length + 110)) || /^\s*(per|a) (share|unit|customer|employee|user|seat)\b/i.test(s.slice(m.index + m[0].length, m.index + m[0].length + 20))) continue; }
     const nameAt = m.index + m[0].toLowerCase().indexOf(name.toLowerCase()); const pre = s.slice(Math.max(0, nameAt - 14), nameAt);
     if (metric === 'ebitda' && /\b(adjusted|adj\.?|normali[sz]ed|recast|pro forma)\s*$/i.test(pre)) metric = 'adjEbitda';
     if (/\b(increase|decrease|growth|change|grew|declin|improvement|reduction)\w*\s+(by|of|in)\s*$/i.test(pre)) continue;
@@ -1695,7 +1722,8 @@ function proseBlocks(out) {
   Object.entries(byDoc).forEach(([doc, fs]) => {
     /* the year a document is written in: the first year it projects, else the year after the latest actual it names */
     const projY = fs.filter(f => f.proj && typeof f.year === 'number').map(f => f.year), actY = fs.filter(f => !f.proj && typeof f.year === 'number').map(f => f.year);
-    const now = projY.length ? Math.min(...projY) : actY.length ? Math.max(...actY) + 1 : null;
+    const stmtY = Math.max(0, ...Object.values(latestH).map(x => x.year || 0));
+    const now = stmtY ? Math.max(stmtY + 1, projY.length ? Math.min(...projY) : 0) : projY.length ? Math.min(...projY) : actY.length ? Math.max(...actY) + 1 : null;
     const key = (y, proj) => y === 'LTM' ? 'LTM' : y + (proj ? 'E' : 'A');
     const cand = {}; const add = (k, f, rank) => { if (covered.has(f.metric + '|' + k)) return cmp(f, k);
       /* a current figure with no year, when the statements have years: it is compared with the latest one */
@@ -1703,12 +1731,13 @@ function proseBlocks(out) {
     /* the actual years the document covers: those it names, and those "the past N years" points to */
     const span = new Set(actY); fs.forEach(f => { if (!f.proj && f.year === 'LTM' && f.past > 0 && now) for (let k = 1; k <= f.past; k++) span.add(now - k); });
     fs.forEach(f => {
-      if (f.proj) return add(key(f.year, true), f, 0);
+      if (f.proj) { if (stmtY && f.year <= stmtY) return; return add(key(f.year, true), f, 0); }
       if (f.year !== 'LTM') return add(key(f.year), f, 0);
       /* "each year for the past 3 years": that figure in each of those years, when the document says which year it is in */
       if (f.past > 0 && now) { for (let k = 1; k <= f.past; k++) add(key(now - k), f, 1); return; }
       /* "maintained", "consistently": the same in every year covered; a figure with no year is the latest one */
       if (f.past < 0 && span.size) { span.forEach(y => add(key(y), f, 2)); return; }
+      if (latestH[f.metric]) return cmp(f, latestH[f.metric].key);
       if (now) return add(key(now - 1), f, 2);
       add('LTM', f, 1);
     });
@@ -2514,6 +2543,8 @@ function verifyFindings(findings, ctx) {
     if (!exps.length || (fxDocs && fxDocs.has(a.d))) return { status: 'exists' };
     const units = unitsOfDoc(a.d);
     if (exps.some(e => showsFigure(ctxT, e, units))) return { status: 'shown' };
+    if (a.x === 'text' || exps.every(e => e.text)) { const pageT = a.t === 'pdf' ? ((docs.find(x => x.id === a.d) || {}).pages || [])[a.p - 1] : null;
+      const whole = pageT ? pageT.lines.map(l => l.text).join(' ') : ctxT; return exps.some(e => showsFigure(whole, e, units)) ? { status: 'shown' } : { status: 'mismatch', want: exps[0] }; }
     for (const e of exps) { const to = findLineFor(docs, a, e, units); if (to) { const from = anchorWhere(a); Object.keys(a).forEach(k => { if (k !== 'x') delete a[k]; }); Object.assign(a, to); return { status: 'moved', from, to: anchorWhere(a), label: e.label }; } }
     return { status: 'mismatch', want: exps[0] };
   };
@@ -2646,9 +2677,15 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       /* a margin the statements imply: their profit line over their revenue */
       const n = PCT_OF[m] && SM && SM.pl[PCT_OF[m]] && SM.pl[PCT_OF[m]][k], r = SM && SM.pl.revenue && SM.pl.revenue[k];
       if (n && r && r.v && n.src && r.src && n.src.x !== 'text' && r.src.x !== 'text' && !n.computed) return { v: n.v / r.v, src: n.src }; return null; };
-    factsOf('plMention').forEach(f => (f.cmp || []).forEach(k => { const o = stmtOf(f.metric, k); if (!o) return;
-      const tv = f.pct ? f.amount / 100 : f.amount; const tol = f.pct ? (f.prec || 0.5) / 100 + 0.0005 : (f.prec || 0) + Math.max(1, Math.abs(o.v) * 0.002);
-      textChecks.push({ kind: 'pl', metric: f.metric, key: k, label: `${lc(PL_LABEL[f.metric] || f.metric)}, ${perLabel(k)}`, text: tv, stmt: o.v, agree: Math.abs(tv - o.v) <= tol, textSrc: f.src, stmtSrc: o.src, against: o.src.t === 'xbrl' ? 'the filing' : 'the statements', fmt: v => fv(f.metric, v) }); }));
+    factsOf('plMention').forEach(f => (f.cmp || []).forEach(k => { let o = stmtOf(f.metric, k); if (!o) return;
+      const tv = f.pct ? f.amount / 100 : f.amount; const tolOf = v => f.pct ? (f.prec || 0.5) / 100 + 0.0005 : (f.prec || 0) + Math.max(1, Math.abs(v) * 0.002);
+      let agree = Math.abs(tv - o.v) <= tolOf(o.v);
+      if (!agree) { /* the text may mean another year the statements report: a match there is that year's figure */
+        const other = (SM.periods || []).map(p => p.key).filter(x => x !== k).map(x => ({ x, o: stmtOf(f.metric, x) })).find(z => z.o && Math.abs(tv - z.o.v) <= tolOf(z.o.v));
+        if (other) { k = other.x; o = other.o; agree = true; }
+        /* far from every year: a different measure (a segment, a slice, a per-unit figure), not a disagreement */
+        else if (f.pct ? Math.abs(tv - o.v) > 0.15 : !(tv / o.v > 0.6 && tv / o.v < 1.67)) return; }
+      textChecks.push({ kind: 'pl', metric: f.metric, key: k, label: `${lc(PL_LABEL[f.metric] || f.metric)}, ${perLabel(k)}`, text: tv, stmt: o.v, agree, textSrc: f.src, stmtSrc: o.src, against: o.src.t === 'xbrl' ? 'the filing' : 'the statements', fmt: v => fv(f.metric, v) }); }));
     /* the ledger's trailing twelve months, for a current revenue or EBITDA figure in the text */
     if (L) factsOf('plMention').filter(f => !f.proj && f.year === 'LTM' && ['revenue', 'ebitda'].includes(f.metric)).forEach(f => { const v = f.metric === 'revenue' ? L.T.Revenue : L.T.EBITDA; if (v == null) return;
       textChecks.push({ kind: 'pl', metric: f.metric, key: 'TTM', label: `${f.metric === 'revenue' ? 'revenue' : 'EBITDA'}, trailing twelve months`, text: f.amount, stmt: v, agree: Math.abs(f.amount - v) <= (f.prec || 0) + Math.max(1, Math.abs(v) * 0.002), textSrc: f.src, stmtSrc: null, against: 'the general ledger', fmt: fmtUSD }); });
@@ -2666,6 +2703,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     const latest = dates[dates.length - 1] || null;
     /* lines found outside a balance sheet with no date of their own are used only for items nothing dated covers */
     const pool = X.bsItems.filter(i => !latest || i.asOf === latest || !i.asOf && (i.inferred || !X.bsItems.some(j => j.doc === i.doc && j.asOf)));
+    const labeledBS = pool.some(i => !i.inferred);
     /* order of trust: SEC tagged data, a labeled balance sheet, another table of balance sheet lines, a line on its own, a sentence */
     const pri = i => (docs.find(d => d.id === i.doc) || {}).xbrl && (docs.find(d => d.id === i.doc).xbrl || []).length ? 0 : !i.inferred ? 1 : i.inferred === 'table' ? 2 : i.inferred === 'line' ? 3 : 4;
     const seen = new Map(); const items = new Map(); const fromOutside = []; let sameItem = 0;
@@ -2678,8 +2716,10 @@ function buildRecord(docs, mandate, S0, dec, rv) {
         if (i.inferred === 'text' && !j.inferred) bsTextChecks.push({ label: lc0(i.label), text: i.value, stmt: Math.abs(j.value), stmtLabel: j.label, agree: Math.abs(i.value - Math.abs(j.value)) <= tol, textSrc: i.src, stmtSrc: j.src }); return; }
       /* a figure from a sentence fills a gap; where a balance sheet already lists that kind of item, the sentence is
          usually describing those lines (or a total of them): it is checked against them, not added */
-      if (i.inferred === 'text' && pool.some(j => !j.inferred && j.cls === i.cls)) { sameItem++; const js = pool.filter(j => !j.inferred && j.cls === i.cls && (!latest || j.asOf === latest)); const tot = js.reduce((a, j) => a + Math.abs(j.value), 0);
-        if (js.length) bsTextChecks.push({ label: lc0(i.label), text: i.value, stmt: tot, stmtLabel: js.length === 1 ? js[0].label : `the ${js.length} ${i.cls === 'Debt' ? 'debt' : i.cls === 'Cash' ? 'cash' : 'balance sheet'} lines`, agree: Math.abs(i.value - tot) <= tol, textSrc: i.src, stmtSrc: js[0].src }); return; }
+      if (i.inferred === 'text' && pool.some(j => !j.inferred && j.cls === i.cls)) { sameItem++; return; }
+      /* where the documents have a labeled balance sheet, lines found elsewhere (a liquidity table, a note, a line on its
+         own) are breakdowns or subtotals of it, not extra items: the balance sheet is used as it stands */
+      if ((i.inferred === 'table' || i.inferred === 'line') && labeledBS) { sameItem++; return; }
       seen.set(k, i); if (ck && !items.has(ck)) items.set(ck, i); if (i.inferred) fromOutside.push(i);
     });
     if (bsTextChecks.length) { const okB = bsTextChecks.filter(c => c.agree), badB = bsTextChecks.filter(c => !c.agree);
@@ -2691,7 +2731,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       dataChecks.push({ status: 'warn', text: `${fromOutside.length} balance sheet figure${fromOutside.length === 1 ? ' was' : 's were'} read from outside a labeled balance sheet: ${groups.map(([w, a]) => `${a.map(i => `${lc(i.label)} ${fmtUSD(i.value)}`).join(', ')} (from ${where[w]})`).join('; ')}. Each one cites where it was found${fromOutside.some(i => !i.asOf) ? '; the document does not state a date for every one, so those are taken as current' : ''}.`, src: fromOutside[0].src }); }
     X.bsItems = [...seen.values()].map(i => ({ ...i, value: /allowance|doubtful|reserve for|less:/i.test(i.label) && i.cls === 'NWC asset' ? -Math.abs(i.value) : ['NWC liability', 'Debt', 'Debt-like'].includes(i.cls) ? Math.abs(i.value) : i.value }));
     if (before > X.bsItems.length && dates.length > 1) dataChecks.push({ status: 'ok', text: `Balance sheets at ${dates.length} dates were found; working capital, debt and cash use the latest (${latest}).` });
-    else if (before > X.bsItems.length) dataChecks.push({ status: 'ok', text: `${before - X.bsItems.length} balance sheet line${before - X.bsItems.length === 1 ? ' appears' : 's appear'} in more than one document and ${before - X.bsItems.length === 1 ? 'is' : 'are'} counted once.` });
+    else if (before > X.bsItems.length) dataChecks.push({ status: 'ok', text: `${before - X.bsItems.length} balance sheet line${before - X.bsItems.length === 1 ? ' appears' : 's appear'} more than once in the documents and ${before - X.bsItems.length === 1 ? 'is' : 'are'} counted once.` });
     reconcileBS(X, latest, dataChecks, dec);
   }
   /* corrections the deal team typed over extracted figures */
@@ -3016,7 +3056,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   /* every risk is checked before it is stated: its citations re-read, the figures it rests on tested */
   const citeTally = verifyFindings(findings, { docs, X, SM, M, readChecks, docUnits, textChecks, fxDocs: new Set(fxNeeded.map(x => x.id).concat(docs.filter(d => docCur[d.id] !== CUR.code).map(d => d.id))) });
   { const held = findings.filter(f => f.held);
-    if (citeTally.checked) dataChecks.push({ status: citeTally.unconfirmed ? 'warn' : 'ok', text: `${citeTally.checked} citation${citeTally.checked === 1 ? '' : 's'} behind the risks were re-read against the documents: ${citeTally.shown} show the cited figure${citeTally.moved ? `, ${citeTally.moved} pointed to the wrong line and ${citeTally.moved === 1 ? 'was' : 'were'} moved to the line that shows it` : ''}${citeTally.unconfirmed ? `, ${citeTally.unconfirmed} could not be confirmed` : ''}.` });
+    if (citeTally.checked) dataChecks.push({ status: citeTally.unconfirmed ? 'warn' : 'ok', text: `${citeTally.checked} citation${citeTally.checked === 1 ? '' : 's'} behind the risks ${citeTally.checked === 1 ? 'was' : 'were'} re-read against the documents: ${citeTally.shown} ${citeTally.shown === 1 ? 'shows' : 'show'} the cited figure${citeTally.moved ? `, ${citeTally.moved} pointed to the wrong line and ${citeTally.moved === 1 ? 'was' : 'were'} moved to the line that shows it` : ''}${citeTally.unconfirmed ? `, ${citeTally.unconfirmed} could not be confirmed` : ''}.` });
     if (citeTally.moves.length) dataChecks.push({ status: 'fixed', text: `Citations corrected: ${citeTally.moves.slice(0, 6).join('; ')}${citeTally.moves.length > 6 ? `; and ${citeTally.moves.length - 6} more` : ''}.` });
     if (held.length) dataChecks.push({ status: 'warn', text: `${held.length} possible risk${held.length === 1 ? ' is' : 's are'} held back until verified, not stated: ${held.map(f => `${f.id} ${f.title} (${f.verify.why[0]})`).join('; ')}.` }); }
   /* risk scores and the pre-LOI confidence score */
