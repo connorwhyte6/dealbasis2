@@ -1329,7 +1329,8 @@ const MONEY_P = '(?:(?:US)?\\$\\s?|(?:USD|US dollars?)\\s?)?(\\d[\\d,]*(?:\\.\\d
 const isAmount = (t, n, u) => !!u || /\$|\busd\b|dollars?/i.test(t) || /^\d{1,3}(,\d{3}){2,}(\.\d+)?$/.test(String(n));
 const LINK_P = '\\s*(?:balance\\s+)?(?:of|was|were|is|are|stood at|totaled|totalled|totaling|totalling|amounted to|amounting to|equal to|equaled|:|-|–)\\s*(?:approximately|about|roughly|around|~)?\\s*';
 /* "was", "reached", "grew 15% to", ":" between an income statement line and its figure */
-const PL_LINK_P = '\\s*(?:(?:of|was|were|is|are|reached|totaled|totalled|totaling|totalling|amounted to|came in at|stood at|hit|equaled|(?:grew|increased|rose|climbed|expanded|improved)(?:\\s+(?:by\\s+)?\\d+(?:\\.\\d+)?\\s?%)?\\s+to)|:|-|–)\\s*(?:approximately|about|roughly|around|nearly|over|~)?\\s*';
+const TIME_FILL_P = '(?:\\s+(?:each|every|per|a|an|in|for|over|during|the|past|last|prior|previous|recent|fiscal|calendar|year|years|annually|annual|consecutive|of|(?:19|20)\\d{2}|fy\\s?\\d{2,4}|\\d{1,2}|two|three|four|five|six|seven|eight|nine|ten))*';
+const PL_LINK_P = '\\s*(?:(?:of|was|were|is|are|have been|has been|had been|have averaged|has averaged|averaged|to be|will be|should be|at|reached|totaled|totalled|totaling|totalling|amounted to|came in at|stood at|hit|equaled|(?:grew|increased|rose|climbed|expanded|improved)(?:\\s+(?:by\\s+)?\\d+(?:\\.\\d+)?\\s?%)?\\s+to)|:|-|–)\\s*(?:approximately|about|roughly|around|nearly|over|~)?\\s*';
 const reEsc = s => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 const PROSE_BS_SKIP = new Set(['ar', 'ap', 'a/r', 'a/p', 'loc', 'stock', 'stocks', 'wip', 'debtors', 'creditors', 'payables', 'receivables', 'borrowings', 'merchandise', 'mortgage', 'overdraft']);
 let PROSE_RE = null;
@@ -1341,7 +1342,9 @@ function proseRes() {
   return PROSE_RE = {
     bs: new RegExp(`\\b(${bsNames})\\b(?!\\s+(?:flow|flows|conversion|consideration|purchase|portion|payments?|interest|days|turnover|cycle|generation|basis|taxes|tax|position of))${LINK_P}${MONEY_P}`, 'gi'),
     debt: new RegExp(`${MONEY_P}\\s+(?:was\\s+|is\\s+)?(?:outstanding|drawn|borrowed|owed)\\s+(?:on|under)\\s+(?:its|the|a|our|their|this)\\s+(?:[\\w&'-]+\\s+){0,3}?(${debtNames})\\b`, 'gi'),
-    pl: new RegExp(`\\b(${plNames})\\b(?:\\s+(?:for|in|during)\\s+(?:the\\s+)?(?:fiscal\\s+)?(?:year|fy|twelve months|12 months)[^$.;]{0,40}?)?${PL_LINK_P}${MONEY_P}`, 'gi'),
+    pl: new RegExp(`\\b(${plNames})\\b(?:\\s+(?:for|in|during)\\s+(?:the\\s+)?(?:fiscal\\s+)?(?:year|fy|twelve months|12 months)[^$.;]{0,40}?)?${TIME_FILL_P}${PL_LINK_P}${MONEY_P}`, 'gi'),
+    /* margins stated as percentages: "gross margins at 49%", "EBITDA margin of 17 percent" (a bare number ending the sentence counts too) */
+    margin: new RegExp(`\\b(gross (?:profit )?margins?|adj(?:usted|\\.)? ebitda margins?|ebitda margins?|net (?:profit |income )?margins?|operating margins?)\\b${TIME_FILL_P}(?:\\s+(?:at|of|was|were|is|are|have been|has been|had been|averaged|have averaged|has averaged|consistently|steady|stable|held|been|around|near|in the range of|to be|will be|reached|of about|of approximately))*\\s*(?:approximately|about|roughly|around|nearly|over|~)?\\s*(\\d{1,2}(?:\\.\\d+)?)\\s*(%|percent|pct\\b)?(?=\\s*(?:%|[.,;)]|$|and\\b|while\\b|over\\b|for\\b|in\\b|across\\b|each\\b|every\\b|since\\b))`, 'gi'),
     /* "$18.6 million in revenue", "$3.1 million of adjusted EBITDA" */
     plAfter: new RegExp(`${MONEY_P}\\s+(?:in|of)\\s+(?:(?:net|total|annual|annualized|annualised|gross|ltm|ttm|trailing)\\s+)?(${plNames})\\b`, 'gi')
   };
@@ -1376,14 +1379,28 @@ function figuresFromText(s, src, out, dated) {
     out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[2], m[3]), asOf, text: s, src });
   }
   const plHits = [...[...s.matchAll(R.pl)].map(m => ({ m, name: m[1], n: m[2], u: m[3] })), ...[...s.matchAll(R.plAfter)].map(m => ({ m, name: m[3], n: m[1], u: m[2] }))].sort((a, b) => a.m.index - b.m.index);
+  /* "for the past 3 years", "each year": one figure for several years before the year the document is written in */
+  const pastM = s.match(/\b(?:past|last|prior|previous|recent)\s+(\d{1,2}|two|three|four|five|six|seven|eight|nine|ten)\s+(?:fiscal\s+|calendar\s+|full\s+)?years\b/i);
+  /* "maintained", "consistently", "each year" with no count: the same figure in every year the document covers (-1) */
+  const past = pastM ? (WORDN[pastM[1].toLowerCase()] || +pastM[1]) : /\b(each|every) (?:of the )?(?:last |past )?(?:few )?years?\b|\bannually\b|\bconsistent(ly)?\b|\bmaintain\w*|\bsteady\b|\bstable\b|\bheld\b|\bhistorically\b/i.test(s) ? -1 : 0;
+  const when = (m, len) => { /* a projection needs a stated year to be placed; an actual with none is the current figure */
+    const projected = NOT_AN_ACTUAL.test(s.slice(Math.max(0, m.index - 60), m.index + len + 40));
+    let y = yearNear(s, m.index, len); if (projected && y === 'LTM') y = null;
+    if (projected) return y ? { year: y, proj: true } : null;
+    return { year: y || 'LTM', past: y ? 0 : past }; };
+  for (const m of s.matchAll(R.margin)) {
+    const name = m[1].toLowerCase(); const metric = /adj/.test(name) ? 'adjEbitdaPct' : /ebitda/.test(name) ? 'ebitdaPct' : /gross/.test(name) ? 'gmPct' : null;
+    const v = +m[2]; if (!metric || !(v > 0 && v < 100) || !keep(m.index, m.index + m[0].length)) continue;
+    const w = when(m, m[0].length); if (!w) continue;
+    out.facts.push({ kind: 'plMention', metric, pct: true, amount: v, ...w, label: m[1], text: s, src });
+  }
   for (const { m, name, n, u } of plHits) {
     let metric = PL_TERM[termKey(name)]; if (!metric || !isAmount(m[0], n, u)) continue;
-    if (NOT_AN_ACTUAL.test(s.slice(Math.max(0, m.index - 60), m.index + m[0].length + 40))) continue;
     const nameAt = m.index + m[0].toLowerCase().indexOf(name.toLowerCase()); const pre = s.slice(Math.max(0, nameAt - 14), nameAt);
     if (metric === 'ebitda' && /\b(adjusted|adj\.?|normali[sz]ed|recast|pro forma)\s*$/i.test(pre)) metric = 'adjEbitda';
     if (/\b(increase|decrease|growth|change|grew|declin|improvement|reduction)\w*\s+(by|of|in)\s*$/i.test(pre)) continue;
-    const y = yearNear(s, m.index, m[0].length) || 'LTM'; if (!keep(m.index, m.index + m[0].length)) continue;
-    out.facts.push({ kind: 'plMention', metric, year: y, amount: amt(n, u), label: name, text: s, src });
+    const w = when(m, m[0].length); if (!w || !keep(m.index, m.index + m[0].length)) continue;
+    out.facts.push({ kind: 'plMention', metric, ...w, amount: amt(n, u), label: name, text: s, src });
   }
   return asOf || dated;
 }
@@ -1658,24 +1675,42 @@ function inferBS(d, out, c0, tagged) {
   });
   if (!tagged) out.facts.slice(c0.facts).filter(f => f.kind === 'bsMention' && f.amount > 0).forEach(f => out.bsItems.push({ label: f.label, cls: f.cls, value: f.amount, asOf: f.asOf, src: f.src, doc: d.id, inferred: 'text', abs: true, text: f.text }));
 }
-const PL_LABEL = { revenue: 'Revenue', ebitda: 'EBITDA', adjEbitda: 'Adjusted EBITDA', gp: 'Gross profit', cogs: 'Cost of revenue', opex: 'Operating expenses', operatingIncome: 'Operating income', netIncome: 'Net income', da: 'Depreciation and amortization', interest: 'Interest expense' };
+const PL_LABEL = { gmPct: 'Gross margin', ebitdaPct: 'EBITDA margin', adjEbitdaPct: 'Adjusted EBITDA margin', revenue: 'Revenue', ebitda: 'EBITDA', adjEbitda: 'Adjusted EBITDA', gp: 'Gross profit', cogs: 'Cost of revenue', opex: 'Operating expenses', operatingIncome: 'Operating income', netIncome: 'Net income', da: 'Depreciation and amortization', interest: 'Interest expense' };
 /* income statement figures stated only in sentences ("fiscal 2025 revenue of $18.6 million"): used for a year and line
    no table in any document covers, so a table always wins where there is one */
 function proseBlocks(out) {
   const pm = out.facts.filter(f => f.kind === 'plMention' && f.amount > 0); if (!pm.length) return;
   const covered = new Set();
   out.blocks.forEach(b => b.rows.forEach(r => { if (r.metric) b.periods.forEach((p, i) => { if (r.values[i] != null && (!r.srcs || r.srcs[i])) covered.add(r.metric + '|' + p.key); }); }));
-  const byDoc = {};
-  const pkey = y => y === 'LTM' ? 'LTM' : y + 'A';
-  pm.forEach(f => { const k = f.metric + '|' + pkey(f.year); if (covered.has(k)) return; const m = byDoc[f.src.d] = byDoc[f.src.d] || {}; (m[k] = m[k] || []).push(f); });
-  Object.entries(byDoc).forEach(([doc, m]) => {
-    /* one figure per line and year; where the text gives two different figures for the same one, neither is used */
-    const pick = {}; Object.entries(m).forEach(([k, fs]) => { if (new Set(fs.map(f => Math.round(f.amount))).size === 1) pick[k] = fs[0]; });
-    const years = [...new Set(Object.values(pick).map(f => f.year))].sort((a, b) => a === 'LTM' ? 1 : b === 'LTM' ? -1 : a - b); if (!years.length) return;
-    const periods = years.map(y => y === 'LTM' ? { key: 'LTM', label: 'LTM', type: 'H' } : { key: y + 'A', label: 'FY' + y, type: 'H', year: y });
-    const rows = [...new Set(Object.values(pick).map(f => f.metric))].map(metric => {
-      const fs = years.map(y => pick[metric + '|' + pkey(y)] || null); const first = fs.find(Boolean);
-      return { label: PL_LABEL[metric] || metric, metric, values: fs.map(f => f ? f.amount : 0), srcs: fs.map(f => f ? { ...f.src, x: 'text' } : null), src: { ...first.src, x: 'text' }, pct: false, text: first.text, prose: true };
+  const byDoc = {}; pm.forEach(f => (byDoc[f.src.d] = byDoc[f.src.d] || []).push(f));
+  Object.entries(byDoc).forEach(([doc, fs]) => {
+    /* the year a document is written in: the first year it projects, else the year after the latest actual it names */
+    const projY = fs.filter(f => f.proj && typeof f.year === 'number').map(f => f.year), actY = fs.filter(f => !f.proj && typeof f.year === 'number').map(f => f.year);
+    const now = projY.length ? Math.min(...projY) : actY.length ? Math.max(...actY) + 1 : null;
+    const key = (y, proj) => y === 'LTM' ? 'LTM' : y + (proj ? 'E' : 'A');
+    const cand = {}; const add = (k, f, rank) => { if (covered.has(f.metric + '|' + k)) return; ((cand[f.metric + '|' + k] = cand[f.metric + '|' + k] || {})[rank] = (cand[f.metric + '|' + k][rank] || [])).push(f); };
+    /* the actual years the document covers: those it names, and those "the past N years" points to */
+    const span = new Set(actY); fs.forEach(f => { if (!f.proj && f.year === 'LTM' && f.past > 0 && now) for (let k = 1; k <= f.past; k++) span.add(now - k); });
+    fs.forEach(f => {
+      if (f.proj) return add(key(f.year, true), f, 0);
+      if (f.year !== 'LTM') return add(key(f.year), f, 0);
+      /* "each year for the past 3 years": that figure in each of those years, when the document says which year it is in */
+      if (f.past > 0 && now) { for (let k = 1; k <= f.past; k++) add(key(now - k), f, 1); return; }
+      /* "maintained", "consistently": the same in every year covered; a figure with no year is the latest one */
+      if (f.past < 0 && span.size) { span.forEach(y => add(key(y), f, 2)); return; }
+      if (now) return add(key(now - 1), f, 2);
+      add('LTM', f, 1);
+    });
+    /* one figure per line and period: a figure stated for its own year comes first; two different ones for the same period are not used */
+    const pick = {}; Object.entries(cand).forEach(([k, byRank]) => { const list = byRank[0] || byRank[1] || byRank[2]; if (new Set(list.map(f => Math.round(f.amount * 100))).size === 1) pick[k] = list[0]; });
+    const keys = [...new Set(Object.keys(pick).map(k => k.split('|')[1]))];
+    if (!keys.length) return;
+    const ord = k => k === 'LTM' ? [1, 0] : k.endsWith('E') ? [2, +k.slice(0, 4)] : [0, +k.slice(0, 4)];
+    keys.sort((a, b) => { const x = ord(a), y = ord(b); return x[0] - y[0] || x[1] - y[1]; });
+    const periods = keys.map(k => k === 'LTM' ? { key: 'LTM', label: 'LTM', type: 'H' } : k.endsWith('E') ? { key: k, label: 'FY' + k.slice(0, 4) + 'E', type: 'P', year: +k.slice(0, 4) } : { key: k, label: 'FY' + k.slice(0, 4), type: 'H', year: +k.slice(0, 4) });
+    const rows = [...new Set(Object.keys(pick).map(k => k.split('|')[0]))].map(metric => {
+      const list = keys.map(k => pick[metric + '|' + k] || null); const first = list.find(Boolean);
+      return { label: PL_LABEL[metric] || metric, metric, values: list.map(f => f ? f.amount : 0), srcs: list.map(f => f ? { ...f.src, x: 'text' } : null), src: { ...first.src, x: 'text' }, pct: !!first.pct, text: first.text, prose: true };
     });
     out.blocks.push({ periods, rows, units: 1, cur: null, src: rows[0].src, doc, prose: true });
   });
@@ -2079,6 +2114,11 @@ function statementModel(X) {
     const oi = pl.operatingIncome && pl.operatingIncome[k], da = pl.da && pl.da[k];
     if (oi && da) (pl.ebitda = pl.ebitda || {})[k] = { v: oi.v + Math.abs(da.v), src: oi.src, all: [], conflict: null, computed: true, from: [oi.src, da.src] };
   });
+  /* a margin stated without the profit line: gross profit = revenue × gross margin (and the same for EBITDA when a
+     document gives only its margin); marked as computed, citing both figures */
+  [['gp', 'gmPct'], ['ebitda', 'ebitdaPct'], ['adjEbitda', 'adjEbitdaPct']].forEach(([t, pc]) => Object.keys(periods).forEach(k => {
+    if ((pl[t] && pl[t][k]) || !(pl[pc] && pl[pc][k]) || !(pl.revenue && pl.revenue[k])) return;
+    (pl[t] = pl[t] || {})[k] = { v: pl.revenue[k].v * pl[pc][k].v, src: pl[pc][k].src, all: [], conflict: null, computed: true, from: [pl.revenue[k].src, pl[pc][k].src] }; }));
   /* a cash flow statement that lists each working capital change but no subtotal: add up the lines between net
      income and cash from operations that are changes in current operating assets and liabilities, as printed */
   const WC_ROW = /receivable|inventor|prepaid|payable|accrued|deferred revenue|unearned|customer deposits|contract (assets|liabilities)|other (current )?(assets|liabilities)|other operating (assets|liabilities)/i;
@@ -2490,7 +2530,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   if (SM) { const lc = s => s.charAt(0).toLowerCase() + s.slice(1); const used = [];
     Object.entries(SM.pl).forEach(([m, byP]) => Object.entries(byP).forEach(([k, o]) => { if (o && o.src && o.src.x === 'text') used.push({ m, k, o }); }));
     if (used.length) { used.sort((a, b) => a.k < b.k ? 1 : -1);
-      dataChecks.push({ status: 'warn', text: `No table states ${used.map(u => `${lc(PL_LABEL[u.m] || u.m)} for ${(SM.periods.find(p => p.key === u.k) || {}).label || u.k} (${fmtUSD(u.o.v)})`).join(', ')}, so ${used.length === 1 ? 'it was' : 'they were'} read from the text. Figures in text are usually rounded; check ${used.length === 1 ? 'it' : 'them'} against the source.`, src: used[0].o.src }); } }
+      dataChecks.push({ status: 'warn', text: `No table states ${used.map(u => `${lc(PL_LABEL[u.m] || u.m)} for ${(SM.periods.find(p => p.key === u.k) || {}).label || u.k} (${/Pct$/.test(u.m) ? pctS(u.o.v) : fmtUSD(u.o.v)})`).join(', ')}, so ${used.length === 1 ? 'it was' : 'they were'} read from the text. Figures in text are usually rounded; check ${used.length === 1 ? 'it' : 'them'} against the source.`, src: used[0].o.src }); } }
   /* one balance sheet: the latest date only, each line once (filings and CIMs often repeat it), with
      contra-assets negative and liabilities positive so NWC = operating assets less operating liabilities */
   if (X.bsItems.length) {
@@ -3461,7 +3501,7 @@ function memoModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
   opts = opts || {};
   const L = R.L, M = R.M, P = R.pos, mult = R.val.mult;
-  const live = !!(L || M);
+  const live = !!(L || M || (R.docs || []).some(d => !d.pending && !d.failed));
   const date = opts.date || new Date().toISOString().slice(0, 10);
   const longDate = (() => { const d = new Date(date + 'T12:00:00Z'); return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }); })();
   const ok = v => v != null && !isNaN(v);
@@ -3516,8 +3556,11 @@ function memoModel(R, m, opts) {
   {
     const b = [];
     const f = fact('founded'), hq = fact('hq'), e = fact('employees');
-    const intro = [`${m.target || 'The target'}${f ? `, founded in ${f.value}` : ''}${hq ? ` and headquartered in ${hq.value}` : ''}${e ? `, employs ${Number(e.value).toLocaleString('en-US')} people` : ''}.`];
-    if (ok(R.revenue)) intro.push(`Over the ${R.periodLabel}, it generated revenue of ${mn(R.revenue)} and reported EBITDA of ${mn(R.reported)}, a ${pc(R.reported / R.revenue)} margin.`);
+    const who = [f && `was founded in ${f.value}`, hq && `is headquartered in ${hq.value}`, e && `employs ${Number(e.value).toLocaleString('en-US')} people`].filter(Boolean);
+    const intro = [who.length ? `${m.target || 'The target'} ${who.length < 3 ? who.join(' and ') : who.slice(0, -1).join(', ') + ' and ' + who[who.length - 1]}.` : `${m.target || 'The target'}.`];
+    const gmM = (() => { const S = R.SM, b = S && S.basis, g = S && b && S.pl.gp && S.pl.gp[b]; return g && ok(R.revenue) ? g.v / R.revenue : null; })();
+    if (ok(R.revenue) && ok(R.reported)) intro.push(`Over the ${R.periodLabel}, it generated revenue of ${mn(R.revenue)} and reported EBITDA of ${mn(R.reported)}, a ${pc(R.reported / R.revenue)} margin.`);
+    else if (ok(R.revenue)) intro.push(`Over the ${R.periodLabel}, it generated revenue of ${mn(R.revenue)}${ok(gmM) ? ` at a ${pc(gmM)} gross margin` : ''}. The documents do not state EBITDA yet.`);
     if (ok(mg) && ok(dil)) intro.push(`Management presents Adjusted EBITDA of ${mn(mg)}. Diligence supports ${mn(dil)}, ${mn(mg - dil)} less, which is ${mn((mg - dil) * mult)} of enterprise value at ${xm(mult)}.`);
     else if (ok(dil)) intro.push(`Diligence-adjusted EBITDA is ${mn(dil)}.`);
     b.push({ p: intro.join(' '), notes: [...note([f && f.src, hq && hq.src, e && e.src]), ...(L ? [] : note([M && M.revenueSrc, M && M.reportedSrc]))] });
@@ -4206,7 +4249,7 @@ const C = { ink: '111111', grey: '666666', red: 'C4151A', brand: 'FF3131', rule:
 function deckModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
   opts = opts || {};
-  const L = R.L, M = R.M, P = R.pos, mult = R.val.mult; const live = !!(L || M);
+  const L = R.L, M = R.M, P = R.pos, mult = R.val.mult; const live = !!(L || M || (R.docs || []).some(d => !d.pending && !d.failed));
   const RC = live ? returnsCase(R, m) : null;
   const ok = v => v != null && isFinite(v);
   const th = v => !ok(v) ? '–' : Math.round(v / 1000) === 0 ? '–' : (v < 0 ? `(${Math.round(Math.abs(v) / 1000).toLocaleString('en-US')})` : Math.round(v / 1000).toLocaleString('en-US'));
@@ -4259,13 +4302,14 @@ function deckModel(R, m, opts) {
   /* 3 executive summary */
   {
     const f = fact('founded'), hq = fact('hq'), e = fact('employees'), rc = fact('recurring');
-    const biz = [f && `Founded ${f.value}${hq ? ', ' + hq.value : ''}`, e && `${Number(e.value).toLocaleString('en-US')} employees`, ok(rev) && `${mn(rev)} revenue, ${R.periodLabel}`, rc && `${pc(rc.pct)} recurring revenue`,
+    const biz = [f && `Founded ${f.value}${hq ? ', ' + hq.value : ''}`, !f && hq && `Headquartered in ${hq.value}`, e && `${Number(e.value).toLocaleString('en-US')} employees`, ok(rev) && `${mn(rev)} revenue, ${R.periodLabel}`, rc && `${pc(rc.pct)} recurring revenue`,
       L && L.customers.list[0] && `${L.customers.count} customers; largest ${pc(L.customers.list[0].share)}`].filter(Boolean);
-    const deal = [m.dealType && m.dealType, `${xm(mult)} diligence-adjusted EBITDA`, `${mn(base)} enterprise value`, P && `${mn(R.val.equity)} equity purchase price`, B && `${mn(B.equity0)} equity cheque, ${xm(RC.stats.leverage)} leverage`].filter(Boolean);
+    const deal = [m.dealType && m.dealType, `${xm(mult)} diligence-adjusted EBITDA`, ok(base) ? `${mn(base)} enterprise value` : 'Enterprise value needs an EBITDA figure', P && `${mn(R.val.equity)} equity purchase price`, B && `${mn(B.equity0)} equity cheque, ${xm(RC.stats.leverage)} leverage`].filter(Boolean);
     const ret = B ? [`${pc(B.irr)} IRR, ${B.moic.toFixed(2)}x MOIC`, `${RC.a.hold}-year hold, exit at ${xm(RC.a.exitMultiple)}`, `${pc(RC.a.growth)} annual EBITDA growth`, RC.maxEntry ? `Max ${xm(RC.maxEntry)} entry at ${pc(RC.a.targetIRR)} IRR` : null].filter(Boolean) : ['Returns need diligence-adjusted EBITDA'];
     const risks = R.fired.slice(0, 3).map(fd => `${fd.title}${impactVal(fd) ? ` (${mn(Math.abs(impactVal(fd)))} at stake)` : ''}`);
     const col = (i, label, items) => [...head(X0 + i * 3.05, BODY, 2.85, label), txt(X0 + i * 3.05, BODY + 0.4, 2.85, 1.9, items, { size: 10.5, bullets: true, paraAfter: 4 })];
-    S('Executive summary', `${m.target}: ${mn(rev)} revenue at a ${pc(dil / rev)} diligence-adjusted EBITDA margin`, [
+    const gmX = (() => { const S = R.SM, b = S && S.basis, g = S && b && S.pl.gp && S.pl.gp[b]; return g && ok(rev) ? g.v / rev : null; })();
+    S('Executive summary', ok(dil) && ok(rev) ? `${m.target}: ${mn(rev)} revenue at a ${pc(dil / rev)} diligence-adjusted EBITDA margin` : ok(rev) ? `${m.target}: ${mn(rev)} revenue${ok(gmX) ? ` at a ${pc(gmX)} gross margin` : ''}, ${R.periodLabel}` : `${m.target}: what the documents tell us so far`, [
       ...col(0, 'The business', biz), ...col(1, 'The deal', deal), ...col(2, 'The returns', ret),
       { t: 'rect', x: X0, y: 4.0, w: W, h: 0.9, fill: C.panel },
       txt(X0 + 0.2, 4.08, 2.2, 0.3, 'RECOMMENDATION', { size: 8.5, bold: true, color: C.red, charSpace: 1 }),
@@ -4295,7 +4339,9 @@ function deckModel(R, m, opts) {
   {
     const f = fact('founded'), hq = fact('hq'), e = fact('employees'), rc = fact('recurring'), tn = fact('topN');
     const rows = [['Company', m.target], f && ['Founded', String(f.value)], hq && ['Headquarters', hq.value], e && ['Employees', Number(e.value).toLocaleString('en-US')], ok(rev) && [`Revenue, ${R.periodLabel}`, mn(rev)],
-      ok(R.reported) && ['Reported EBITDA', `${mn(R.reported)} (${pc(R.reported / rev)})`], rc && ['Recurring revenue', pc(rc.pct)], L && L.customers.list[0] && ['Customers', `${L.customers.count}; largest ${pc(L.customers.list[0].share)}`], tn && [`Top ${tn.n} customers`, pc(tn.pct)]].filter(Boolean);
+      ok(R.reported) && ['Reported EBITDA', `${mn(R.reported)} (${pc(R.reported / rev)})`], ...(() => { const S = R.SM, b = S && S.basis; if (!S) return [];
+        const gp = b && S.pl.gp && S.pl.gp[b]; const pj = S.periods.find(p => p.type === 'P' && S.pl.revenue && S.pl.revenue[p.key]);
+        return [!ok(R.reported) && gp && ok(rev) && ['Gross margin', pc(gp.v / rev)], pj && [`Revenue, ${pj.label} (projected)`, mn(S.pl.revenue[pj.key].v)]]; })(), rc && ['Recurring revenue', pc(rc.pct)], L && L.customers.list[0] && ['Customers', `${L.customers.count}; largest ${pc(L.customers.list[0].share)}`], tn && [`Top ${tn.n} customers`, pc(tn.pct)]].filter(Boolean);
     let ch = null;
     if (L) ch = chart(4.9, BODY, 4.6, 3.3, 'col', L.ttm.map(x => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+x.slice(5, 7) - 1]), [{ name: 'Revenue', values: L.ttm.map(x => L.pl[x].Revenue), color: C.ink }, { name: 'Reported EBITDA', values: L.ttm.map(x => L.pl[x].EBITDA), color: C.brand }], { legend: true, unit: 'Monthly, ' + curUnit('thousands') });
     else if (R.SM) { const ps = R.SM.periods.filter(p => p.type === 'H' && R.SM.pl.revenue && R.SM.pl.revenue[p.key]); ch = chart(4.9, BODY, 4.6, 3.3, 'col', ps.map(p => p.label), [{ name: 'Revenue', values: ps.map(p => R.SM.pl.revenue[p.key].v), color: C.ink }, { name: 'EBITDA', values: ps.map(p => R.SM.pl.ebitda && R.SM.pl.ebitda[p.key] ? R.SM.pl.ebitda[p.key].v : null), color: C.brand }], { legend: true, showValues: true, unit: curUnit('thousands') }); }
@@ -4340,7 +4386,8 @@ function deckModel(R, m, opts) {
   {
     const els = []; let titleText;
     if (ok(mg)) titleText = `Diligence supports ${mn(dil)} of Adjusted EBITDA, ${mn(mg - dil)} below management`;
-    else titleText = `Diligence-adjusted EBITDA of ${mn(dil)} against ${mn(R.reported)} reported`;
+    else if (ok(dil) || ok(R.reported)) titleText = `Diligence-adjusted EBITDA of ${mn(dil)} against ${mn(R.reported)} reported`;
+    else { titleText = 'No EBITDA in the documents yet'; els.push(txt(X0, BODY, W, 1.2, "The documents on file don't state EBITDA or the lines to build it (operating expenses, or operating income and D&A). Request management's EBITDA bridge, the income statements or the general ledger to test earnings quality.", { size: 13 })); }
     if (L) {
       const adj = L.adj.filter(a => a.accepted).slice().sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
       const top = adj.slice(0, 6), rest = adj.slice(6).reduce((s, a) => s + a.amount, 0);
@@ -4393,7 +4440,8 @@ function deckModel(R, m, opts) {
     const eqAt = (e, x) => e * x - (P ? P.debt + P.debtLike - P.cash - P.nwcAdj - (P.overlap || 0) : 0);
     const bases = [['Diligence', dil], ...(ok(mg) ? [['Management', mg]] : []), ['Reported', R.reported]].filter(b => ok(b[1]));
     const bridge = [['Diligence-adjusted EBITDA', th(dil)], [`× ${xm(mult)}`, ''], ['Enterprise value', th(base)], ...(P ? [['Less: funded debt', th(-P.debt)], ['Less: debt-like items', th(-P.debtLike)], ['Plus: cash', th(P.cash)], ['NWC adjustment', th(P.nwcAdj)], ...(P.overlap ? [['Already inside working capital', th(P.overlap)]] : [])] : []), ['Equity purchase price', th(R.val.equity)]];
-    S('Valuation', `${xm(mult)} diligence-adjusted EBITDA implies ${mn(base)} EV and ${mn(R.val.equity)} equity value`, [
+    if (!ok(base)) S('Valuation', 'Valuation needs an EBITDA figure', [txt(X0, BODY, W, 1.2, `The deal is priced at ${xm(mult)} EBITDA, and the documents on file don't state EBITDA yet. Once the income statements or management's EBITDA bridge are added, the enterprise value, equity value and sensitivity fill in here.`, { size: 13 })], 'Valuation is shown once an EBITDA figure is read from the documents.', '');
+    else S('Valuation', `${xm(mult)} diligence-adjusted EBITDA implies ${mn(base)} EV and ${mn(R.val.equity)} equity value`, [
       ...head(X0, BODY, 3.9, 'Enterprise to equity value, ' + curUnit('thousands')), tbl(X0, BODY + 0.4, 3.9, ['', ''], bridge, { size: 9.5, colW: [0.68, 0.32], totals: [2, bridge.length - 1] }),
       ...head(4.8, BODY, 4.7, 'Equity value sensitivity, ' + curUnit('thousands')), tbl(4.8, BODY + 0.4, 4.7, ['EBITDA basis', ...ms.map(xm)], bases.map(([l, e]) => [`${l} (${th(e)})`, ...ms.map(x => th(eqAt(e, x)))]), { size: 8.5, colW: [0.3, ...ms.map(() => 0.7 / ms.length)], hi: { r: 0, c: ms.indexOf(mult) + 1 } }),
       ...(ok(mg) ? [txt(4.8, BODY + 2.0, 4.7, 0.8, `Paying on management's EBITDA would mean ${mn((mg - dil) * mult)} more enterprise value than diligence supports.`, { size: 10.5, bold: true })] : [])
@@ -4937,7 +4985,8 @@ const evDetails = (rows, label) => rows && rows.length ? `<details class="ev"><s
 const can = gate => ROLE_RANK[actingAs] >= ROLE_RANK[gate || 'analyst'];
 const emptyState = (what) => `<div class="empty"><h3>${what}</h3><p class="lede">Upload source documents for this mandate: a CIM or financial statements (PDF, Excel, Word), a general ledger (CSV or Excel), monthly balance sheets and lender confirmations.</p><button class="btn red" data-nav="sources">Go to Sources</button></div>`;
 const scopeOn = k => !k || MD().scope[k] !== false;
-const hasData = () => R && (R.L || R.M);
+/* any document that was read is enough to build every page from what it says; pages say what is missing */
+const hasData = () => R && (R.L || R.M || (R.docs || []).some(d => !d.pending && !d.failed));
 
 /* ======================= charts ======================= */
 function niceTicks(lo, hi, n = 4) { if (hi === lo) hi = lo + 1; const s0 = (hi - lo) / n, mg = 10 ** Math.floor(Math.log10(s0)), e = s0 / mg; const st = (e >= 7.5 ? 10 : e >= 3.5 ? 5 : e >= 1.5 ? 2 : 1) * mg; const a = Math.floor(lo / st) * st, b = Math.ceil(hi / st) * st, t = []; for (let v = a; v <= b + st / 2; v += st) t.push(+v.toFixed(10)); return t; }
@@ -4997,9 +5046,9 @@ function vWorkspace() {
   ${(R.dataChecks || []).some(c => c.status === 'warn' || c.status === 'fixed') ? dataPanel() : ''}
   <section class="kpis">
     ${kpi('Revenue', K(R.revenue), esc(R.periodLabel))}
-    ${kpi('Reported EBITDA', K(R.reported), R.revenue ? pc(R.reported / R.revenue) + ' margin' : '')}
+    ${kpi('Reported EBITDA', K(R.reported), R.revenue && R.reported != null ? pc(R.reported / R.revenue) + ' margin' : '')}
     ${R.management != null ? kpi('Management Adj. EBITDA', K(R.management), `Per ${esc((R.srcDoc || {}).the || 'the documents')} ${cites([R.M.statedSrc], 1)}`) : ''}
-    ${kpi('Diligence Adj. EBITDA', K(R.diligence), gap != null ? `<span class="neg">${K(-gap)}</span> vs management` : R.revenue ? pc(R.diligence / R.revenue) + ' margin' : '', true)}
+    ${kpi('Diligence Adj. EBITDA', K(R.diligence), gap != null ? `<span class="neg">${K(-gap)}</span> vs management` : R.revenue && R.diligence != null ? pc(R.diligence / R.revenue) + ' margin' : R.diligence == null ? 'Not stated in the documents' : '', true)}
     ${kpi('Pre-LOI confidence', `${R.confidence}<span style="font-size:.5em;color:var(--ink3)">/100</span>`, `<span class="chip ${R.verdict === 'Go' ? 'go' : R.verdict === 'Not ready' ? 'bad' : 'warn'}">${R.verdict}</span>`)}
     ${kpi('Open issues', open.length, `<span class="neg">${open.filter(i => i.finding.severity === 'High').length} high</span> ${open.filter(i => i.finding.severity === 'Medium').length} medium`)}
   </section>
@@ -5235,7 +5284,7 @@ const statusChip = s => s === 'Approved' ? '<span class="chip ok">Approved</span
 function vQoE() {
   if (!hasData()) return `${head('Financial Diligence', 'QoE & Revenue Quality')}${emptyState('No earnings data yet')}`;
   const L = R.L, M = R.M, m = MD(); let html = `${head('Financial Diligence', 'QoE & Revenue Quality')}`;
-  html += `<section class="kpis">${kpi('Reported EBITDA', K(R.reported), esc(R.periodLabel))}${M && M.stated != null ? kpi('Management Adj. EBITDA', K(M.stated), cites([M.statedSrc], 1)) : ''}${kpi('Diligence Adj. EBITDA', K(R.diligence), R.revenue ? pc(R.diligence / R.revenue) + ' margin' : '', true)}${M && M.stated != null ? kpi('Gap to management', K(R.diligence - M.stated), `${K((R.diligence - M.stated) * R.val.mult)} at ${R.val.mult}x`) : ''}</section>`;
+  html += `<section class="kpis">${kpi('Reported EBITDA', K(R.reported), esc(R.periodLabel))}${M && M.stated != null ? kpi('Management Adj. EBITDA', K(M.stated), cites([M.statedSrc], 1)) : ''}${kpi('Diligence Adj. EBITDA', K(R.diligence), R.revenue && R.diligence != null ? pc(R.diligence / R.revenue) + ' margin' : R.diligence == null ? 'Not stated in the documents' : '', true)}${M && M.stated != null ? kpi('Gap to management', K(R.diligence - M.stated), `${K((R.diligence - M.stated) * R.val.mult)} at ${R.val.mult}x`) : ''}</section>`;
   if (R.saas) { const S2 = R.saas; const NM = { arr: 'ARR', mrr: 'MRR', nrr: 'Net revenue retention', grr: 'Gross revenue retention', churn: 'Annual churn', customers: 'Customers', cacPayback: 'CAC payback (months)', ltvCac: 'LTV / CAC', ruleOf40: 'Rule of 40' };
     const fmtS = (k, o) => ['nrr', 'grr', 'churn', 'ruleOf40'].includes(k) ? pc(o.value) : ['arr', 'mrr'].includes(k) ? $(o.value) : k === 'ltvCac' ? o.value.toFixed(1) + 'x' : String(Math.round(o.value * 10) / 10);
     html += `<section class="sec"><div class="sechead"><h2>SaaS metrics</h2><span class="aside">Read from the documents; tested against Firm Settings</span></div><div class="tbl"><table><tbody>${Object.keys(NM).filter(k => S2[k]).map(k => { const o = S2[k]; const f = R.findings.find(x => ({ nrr: 'SA1', grr: 'SA2', churn: 'SA2', ruleOf40: 'SA3', arr: 'SA4' })[k] === x.id);
@@ -5426,7 +5475,7 @@ function vEconomics() {
   return `${head('Deal Intelligence', 'Deal Economics')}
   <div class="formgrid" style="max-width:680px"><div class="field"><label for="m-multiple">EV / EBITDA multiple</label><input type="number" id="m-multiple" data-m="multiple" step="0.25" value="${m.multiple}"></div>
     <div class="field"><label for="s-ebitdaBasis">Price on</label><select id="s-ebitdaBasis" data-set="ebitdaBasis">${bases.map(b => `<option value="${b[0] === 'diligence' ? 'adjusted' : b[0]}" ${cur === b[0] ? 'selected' : ''}>${b[1]} (${K(b[2])})</option>`).join('')}</select></div></div>
-  <section class="kpis">${R.management != null ? kpi('EV at management\'s number', K(R.management * V.mult), `${V.mult}x ${K(R.management)}`) : ''}${kpi('EV at diligence number', K(R.diligence * V.mult), `${V.mult}x ${K(R.diligence)}`, true)}${R.management != null ? kpi('Price gap', K((R.diligence - R.management) * V.mult), 'Diligence less management') : ''}${kpi('Equity purchase price', K(V.equity), P ? 'Cash-free, debt-free' : 'No balance sheet yet')}</section>
+  <section class="kpis">${R.management != null ? kpi('EV at management\'s number', K(R.management * V.mult), `${V.mult}x ${K(R.management)}`) : ''}${R.diligence != null ? kpi('EV at diligence number', K(R.diligence * V.mult), `${V.mult}x ${K(R.diligence)}`, true) : kpi('EV at diligence number', '–', 'Needs EBITDA from the documents', true)}${R.management != null ? kpi('Price gap', K((R.diligence - R.management) * V.mult), 'Diligence less management') : ''}${kpi('Equity purchase price', K(V.equity), P ? 'Cash-free, debt-free' : 'No balance sheet yet')}</section>
   ${V.contributors.length ? `<section class="sec"><div class="sechead"><h2>Where the gap comes from</h2><span class="aside">Management's ${K(R.management)} to diligence ${K(R.diligence)}</span></div>
     <div class="tbl"><table><thead><tr><th>Driver</th><th class="n">EBITDA</th><th class="n">Value at ${V.mult}x</th><th>Source</th></tr></thead><tbody>
     ${V.contributors.map(c => `<tr><td>${esc(c.label)}${c.ids ? ` <span class="muted mono" style="font-size:11px">${c.ids.join(', ')}</span>` : ''}</td><td class="n neg">${$(-c.ebitda)}</td><td class="n neg">${K(-c.value)}</td><td>${cites(c.cites, 2)}</td></tr>`).join('')}
