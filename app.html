@@ -834,10 +834,15 @@ function analyze(D, S, dec) {
   const cash = sum(lines.filter(l => cls[l] === 'Cash'), l => at(l, last));
 
   /* Customers */
-  const revBy = set => { const o = {}; inPer.filter(r => r.category === 'Revenue' && set.has(r.month)).forEach(r => { o[r.counterparty] = (o[r.counterparty] || 0) + r.amount; }); return o; };
+  /* revenue with no customer name is not one customer: it is left out of the customer list, and if it is a large
+     part of revenue the concentration test is not run rather than run on part of the revenue */
+  const UNNAMED = '\u0000unnamed';
+  const revBy = set => { const o = {}; inPer.filter(r => r.category === 'Revenue' && set.has(r.month)).forEach(r => { const k = String(r.counterparty || '').trim() || UNNAMED; o[k] = (o[k] || 0) + r.amount; }); return o; };
   const cT = revBy(ttmSet), cP = revBy(priorSet);
+  const unnamedRev = Math.max(0, cT[UNNAMED] || 0); delete cT[UNNAMED]; delete cP[UNNAMED];
   const custList = Object.entries(cT).filter(([, v]) => v > 0).map(([name, v]) => ({ name, ttm: v, prior: cP[name] || 0 })).sort((a, b) => b.ttm - a.ttm);
-  const totRev = sum(custList, c => c.ttm) || 1; let cum = 0;
+  const totRev = (sum(custList, c => c.ttm) + unnamedRev) || 1; let cum = 0;
+  const namedShare = 1 - unnamedRev / totRev;
   custList.forEach(c => { c.share = c.ttm / totRev; cum += c.share; c.cum = cum; c.growth = c.prior ? c.ttm / c.prior - 1 : null; });
   const hhi = sum(custList, c => (c.share * 100) ** 2);
   const lost = Object.entries(cP).filter(([k, v]) => v > 0 && !(cT[k] > 0)).map(([name, v]) => ({ name, prior: v }));
@@ -856,7 +861,8 @@ function analyze(D, S, dec) {
   const flag = (id, severity, metric, finding, evidence, extra) => flags.push({ id, name: RULES.find(r => r.id === id).name, severity, metric, finding, evidence: evidence || [], ...(extra || {}) });
 
   { const t = custList[0]; const s = t ? t.share : 0;
-    flag('R01', s > 0.25 ? 'High' : s > 0.15 ? 'Medium' : null, pctS(s),
+    if (namedShare < 0.8) flag('R01', null, '–', `Not tested: ${pctS(1 - namedShare)} of TTM revenue has no customer name in the ledger.`);
+    else flag('R01', s > 0.25 ? 'High' : s > 0.15 ? 'Medium' : null, pctS(s),
       t ? `${t.name} is ${pctS(s)} of TTM revenue. Top 5 customers are ${pctS(custList[Math.min(4, custList.length - 1)].cum)}.` : 'No revenue.'); }
   { const d = yoy(dso);
     const sev = d && d.delta != null ? (d.delta > 15 ? 'High' : d.delta > 7 ? 'Medium' : null) : null;
@@ -1392,7 +1398,7 @@ function tablesFromLines(lines, ctx, out) {
   /* a line's name on one line and its figure alone on the next ("Revenue" / "$18,600,000") is one line */
   { const merged = []; for (let k = 0; k < lines.length; k++) { const l = lines[k], nx = lines[k + 1]; const c = mergeCells(l.cells || []);
       if (nx && c.length === 1 && !/\d/.test(c[0]) && c[0].length <= 60 && (lineOfName(c[0]) || bsTerm(c[0]))) { const nc = mergeCells(nx.cells || []);
-        if (nc.length >= 1 && nc.length <= 3 && nc.every(x => { const v = parseNum(x); return v && !v.dash; })) { merged.push({ ...l, cells: [c[0], ...nc], text: l.text + '  ' + nx.text }); k++; continue; } }
+        if (nc.length >= 1 && nc.length <= 3 && nc.every(x => { const v = parseNum(x); return v && !v.dash; })) { merged.push({ ...nx, cells: [c[0], ...nc], cols: null, text: l.text + '  ' + nx.text }); k++; continue; } }
       merged.push(l); }
     lines = merged; }
   const flushSide = () => { const t = side; side = null; if (!t || !t.rows.length || new Set(t.rows.map(r => r.p.key)).size !== t.rows.length) return;
@@ -1413,7 +1419,12 @@ function tablesFromLines(lines, ctx, out) {
     const hp = monthlyPeriods(cells) || headerPeriods(cells, ctx.proj || PROJ_CTX.test(near)) || columnPeriods(cells, ctx.proj || PROJ_CTX.test(near), near + ' ' + (ctx.title || '')) || singlePeriod(cells);
     if (hp) { block = { periods: hp, rows: [], cur: (unitsOf(near) || /\b(000s?|thousands|millions|currency)\b/i.test(near + ' ' + cells.join(' ')) ? currencyOf(near + ' ' + cells.join(' ')) : null) || ctx.cur || null, units: unitsOf(near + ' ' + cells.join(' ')) || ctx.units, src: ln.src, doc: ctx.doc, isBS: BS_HINT.test(near + ' ' + (ctx.bsHint || '')) }; out.blocks.push(block); recent.length = 0; return; }
     let row = block ? parseRow(cells, block.periods.cols ? block.periods.cols.length : block.periods.length) : null;
-    if (row && block.periods.cols) { const ix = block.periods.cols.map((k, i) => k ? i : -1).filter(i => i >= 0); row.values = ix.map(i => row.values[i]); row.scales = ix.map(i => row.scales[i]); }
+    /* in a spreadsheet each figure cites its own cell (or, for a year added up from months, the cells it adds) */
+    let cellCols = null;
+    if (row && ln.cols && ln.src && ln.src.t === 'xlsx' && cells.length === ln.cells.length) { const n0 = row.values.length; const tail = cells.slice(-n0);
+      if (tail.length === n0 && tail.every(c => { const v = parseNum(c); return v && !v.pct; })) cellCols = ln.cols.slice(-n0); }
+    if (row && block.periods.cols) { const ix = block.periods.cols.map((k, i) => k ? i : -1).filter(i => i >= 0); row.values = ix.map(i => row.values[i]); row.scales = ix.map(i => row.scales[i]); if (cellCols) cellCols = ix.map(i => cellCols[i]); }
+    if (row && cellCols) row.srcs = block.periods.groups ? block.periods.groups.map(g => ({ ...ln.src, c1: cellCols[g[0]], c2: cellCols[g[g.length - 1]], x: 'sum' })) : cellCols.map(c => ({ ...ln.src, c1: c, c2: c }));
     if (row && block.periods.groups) { if (row.pct) row = null; else { const sc = row.scales; row.values = block.periods.groups.map(g => g.reduce((a, k) => a + (sc[k] ? row.values[k] * sc[k] / (block.units || 1) : row.values[k]), 0)); row.scales = row.values.map(() => null); } }
     if (row && row.scales && row.scales.some(Boolean)) row.values = row.values.map((x, k) => row.scales[k] ? x * row.scales[k] / (block.units || 1) : x);
     if (row) { row.metric = metricOf(row.label, row.pct); row.src = ln.src; row.text = ln.text; block.rows.push(row); }
@@ -1484,7 +1495,9 @@ function yearNear(s, at, len) {
 const scaleOfU = u => { const x = String(u || '').toLowerCase(); return /^(b|bn|billion)/.test(x) ? 1e9 : /^(m|mm|million)/.test(x) ? 1e6 : /^(k|thousand)/.test(x) ? 1e3 : 1; };
 const precOf = (n, u, phrase) => { const dec = String(n).includes('.') ? String(n).split('.')[1].length : 0; const step = Math.pow(10, -dec) * scaleOfU(u);
   return step * (/\b(approximately|about|roughly|around|nearly|almost|over|some|close to)\b|~/i.test(phrase || '') ? 1 : 0.5); };
-function figuresFromText(s, src, out, dated) {
+function figuresFromText(s, src, out, dated, at) {
+  /* a figure cites the line it is printed on, not the line its sentence starts on */
+  at = at || (() => src);
   /* a table flattened into text (many figures, column headings) is read by the table reader instead */
   if ((s.match(/\d[\d,.]*/g) || []).length > 8 || /\(\$ in (thousands|millions|billions)|in millions, except|\$\s+[\d,]+\s+\$\s+[\d,]+/i.test(s)) return asOfIn(s) || dated;
   const R = proseRes(); const asOf = asOfIn(s) || (/\b(year[- ]end|at the end of the year|period end)\b/i.test(s) ? dated : null) || null;
@@ -1493,14 +1506,14 @@ function figuresFromText(s, src, out, dated) {
   for (const m of s.matchAll(R.debt)) {
     const name = m[3]; const t = BS_TERM[termKey(name)]; if (!t || !isAmount(m[0], m[1], m[2]) || !keep(m.index, m.index + m[0].length)) continue;
     if (NOT_A_BALANCE.test(s.slice(Math.max(0, m.index - 20), m.index + m[0].length))) continue;
-    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[1], m[2]), prec: precOf(m[1], m[2], m[0]), asOf, text: s, src });
+    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[1], m[2]), prec: precOf(m[1], m[2], m[0]), asOf, text: s, src: at(m.index + m[0].length - 1) });
   }
   for (const m of s.matchAll(R.bs)) {
     const name = m[1]; const t = BS_TERM[termKey(name)]; if (!t || !isAmount(m[0], m[2], m[3])) continue;
     const win = s.slice(Math.max(0, m.index - 25), m.index + m[0].length + 18);
     if (NOT_A_BALANCE.test(win.replace(name, '')) || /\b(accumulated|amorti[sz]ation|depreciation|impairment|allowance|reserve for|interest (on|expense)|payments? (on|of|for|under)|portion of|cost of|fair value of|weighted|average)\b/i.test(s.slice(Math.max(0, m.index - 70), m.index)) || NOT_A_FIGURE.test(win) || !keep(m.index, m.index + m[0].length)) continue;
     if (t.concept === 'revolver' && !/outstanding|drawn|balance|owed|borrowed|due/i.test(s.slice(Math.max(0, m.index - 40), m.index + m[0].length + 40))) continue;
-    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[2], m[3]), prec: precOf(m[2], m[3], m[0]), asOf, text: s, src });
+    out.facts.push({ kind: 'bsMention', concept: t.concept, cls: t.cls, label: name.charAt(0).toUpperCase() + name.slice(1).toLowerCase(), amount: amt(m[2], m[3]), prec: precOf(m[2], m[3], m[0]), asOf, text: s, src: at(m.index + m[0].length - 1) });
   }
   const plHits = [...[...s.matchAll(R.pl)].map(m => ({ m, name: m[1], n: m[2], u: m[3] })), ...[...s.matchAll(R.plAfter)].map(m => ({ m, name: m[3], n: m[1], u: m[2] }))].sort((a, b) => a.m.index - b.m.index);
   /* "for the past 3 years", "each year": one figure for several years before the year the document is written in */
@@ -1534,7 +1547,7 @@ function figuresFromText(s, src, out, dated) {
     if (/\b(increase\w*|decrease\w*|declin\w*|expan\w*|contract\w*|improv\w*|up|down|grew|fell|rose|change\w*|points?|pts|bps|basis points|percentage points?)\b/i.test(s.slice(m.index, m.index + m[0].length + 25)) || PART.test(s.slice(Math.max(0, m.index - 50), m.index + m[0].length)) || !ownedBy(m.index)) continue; const metric = /adj/.test(name) ? 'adjEbitdaPct' : /ebitda/.test(name) ? 'ebitdaPct' : /gross/.test(name) ? 'gmPct' : null;
     const v = +m[2]; if (!metric || !(v > 0 && v < 100) || !keep(m.index, m.index + m[0].length)) continue;
     const w = when(m, m[0].length); if (!w) continue;
-    out.facts.push({ kind: 'plMention', metric, pct: true, amount: v, prec: precOf(m[2], null, m[0]), ...w, label: m[1], text: s, src });
+    out.facts.push({ kind: 'plMention', metric, pct: true, amount: v, prec: precOf(m[2], null, m[0]), ...w, label: m[1], text: s, src: at(m.index + m[0].length - 1) });
   }
   for (const { m, name, n, u } of plHits) {
     let metric = PL_TERM[termKey(name)]; if (!metric || !isAmount(m[0], n, u)) continue;
@@ -1546,7 +1559,7 @@ function figuresFromText(s, src, out, dated) {
     if (metric === 'ebitda' && /\b(adjusted|adj\.?|normali[sz]ed|recast|pro forma)\s*$/i.test(pre)) metric = 'adjEbitda';
     if (/\b(increase|decrease|growth|change|grew|declin|improvement|reduction)\w*\s+(by|of|in)\s*$/i.test(pre)) continue;
     const w = when(m, m[0].length); if (!w || !keep(m.index, m.index + m[0].length)) continue;
-    out.facts.push({ kind: 'plMention', metric, ...w, amount: amt(n, u), prec: precOf(n, u, m[0]), label: name, text: s, src });
+    out.facts.push({ kind: 'plMention', metric, ...w, amount: amt(n, u), prec: precOf(n, u, m[0]), label: name, text: s, src: at(m.index + m[0].length - 1) });
   }
   return asOf || dated;
 }
@@ -1554,13 +1567,13 @@ function factsFromText(text, srcAt, out) {
   let dated = null;
   for (const { s, i } of sentences(text)) {
     const src = srcAt(i); let m;
-    dated = figuresFromText(s, src, out, dated);
+    dated = figuresFromText(s, src, out, dated, k => srcAt(i + k));
     const re1 = /\b(top|largest)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s+customers?\b[^.%]{0,80}?(\d{1,3}(?:\.\d+)?)\s?%/gi;
-    while ((m = re1.exec(s))) out.facts.push({ kind: 'topN', n: WORDN[m[2].toLowerCase()] || +m[2], pct: +m[3] / 100, text: s, src });
+    while ((m = re1.exec(s))) out.facts.push({ kind: 'topN', n: WORDN[m[2].toLowerCase()] || +m[2], pct: +m[3] / 100, text: s, src: srcAt(i + m.index + m[0].length - 1) });
     if ((m = s.match(/\b([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,5}) is (?:our|the Company's) largest customer\b[^.%]{0,80}?(\d{1,3}(?:\.\d+)?)\s?%/)))
-      out.facts.push({ kind: 'largest', name: m[1], pct: +m[2] / 100, text: s, src });
+      out.facts.push({ kind: 'largest', name: m[1], pct: +m[2] / 100, text: s, src: srcAt(i + m.index + m[0].length - 1) });
     else if ((m = s.match(/\blargest (?:single )?customer\b,?\s*(?:([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,5}),?\s+)?[^.%]{0,80}?(\d{1,3}(?:\.\d+)?)\s?%/)))
-      out.facts.push({ kind: 'largest', name: m[1] || null, pct: +m[2] / 100, text: s, src });
+      out.facts.push({ kind: 'largest', name: m[1] || null, pct: +m[2] / 100, text: s, src: srcAt(i + m.index + m[0].length - 1) });
     /* "sales to one customer represented 22% of total revenue and sales to another represented 14%" */
     if (!/receivable/i.test(s) && !out.facts.some(f => f.kind === 'largest' && f.src && f.src.d === src.d && f.auto)) {
       const pcts = [...s.matchAll(/\bcustomers?\b[^.%]{0,60}?(?:represented|accounted for|comprised|made up)\s+(?:approximately\s+|about\s+)?(\d{1,2}(?:\.\d+)?)\s?%(?:\s+and\s+(\d{1,2}(?:\.\d+)?)\s?%)?[^.%]{0,30}?of\s+(?:our\s+)?(?:total\s+|net\s+|consolidated\s+)?(?:revenues?|net sales|sales)\b/gi)].flatMap(x => [x[1], x[2]].filter(Boolean).map(Number));
@@ -1586,7 +1599,7 @@ function factsFromText(text, srcAt, out) {
     // stated revenue magnitude in prose, used to check table units
     if (!/increase|decrease|grew|growth|declin|change|segment|backlog|pipeline|target|goal|by 20\d\d|per (customer|employee|unit)/i.test(s)) {
       const rm = s.match(/\b(?:total |annual |net )?(?:revenues?|net sales|sales)\b[^.$]{0,50}?\$\s?([\d,]+(?:\.\d+)?)\s*(billion|million|thousand|bn|mm|m|k)\b/i) || s.match(/\$\s?([\d,]+(?:\.\d+)?)\s*(billion|million|bn|mm)\s+(?:in|of)\s+(?:total |annual |net )?(?:revenues?|net sales|sales)\b/i);
-      if (rm) out.facts.push({ kind: 'revenueMention', amount: amt(rm[1], rm[2]), text: s, src });
+      if (rm) out.facts.push({ kind: 'revenueMention', amount: amt(rm[1], rm[2]), text: s, src: srcAt(i + (rm.index || 0) + rm[0].length - 1) });
     }
     if ((m = s.match(/headquartered in ([A-Z][A-Za-z.]+(?:\s[A-Z][A-Za-z.]+)*,\s?[A-Z][A-Za-z]+)/))) out.facts.push({ kind: 'hq', value: m[1], text: s, src });
     if ((m = s.match(/(recurring|maintenance agreements?|contracted|subscription)[^.%]{0,60}?(\d{1,3}(?:\.\d+)?)%\s+of\s+(?:total\s+)?(?:revenue|sales)/i))) out.facts.push({ kind: 'recurring', pct: +m[2] / 100, text: s, src });
@@ -1595,7 +1608,7 @@ function factsFromText(text, srcAt, out) {
     const allMoney = [...s.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(billion|million|thousand|bn|mm|m|k)?\b/gi)];
     const money = allMoney.filter(mm => { const w = s.slice(Math.max(0, mm.index - 80), mm.index + mm[0].length + 80); return DEBTW.test(w); });
     if (money.length && DEBTW.test(s) && !/\bper (month|year)\b|goodwill|purchase obligations?|lease (liabilit|payments?)|remaining performance|repurchase|dividend/i.test(s)) {
-      money.forEach(mm => out.facts.push({ kind: 'debtMention', amount: amt(mm[1], mm[2]), notRecorded: /not (recorded|reflected|included|on)|off[- ]balance|unrecorded/i.test(s + ' ' + (text.slice(i + s.length, i + s.length + 200).split(/[.!?]/)[0] || '')), text: s, src }));
+      money.forEach(mm => out.facts.push({ kind: 'debtMention', amount: amt(mm[1], mm[2]), notRecorded: /not (recorded|reflected|included|on)|off[- ]balance|unrecorded/i.test(s + ' ' + (text.slice(i + s.length, i + s.length + 200).split(/[.!?]/)[0] || '')), text: s, src: srcAt(i + mm.index + mm[0].length - 1) }));
     }
     if (allMoney.length && /\b(market|comparable|replacement)\b/i.test(s)) {
       const mm = allMoney[0]; let v = amt(mm[1], mm[2]); const monthly = /per month|monthly|\/mo\b|a month/i.test(s); if (monthly) v *= 12;
@@ -1616,7 +1629,7 @@ function tabular(rows, anchor, out, where, docId) {
   }
   if (h < 0) { /* no header row (a sheet of key figures): still read the label-and-figure lines on it */
     const head0 = rows.slice(0, 6).map(r => r.join(' ')).join(' ');
-    tablesFromLines(rows.map((r, i) => { const cells = r.filter(x => x !== ''); const first = r.findIndex(x => x !== ''); return { cells, text: cells.join('  '), src: anchor(i, Math.max(0, first), Math.max(0, r.length - 1)) }; }).filter(l => l.cells.length),
+    tablesFromLines(rows.map((r, i) => { const cells = r.filter(x => x !== ''); const cols = r.map((x, c) => x !== '' ? c : -1).filter(c => c >= 0); const first = r.findIndex(x => x !== ''); return { cells, cols, text: cells.join('  '), src: anchor(i, Math.max(0, first), Math.max(0, r.length - 1)) }; }).filter(l => l.cells.length),
       { units: unitsOf(head0) || 1, pageUnits: unitsOf(head0), proj: PROJ_CTX.test(head0), doc: docId, bsHint: where + ' ' + head0, asOf: asOfIn(head0) }, out);
     return null; }
   const hdr = rows[h].map(x => String(x).trim().toLowerCase());
@@ -1672,7 +1685,7 @@ function tabular(rows, anchor, out, where, docId) {
     return { role: 'Balance sheet', count: n, where };
   }
   // Financial statement layout (labels down, fiscal periods across)
-  const lines = rows.map((r, i) => { const cells = r.filter(x => x !== ''); const first = r.findIndex(x => x !== ''); return { cells, text: cells.join('  '), src: anchor(i, Math.max(0, first), Math.max(0, r.length - 1)) }; }).filter(l => l.cells.length);
+  const lines = rows.map((r, i) => { const cells = r.filter(x => x !== ''); const cols = r.map((x, c) => x !== '' ? c : -1).filter(c => c >= 0); const first = r.findIndex(x => x !== ''); return { cells, cols, text: cells.join('  '), src: anchor(i, Math.max(0, first), Math.max(0, r.length - 1)) }; }).filter(l => l.cells.length);
   const before = out.blocks.length;
   const head = rows.slice(0, 6).map(r => r.join(' ')).join(' ');
   tablesFromLines(lines, { units: unitsOf(head) || 1, proj: PROJ_CTX.test(head), doc: docId, bsHint: where + ' ' + head }, out);
@@ -1695,7 +1708,7 @@ const GL_COLS = {
   account: ['account', 'account number', 'account no', 'account num', 'acct', 'acct no', 'account code', 'gl account', 'gl account number', 'gl code', 'gl', 'gl acct', 'nominal code', 'nominal', 'ledger account', 'account id', 'distribution account'],
   accountName: ['account name', 'account description', 'gl account name', 'account title', 'gl description', 'gl account description', 'nominal name', 'acct name', 'account full name', 'distribution account name'],
   desc: ['description', 'memo', 'memo/description', 'details', 'narrative', 'line description', 'transaction description', 'line memo', 'particulars', 'comment', 'comments', 'reference description', 'note'],
-  cp: ['counterparty', 'name', 'customer/vendor', 'vendor', 'customer', 'payee', 'vendor name', 'customer name', 'entity', 'contact', 'party', 'supplier', 'client', 'source name'],
+  cp: ['counterparty', 'name', 'customer/vendor', 'vendor/customer', 'customer:job', 'customer / vendor', 'vendor / customer', 'payee/payer', 'vendor', 'customer', 'payee', 'vendor name', 'customer name', 'entity', 'contact', 'party', 'supplier', 'client', 'source name'],
   entry: ['entry_id', 'entry', 'je', 'journal entry', 'je number', 'je no', 'journal no', 'journal number', 'transaction id', 'txn id', 'trans no', 'document number', 'doc number', 'doc no', 'num', 'no', 'number', 'ref', 'reference', 'transaction number'],
   source: ['source', 'journal', 'source type', 'transaction type', 'type', 'txn type', 'trans type', 'module', 'source journal']
 };
@@ -2854,6 +2867,8 @@ function numbersIn(text) {
   return out;
 }
 function showsFigure(text, exp, units) {
+  /* a zero is printed as a dash */
+  if (Math.abs(exp.v) < 0.5 && !exp.pct && /(^|\s)[–—-]+(\s|$)|\b0\b|\bnil\b/.test(String(text || ''))) return true;
   const ns = numbersIn(text); if (!ns.length) return false; const want = Math.abs(exp.v);
   if (exp.pct) return ns.some(n => Math.abs(n.v / 100 - want) <= (n.pct ? 0.0051 : 0.0006) || (!n.pct && n.v <= 1 && Math.abs(n.v - want) <= 0.0006));
   const tol = Math.max(0.5, want * 0.006);
@@ -2885,8 +2900,8 @@ function findLineFor(docs, a, exp, units) {
   const words = String(exp.label || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !/^(total|from|with|that|this|adjusted)$/.test(w));
   const named = t => { const lt = String(t).toLowerCase(); return !words.length || words.some(w => lt.includes(w)); };
   const hits = [];
-  if (d.pages && a.t === 'pdf') d.pages.forEach(p => p.lines.forEach((l, i) => { const t = exp.text ? p.lines.slice(i, i + 3).map(x => x.text).join(' ') : l.text;
-    if (named(t) && showsFigure(exp.text ? t : l.text, exp, units)) hits.push({ src: { d: a.d, t: 'pdf', p: p.n, l: l.n }, dist: Math.abs(p.n - a.p) * 1000 + Math.abs(l.n - a.l) }); }));
+  if (d.pages && a.t === 'pdf') d.pages.forEach(p => p.lines.forEach((l, i) => { const t = exp.text ? p.lines.slice(Math.max(0, i - 2), i + 1).map(x => x.text).join(' ') : l.text;
+    if (named(t) && showsFigure(l.text, exp, units)) hits.push({ src: { d: a.d, t: 'pdf', p: p.n, l: l.n }, dist: Math.abs(p.n - a.p) * 1000 + Math.abs(l.n - a.l) }); }));
   if (d.sections && a.t === 'docx') d.sections.forEach(sc => sc.blocks.forEach(b => {
     if (b.kind === 'table') (b.rows || []).forEach((r, ri) => { const t = r.filter(Boolean).join('  '); if (named(t) && showsFigure(t, exp, units)) hits.push({ src: { d: a.d, t: 'docx', s: sc.n, b: b.n, ...(ri ? { r: ri + 1 } : {}), ...(a.k ? { k: a.k } : {}) }, dist: Math.abs(sc.n - a.s) * 1000 + Math.abs(b.n - a.b) }); });
     else if (named(b.text) && showsFigure(b.text, exp, units)) hits.push({ src: { d: a.d, t: 'docx', s: sc.n, b: b.n, ...(a.k ? { k: a.k } : {}) }, dist: Math.abs(sc.n - a.s) * 1000 + Math.abs(b.n - a.b) }); }));
@@ -2907,9 +2922,12 @@ function verifyFindings(findings, ctx) {
     const ctxT = citeContext(docs, a, a.x === 'text' || exps.some(e => e.text)); if (ctxT == null) return { status: 'missing' };
     if (!exps.length || (fxDocs && fxDocs.has(a.d))) return { status: 'exists' };
     const units = unitsOfDoc(a.d);
-    if (exps.some(e => showsFigure(ctxT, e, units))) return { status: 'shown' };
-    if (a.x === 'text' || exps.every(e => e.text)) { const pageT = a.t === 'pdf' ? ((docs.find(x => x.id === a.d) || {}).pages || [])[a.p - 1] : null;
-      const whole = pageT ? pageT.lines.map(l => l.text).join(' ') : ctxT; return exps.some(e => showsFigure(whole, e, units)) ? { status: 'shown' } : { status: 'mismatch', want: exps[0] }; }
+    /* a year added up from monthly cells: the cited cells must add up to it */
+    if (a.x === 'sum') { const t = docTextAt(docs, a); const tot = numbersIn(t).filter(n => !n.pct).reduce((s, n) => s + n.v, 0);
+      return exps.some(e => [units, 1, 1e3, 1e6].some(u => Math.abs(tot * u - Math.abs(e.v)) <= Math.max(0.5, Math.abs(e.v) * 0.0005))) ? { status: 'shown' } : { status: 'mismatch', want: exps[0] }; }
+    /* the figure must be on the cited line itself, not merely somewhere near it */
+    const lineT = docTextAt(docs, a);
+    if (exps.some(e => showsFigure(lineT, e, units))) return { status: 'shown' };
     for (const e of exps) { const to = findLineFor(docs, a, e, units); if (to) { const from = anchorWhere(a); Object.keys(a).forEach(k => { if (k !== 'x') delete a[k]; }); Object.assign(a, to); return { status: 'moved', from, to: anchorWhere(a), label: e.label }; } }
     return { status: 'mismatch', want: exps[0] };
   };
