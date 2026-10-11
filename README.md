@@ -47,9 +47,14 @@ The notes in the full README still apply:
 | `admin.html` | Workspace admin (at `/admin`): name, invites, access, firm domain, two-factor and inactivity rules, activity log, export and delete |
 | `adapter.js` | Connects the platform to Supabase, keeping every record and file inside the signed-in firm's workspace |
 | `guard.js` | Two-factor sign-in checks and sign-out after inactivity, shared by the app, Admin and Account pages |
+| `demo.html` | Request a demo page (at `/demo`); requests are saved to the `demo_requests` table |
 | `account.html` | Account security page (at `/account`): turn two-factor sign-in on or off |
 | `config.js` | Your Supabase URL and public key, the only file you edit |
 | `site.css`, `favicon.svg` | Styles and icon |
 | `vercel.json` | Clean addresses and security headers |
 | `schema.sql` | Run in Supabase (safe to rerun): firm workspaces, access rules, audit log; not published with the site |
 | `SOC2.md` | What's in place for SOC 2, the Supabase and Vercel settings to turn on, and what the company still needs |
+
+## Reading help and demo requests
+
+In Supabase, open **Table Editor**. Help requests from signed-in users are in `support_requests`, with their email, firm workspace, type and message. Demo requests from the website are in `demo_requests`. Reply by email. In `support_requests` you can change `status` to `answered` or `closed` to keep track.

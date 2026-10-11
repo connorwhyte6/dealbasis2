@@ -25,6 +25,7 @@ Each control is mapped to the SOC 2 Trust Services Criteria (CC = Common Criteri
 | Encryption | Every connection uses HTTPS: Vercel serves the site and Supabase the data, with HSTS turned on. Supabase encrypts the database and files on disk. | CC6.1, CC6.7 |
 | Security headers | HSTS, no framing (to block clickjacking), no MIME sniffing, a strict referrer policy, and camera, microphone and location turned off. | CC6.6 |
 | Private file storage | Files sit in a private bucket and are reached through the signed-in person's access, or through 5-minute signed links. There are no public links. | CC6.1 |
+| Support and security reporting | Signed-in users send questions, problems and security concerns from Help, then Get help. Each request is stored privately (only the sender and DealBasis can read it) and noted in the firm's activity log. Visitors can request a demo from the website. | CC2.3 |
 | Deterministic processing | Findings come from fixed, tested rules. No AI model reads customer documents, and every figure links back to its source. | PI1.2, PI1.4 |
 
 ## 2. One-time setup in Supabase and Vercel

@@ -92,10 +92,11 @@
       case 'auth.idle_sign_out': return 'Signed out after inactivity';
       case 'mfa.enrolled': return 'Turned on two-factor sign-in';
       case 'mfa.removed': return 'Turned off two-factor sign-in';
+      case 'support.requested': return 'Sent a help request: ' + t;
       default: return e.action + (t ? ' ' + t : '');
     }
   }
-  var GROUPS = { '': 'Everything', 'record.': 'Deal changes', 'member.,invite.': 'People and access', 'auth.,mfa.': 'Sign-ins', 'file.': 'Files', 'workspace.': 'Workspace settings' };
+  var GROUPS = { '': 'Everything', 'record.': 'Deal changes', 'member.,invite.': 'People and access', 'auth.,mfa.': 'Sign-ins', 'file.': 'Files', 'workspace.': 'Workspace settings', 'support.': 'Help requests' };
   function inGroup(e) { return !state.logFilter || state.logFilter.split(',').some(function (p) { return e.action.indexOf(p) === 0; }); }
   function when(at) { var d = new Date(at); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
 

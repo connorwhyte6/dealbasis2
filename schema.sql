@@ -512,6 +512,83 @@ grant select on public.audit_log to authenticated;
 grant execute on function public.log_event(text, text), public.delete_workspace(text) to authenticated;
 
 -- ---------------------------------------------------------------------------
+-- Help requests: sent from Help inside the app. A person sees only their own requests; DealBasis
+-- (the project owner) reads them all in the Supabase Table Editor. Each one is noted in the activity log.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.support_requests (
+  id           bigserial primary key,
+  workspace_id uuid not null default public.my_ws() references public.workspaces (id) on delete cascade,
+  user_id      uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  email        text,
+  kind         text not null default 'question' check (kind in ('question', 'problem', 'feature', 'security')),
+  subject      text not null check (length(subject) between 1 and 200),
+  message      text not null check (length(message) between 1 and 5000),
+  page         text check (length(page) <= 300),
+  status       text not null default 'open' check (status in ('open', 'answered', 'closed')),
+  created_at   timestamptz not null default now()
+);
+create index if not exists support_ws_idx on public.support_requests (workspace_id, created_at desc);
+
+alter table public.support_requests enable row level security;
+drop policy if exists support_insert_own on public.support_requests;
+drop policy if exists support_read_own on public.support_requests;
+create policy support_insert_own on public.support_requests for insert
+  with check (user_id = auth.uid() and workspace_id = public.my_ws() and status = 'open');
+create policy support_read_own on public.support_requests for select using (user_id = auth.uid());
+revoke all on public.support_requests from anon, authenticated;
+grant select, insert on public.support_requests to authenticated;
+grant usage, select on sequence public.support_requests_id_seq to authenticated;
+
+create or replace function public.audit_support() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public.audit(new.workspace_id, 'support.requested', new.subject, jsonb_build_object('kind', new.kind));
+  return null;
+end
+$$;
+drop trigger if exists support_audit on public.support_requests;
+create trigger support_audit after insert on public.support_requests for each row execute function public.audit_support();
+
+-- ---------------------------------------------------------------------------
+-- Demo requests: sent from the website's Request a demo page, by visitors without an account.
+-- Visitors can only add a request, never read any. DealBasis reads them in the Supabase Table Editor.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.demo_requests (
+  id         bigserial primary key,
+  name       text not null check (length(name) between 1 and 120),
+  email      text not null check (length(email) between 5 and 200 and email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  firm       text not null check (length(firm) between 1 and 160),
+  role       text check (length(role) <= 120),
+  firm_type  text check (firm_type in ('pe', 'search', 'corpdev', 'advisor', 'lender', 'other')),
+  message    text check (length(message) <= 3000),
+  created_at timestamptz not null default now()
+);
+
+-- keep the public form from being flooded: at most 3 a day per email and 60 an hour overall
+create or replace function public.limit_demo_requests() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from public.demo_requests where lower(email) = lower(new.email) and created_at > now() - interval '1 day') >= 3
+     or (select count(*) from public.demo_requests where created_at > now() - interval '1 hour') >= 60 then
+    raise exception 'Too many requests. Try again later.' using errcode = '54000';
+  end if;
+  new.created_at := now();
+  return new;
+end
+$$;
+drop trigger if exists demo_requests_limit on public.demo_requests;
+create trigger demo_requests_limit before insert on public.demo_requests for each row execute function public.limit_demo_requests();
+
+alter table public.demo_requests enable row level security;
+drop policy if exists demo_insert_public on public.demo_requests;
+create policy demo_insert_public on public.demo_requests for insert to anon, authenticated with check (true);
+revoke all on public.demo_requests from anon, authenticated;
+grant insert (name, email, firm, role, firm_type, message) on public.demo_requests to anon, authenticated;
+grant usage on sequence public.demo_requests_id_seq to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- File storage: uploaded documents and their originals (private bucket, 50 MB per file).
 -- Each workspace's files sit in a folder named after the workspace, and only its members can reach them.
 -- ---------------------------------------------------------------------------

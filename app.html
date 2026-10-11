@@ -335,6 +335,9 @@ fieldset.plain[disabled]{opacity:.7}
 .legal{max-width:72ch;color:var(--ink2)}
 .legal h2{color:var(--ink);font-size:18px;margin:18px 0 6px}
 .legal p{margin:0 0 10px}
+.helpform input,.helpform select,.helpform textarea{background:var(--bg);border:1px solid var(--rule2);border-radius:2px;padding:9px 11px;font:inherit;font-size:14px;color:var(--ink);width:100%;box-sizing:border-box}
+.helpform textarea{resize:vertical;min-height:110px}
+.helpform input:focus,.helpform select:focus,.helpform textarea:focus{outline:2px solid var(--brand);outline-offset:1px}
 .onboard{border:1px solid var(--rule2);border-top:3px solid var(--brand);padding:16px 18px;background:var(--panel)}
 .onboard .sechead{border-top:0;padding-top:0}
 @media (max-width:860px){ .authgrid{grid-template-columns:1fr} .authside{display:none} .authpanel{padding:28px 16px} .authbody{margin:0} }
@@ -6076,6 +6079,15 @@ function vHelp() {
     <li><b>Look at Data checks.</b> The workspace shows whether the balance sheet balances, whether lines tie to their stated totals, and which units each document was read in. Change a document's units there or in Sources and every figure recalculates.</li>
     <li><b>Work the findings.</b> Approve or reject add-backs in QoE, escalate issues, and answer the diligence questions.</li>
     <li><b>Export.</b> The investment memo (PDF, Word, Markdown, HTML) and the committee deck (PowerPoint, PDF) are built from the record.</li></ol></section>
+  <section class="sec" id="gethelp"><div class="sechead"><h2>Get help</h2><span class="aside">We reply by email</span></div>
+    ${auth.demo || !auth.me || !auth.me.id ? `<p class="lede" style="font-size:13.5px">Create an account to send a question, report a problem or suggest a feature.</p>` : `<form id="helpform" class="helpform" onsubmit="return window.dbSendHelp(event)" novalidate>
+      <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <label class="fld" style="display:flex;flex-direction:column;gap:4px;min-width:180px"><span class="muted" style="font-size:12px">Type</span><select id="hk"><option value="question">Question</option><option value="problem">Something isn’t working</option><option value="feature">Feature request</option><option value="security">Security concern</option></select></label>
+        <label class="fld" style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px"><span class="muted" style="font-size:12px">Subject</span><input id="hs" maxlength="200" placeholder="A few words"></label>
+      </div>
+      <label class="fld" style="display:flex;flex-direction:column;gap:4px;margin-top:10px"><span class="muted" style="font-size:12px">What do you need?</span><textarea id="hm" rows="5" maxlength="5000" placeholder="Tell us what happened or what you’d like. Please don’t paste confidential deal figures; we can see which page you were on."></textarea></label>
+      <div class="row" style="gap:10px;margin-top:10px;align-items:center"><button class="btn" type="submit">Send request</button><span id="helpmsg" class="muted" style="font-size:12.5px" role="status"></span></div>
+    </form>`}</section>
   <section class="sec"><div class="sechead"><h2>How the numbers are calculated</h2></div>
     ${qa('Net working capital', 'The Working Capital page shows four definitions, each with its calculation, cited lines and assumptions. Accounting: total current assets less total current liabilities, as stated. Operating: the same, excluding cash, short-term investments and debt due within a year. Purchase agreement (cash-free, debt-free): operating, also excluding items treated as debt (interest owed, income taxes owed, declared distributions, and anything you tick) and non-operating current assets. The definition you select drives the peg, the closing adjustment and the equity value; anything it holds inside working capital is not added or deducted again, so cash and debt are never counted twice. Trade: receivables plus inventory less payables. The peg is the trailing twelve-month average and the adjustment is delivered working capital less the peg, positive when paid to the seller.')}
     ${qa('How double counting is prevented', 'Balance sheet lines are tied to the total current assets and total current liabilities the statement states. Where a line is a breakdown of another (warranty accruals inside accrued liabilities, for example) it is counted once. An item that sits inside a larger line, such as taxes payable inside accrued liabilities, is counted once: in working capital, or, if you tick it as debt-like, as a price deduction instead. Current assets the data does not itemize are shown separately and left out of both cash and working capital.')}
@@ -6089,10 +6101,25 @@ function vHelp() {
     ${qa('Can I check where a figure came from?', 'Click any citation. The source opens at the page, cell, row, paragraph or XBRL tag, with the figure highlighted.')}
     ${qa('Why can’t I approve something?', 'Approvals follow your role: managers approve adjustments, partners approve escalations. Your role is shown at the bottom of the menu and set by a workspace admin in Team & Access.')}
     ${qa('Scanned PDFs and images', 'Pages with no text layer are read with text recognition (OCR) in your browser, up to 120 pages per file. Each scanned page is flagged with its recognition confidence; check figures cited to it against the page image, which opens from the citation.')}
-    ${qa('Where is my data stored?', 'Deals are saved to this page’s private database and files to its private storage. Only people the page is shared with can open them.')}</section>
+    ${qa('Where is my data stored?', 'Deals and files are kept in your firm’s private workspace. Only people your admins invite can open them, and other firms using DealBasis can never reach them. Admins can turn on required two-factor sign-in, review the activity log, export everything or delete the workspace on the Admin page.')}</section>
   <section class="sec"><div class="sechead"><h2>Keyboard</h2></div><div class="tbl"><table><tbody><tr><td class="mono">Esc</td><td>Close the source drawer or the presentation</td></tr><tr><td class="mono">← →</td><td>Previous and next slide when presenting</td></tr><tr><td class="mono">Tab</td><td>Move between controls; every action works from the keyboard</td></tr></tbody></table></div></section>
   <section class="sec"><div class="sechead"><h2>Legal</h2></div><div class="row"><button class="btn ghost" data-nav="legal">Terms and privacy</button></div></section>`;
 }
+/* Help: send a request to DealBasis support (saved privately; only the sender and DealBasis can read it) */
+window.dbSendHelp = async function (e) {
+  e.preventDefault();
+  const $ = id => document.getElementById(id), msg = $('helpmsg'), btn = e.target.querySelector('button');
+  const subject = ($('hs').value || '').trim(), message = ($('hm').value || '').trim(), kind = $('hk').value;
+  if (!subject || !message) { msg.textContent = 'Add a subject and a message.'; return false; }
+  const sb = window.DEALBASIS_SB; if (!sb) { msg.textContent = 'Sign in to send a request.'; return false; }
+  btn.disabled = true; msg.textContent = 'Sending…';
+  const r = await sb.from('support_requests').insert({ kind, subject, message, page: (location.hash || '').slice(0, 300), email: (auth.me && auth.me.email) || null });
+  btn.disabled = false;
+  if (r.error) { msg.textContent = 'It didn’t send: ' + r.error.message; return false; }
+  $('hs').value = ''; $('hm').value = '';
+  msg.textContent = 'Sent. We’ll reply to ' + ((auth.me && auth.me.email) || 'your email') + '.';
+  return false;
+};
 function legalHTML(which) {
   const terms = `<h2>Terms of use</h2>
     <p>DealBasis is a tool that organizes and analyses documents you upload. Its outputs are analysis to support your own diligence. They are not investment, legal, tax or accounting advice, and not a substitute for a quality of earnings report or for professional advisers.</p>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Request a demo | DealBasis</title>
+<meta name="description" content="Request a walkthrough of DealBasis: Financial Diligence and Deal Intelligence for private equity.">
+<link rel="canonical" href="https://dealbasis.vercel.app/demo">
+<meta name="theme-color" content="#ffffff">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DealBasis">
+<meta property="og:url" content="https://dealbasis.vercel.app/demo">
+<meta property="og:title" content="Request a demo | DealBasis">
+<meta property="og:description" content="Request a walkthrough of DealBasis: Financial Diligence and Deal Intelligence for private equity.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Request a demo | DealBasis">
+<meta name="twitter:description" content="Request a walkthrough of DealBasis: Financial Diligence and Deal Intelligence for private equity.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/home.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="/faq#faq-text">How it works</a></div>
+<header class="nav" id="nav"><div class="wrap">
+  <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
+  <nav class="links" aria-label="Main"><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a><a href="/team">Team</a></nav>
+  <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-secondary btn-sm demo-btn" href="/demo" aria-current="page">Request a demo</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
+</div>
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a><a href="/team">Team</a><a href="/signin">Sign in</a><a href="/demo">Request a demo</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
+</header>
+
+<main id="main">
+<div class="pagehead"><div class="wrap"><span class="eyebrow">Request a demo</span><h1>See DealBasis on your deal flow</h1><p>Tell us a little about your firm, and we’ll set up a walkthrough with one of the co-founders.</p></div></div>
+<section class="demosec"><div class="wrap">
+  <div class="demogrid">
+    <div class="demoinfo">
+      <h2>What we’ll cover</h2>
+      <ul>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>How DealBasis reads a CIM, statements and ledger, and checks every figure against the others</span></li>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>Financial Diligence: quality of earnings, working capital, debt and cash conversion</span></li>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>Deal Intelligence: the risk score, the issues list and the committee memo and deck</span></li>
+        <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>How your firm’s workspace, access and two-factor sign-in work</span></li>
+      </ul>
+      <p class="alt">Want to look around first? <a href="/app?demo=1">Try the sample deal</a>, no account needed.</p>
+    </div>
+    <form class="demoform" id="demoform" novalidate>
+      <div class="two">
+        <label>Full name<input name="name" autocomplete="name" maxlength="120" required></label>
+        <label>Work email<input name="email" type="email" autocomplete="email" maxlength="200" required></label>
+      </div>
+      <div class="two">
+        <label>Firm<input name="firm" autocomplete="organization" maxlength="160" required></label>
+        <label><span>Your role <span class="opt">(optional)</span></span><input name="role" autocomplete="organization-title" maxlength="120"></label>
+      </div>
+      <label>Type of firm<select name="firm_type"><option value="pe">Private equity</option><option value="search">Independent sponsor or search fund</option><option value="corpdev">Corporate development</option><option value="advisor">Advisor or accounting firm</option><option value="lender">Lender</option><option value="other">Other</option></select></label>
+      <label><span>What would you like to see? <span class="opt">(optional)</span></span><textarea name="message" maxlength="3000" placeholder="For example: the kinds of deals you screen, or what slows your diligence down"></textarea></label>
+      <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+      <div id="demoerr" role="alert"></div>
+      <button class="btn btn-primary" type="submit">Request a demo</button>
+      <p class="fine">We’ll only use your details to reply to this request.</p>
+    </form>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <div class="fgrid">
+    <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
+    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a></li><li><a href="/faq#security">Security</a></li><li><a href="/faq">FAQ</a></li><li><a href="/team">Team</a></li></ul></div>
+    <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/demo">Request a demo</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
+  </div>
+  <p class="legal">© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
+</div></footer>
+<script src="/home.js"></script>
+<script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script>
+(function () {
+  'use strict';
+  var form = document.getElementById('demoform'), err = document.getElementById('demoerr');
+  function fail(t) { err.className = 'err'; err.textContent = t; }
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault(); err.className = ''; err.textContent = '';
+    var f = new FormData(form), v = function (k) { return String(f.get(k) || '').trim(); };
+    if (v('website')) return;                                   /* filled only by bots */
+    if (!v('name')) return fail('Enter your name.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('email'))) return fail('Enter a valid work email.');
+    if (!v('firm')) return fail('Enter your firm.');
+    var cfg = window.DEALBASIS_CONFIG || {};
+    if (!window.supabase || !cfg.supabaseUrl) return fail('The form isn’t connected yet. Please try again later.');
+    var btn = form.querySelector('button'); btn.disabled = true; btn.textContent = 'Sending…';
+    var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false } });
+    var r = await sb.from('demo_requests').insert({ name: v('name'), email: v('email'), firm: v('firm'), role: v('role') || null, firm_type: v('firm_type'), message: v('message') || null });
+    if (r.error) { btn.disabled = false; btn.textContent = 'Request a demo'; return fail(/too many/i.test(r.error.message) ? 'We already have your request. We’ll be in touch soon.' : 'That didn’t send. Please try again.'); }
+    form.innerHTML = '<div class="demodone"><h2>Thanks, we’ve got it</h2><p>We’ll email <b></b> to set up a time.</p><a class="btn btn-secondary" href="/app?demo=1">Try the sample deal meanwhile</a></div>';
+    form.querySelector('b').textContent = v('email');
+  });
+})();
+</script>
+</body>
+</html>
