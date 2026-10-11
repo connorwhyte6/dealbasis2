@@ -727,8 +727,8 @@ function analyze(D, S, dec) {
   const accounts = Object.values(acctMap).sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat) || (a.account < b.account ? -1 : 1));
 
   /* QoE adjustments */
-  const rp = String(S.relatedParties).split(/[;\n]/).map(s => s.trim().toLowerCase()).filter(Boolean);
-  const isRP = r => rp.includes(String(r.counterparty || '').trim().toLowerCase());
+  const rp = String(S.relatedParties).split(/[;\n]/).map(rpKey).filter(Boolean);
+  const isRP = r => { const k = rpKey(r.counterparty); return !!k && rp.includes(k); };
   const ev = rs => rs.map(r => ({ date: r.date, id: r.entry_id, account: r.account + ' ' + r.account_name, desc: r.description, cp: r.counterparty, amount: r.amount, src: r.src || null }));
   const scale = ttm.length / 12;
   const adj = []; const used = new Set();
@@ -1623,9 +1623,33 @@ function factsFromText(text, srcAt, out) {
       if (/\b(manager|salary|compensation|executive|ceo|president)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'officer', value: v, text: s, src });
       else if (/\b(lease|rent|space|facility|premises)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'rent', value: v, text: s, src });
     }
+    /* related parties named in the text: the owner, entities the owner holds, shareholder lenders */
+    { const ORG = "([A-Z][\\w&'.-]*(?:\\s+(?:[A-Z][\\w&'.-]*|of|and|&))*)", PER = "((?:Mr\\.|Ms\\.|Mrs\\.|Dr\\.)?\\s*[A-Z][a-z]+(?:\\s+[A-Z]\\.)?\\s+[A-Z][a-z'-]+)";
+      const OWNERW = "(?:the\\s+)?(?:seller|owner|founder|sole (?:member|owner|shareholder)|majority (?:member|owner|shareholder)|principal|shareholders?|members?|ceo|president|chief executive officer|(?:Mr\\.|Ms\\.|Mrs\\.|Dr\\.)\\s*[A-Z][a-z'-]+|[A-Z][a-z]+\\s+[A-Z][a-z'-]+)";
+      const pats = [
+        new RegExp(ORG + ",?\\s+(?:an?\\s+|the\\s+)?(?:entity|company|business|affiliate|partnership|trust|llc)\\s+(?:that\\s+is\\s+|which\\s+is\\s+)?(?:wholly[- ]|partially\\s+|majority[- ]|jointly\\s+)?(?:owned|controlled|held)\\s+by\\s+" + OWNERW, 'g'),
+        new RegExp(ORG + ",?\\s+(?:which|that|whom)\\s+" + OWNERW + "\\s+(?:also\\s+)?(?:owns|controls|holds)\\b", 'g'),
+        new RegExp(ORG + ",?\\s+(?:an?\\s+)?(?:affiliate|related party)\\s+of\\s+" + OWNERW, 'g'),
+        new RegExp("\\b(?:the\\s+)?(?:owner|founder|seller|sole member|majority shareholder|principal shareholder)(?:\\s+and\\s+[a-z]+)?,\\s+" + PER + ",", 'g'),
+        new RegExp(PER + ",\\s+(?:the\\s+|our\\s+)?(?:Owner|owner|Founder|founder|Sole Member|sole member|Majority Shareholder|majority shareholder)\\b", 'g'),
+        new RegExp("\\bto\\s+" + PER + "\\s+under\\s+an?\\s+(?:shareholder|member|owner|officer|related[- ]party)\\s+(?:note|loan)", 'g')];
+      const bad = /^(?:the|a|an|our|its|this|that|company|seller|owner|in|on|at|as|it|we)$/i;
+      pats.forEach(re => { for (const mm of s.matchAll(re)) { let nm = mm[1].trim().replace(/^(?:The|An?)\s+(?=[A-Z])/, '').replace(/[.,;:]+$/, '');
+        const lead = nm.split(/\s+/)[0]; if (!nm || bad.test(nm) || bad.test(lead) || /^(?:Company|Seller|Owner|Buyer|Purchaser)\b/.test(nm) || nm.length < 4) continue;
+        if (!out.facts.some(f => f.kind === 'relatedParty' && rpKey(f.name) === rpKey(nm))) out.facts.push({ kind: 'relatedParty', name: nm, text: s, src: srcAt(i + mm.index + mm[0].length - 1) }); } }); }
+    /* figures the seller states that the ledger can confirm: rent paid, the owner's salary, receivables past due */
+    { let mm;
+      if ((mm = s.match(/\b(?:leased?|rent(?:ed|s)?)\b(?:[^.$]|\b(?:Mr|Ms|Mrs|Dr|Inc|Co|St|No)\.){0,120}?\bat\s+\$\s?([\d,]+(?:\.\d+)?)\s*(thousand|k)?\s*(?:per|a|each|\/)\s*(month|year|annum)/i) || s.match(/\b(?:rent|lease payments?)\s+(?:of|is|was|totals?|totaled)\s+\$\s?([\d,]+(?:\.\d+)?)\s*(thousand|k)?\s*(?:per|a|each|\/)\s*(month|year|annum)/i)) && !/\b(market|comparable|replacement)\b/i.test(s))
+        out.facts.push({ kind: 'rentStated', value: amt(mm[1], mm[2]) * (/month/i.test(mm[3]) ? 12 : 1), text: s, src: srcAt(i + mm.index + mm[0].length - 1) });
+      if ((mm = s.match(/\b(?:annual\s+)?(?:salary|compensation|pay)\b[^.$]{0,40}?\b(?:is|was|of|totals?|totaled)\s+\$\s?([\d,]+(?:\.\d+)?)\s*(thousand|million|k|m)?/i)) && /\b(?:owner|founder|ceo|president|seller|his|her)\b|\b(?:mr|ms|mrs|dr)\.\s*[A-Z]/i.test(s) && !/\b(market|comparable|replacement|would cost)\b/i.test(s))
+        out.facts.push({ kind: 'ownerPayStated', value: amt(mm[1], mm[2]), text: s, src: srcAt(i + mm.index + mm[0].length - 1) });
+      if ((mm = s.match(/\breceivables?\b[^.$]{0,40}?\b(?:over|more than|older than|past due(?: by)?(?: more than)?|aged over)\s+(\d{2,3})\s+days\b[^.$]{0,30}?\$\s?([\d,]+(?:\.\d+)?)\s*(thousand|million|k|m)?/i)))
+        out.facts.push({ kind: 'arAged', days: +mm[1], value: amt(mm[2], mm[3]), text: s, src: srcAt(i + mm.index + mm[0].length - 1) }); }
   }
 }
 
+/* a party's name compared without case, punctuation, titles or the legal form (LLC, Inc., L.P.) */
+const rpKey = n => String(n || '').toLowerCase().replace(/\b(mr|ms|mrs|dr)\.?\s+/g, '').replace(/[.,'’]/g, '').replace(/\b(llc|l l c|inc|incorporated|ltd|limited|lp|llp|corp|corporation|co|company|plc)\b/g, '').replace(/\s+/g, ' ').trim();
 /* ---------- tabular datasets (CSV rows, Excel sheets) ---------- */
 const CAT_ALIAS = { revenue: 'Revenue', sales: 'Revenue', cogs: 'COGS', 'cost of revenue': 'COGS', 'cost of goods sold': 'COGS', opex: 'OpEx', 'operating expense': 'OpEx', 'operating expenses': 'OpEx', 'd&a': 'D&A', depreciation: 'D&A', interest: 'Interest', tax: 'Tax', taxes: 'Tax', otherincome: 'OtherIncome', 'other income': 'OtherIncome' };
 const normCat = c => { const k = String(c).trim().toLowerCase(); return CATS.find(x => x.toLowerCase() === k) || CAT_ALIAS[k] || null; };
@@ -2825,6 +2849,10 @@ function nwcMeasures(X, L, dec, asOfIn) {
     const items = L.lines.map(l => ({ label: l, cls: L.cls[l], value: ((L.bsv[l] || {})[asOf]) || 0, src: L.srcAt(l, asOf), cur: curOf(l) }));
     const unknown = items.filter(i => i.cls === 'Debt' && i.cur == null);
     return { asOf, defs: NWC_DEFS.map(d => {
+      if (d.id === 'accounting' && unknown.length) { /* a statement at the same date that states both current totals settles it */
+        const T = (X.bsTotals || []).filter(t => t.asOf === asOf); const ca = T.find(t => /^total current assets$/.test(t.label)), cl = T.find(t => /^total current liabilities$/.test(t.label));
+        if (ca && cl) return { ...d, value: ca.value - cl.value, flags: [`The monthly balance sheets do not split ${unknown.map(i => i.label.toLowerCase()).join(', ')} between current and long-term, so the totals stated on the balance sheet at the same date are used.`],
+          rows: [{ label: 'Total current assets', value: ca.value, src: ca.src }, { label: 'Total current liabilities', value: -cl.value, src: cl.src }] }; }
       if (d.id === 'accounting' && unknown.length) return { ...d, value: null, rows: [], flags: [`Not available: the balance sheets do not say how much of ${unknown.map(i => i.label.toLowerCase()).join(', ')} is due within a year. Add a balance sheet that shows the current portion of debt.`] };
       const rows = items.filter(i => nwcInDef(d.id, i.cls, i.label, dec, i.cur)).map(i => ({ label: i.label, value: nwcSign(i.cls) * i.value, src: i.src }))
         .concat(norm.map(x => ({ label: x.note, value: x.amount, src: null })));
@@ -2974,6 +3002,10 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   const bench = t => factsOf('benchmark').find(f => f.target === t);
   const S = { ...DEFAULT_SETTINGS, relatedParties: mandate.relatedParties || '', multiple: mandate.multiple || DEFAULT_SETTINGS.multiple, ...S0 };
   const assumptionSrc = {};
+  /* related parties: the ones the deal team listed, plus the ones the documents name */
+  { const listed = String(S.relatedParties || '').split(/[;\n]/).map(x => x.trim()).filter(Boolean); const keys = new Set(listed.map(rpKey));
+    const found = factsOf('relatedParty').filter(f => { const k = rpKey(f.name); if (!k || keys.has(k)) return false; keys.add(k); return true; });
+    if (found.length) { S.relatedParties = [...listed, ...found.map(f => f.name)].join('; '); assumptionSrc.relatedParties = { from: 'document', names: found.map(f => f.name), src: found[0].src }; } }
   [['marketOfficerComp', 'officer', 250000], ['marketRent', 'rent', 168000]].forEach(([k, t, d]) => {
     if (S0 && S0[k] != null) { S[k] = S0[k]; assumptionSrc[k] = { from: 'user' }; }
     else if (bench(t)) { S[k] = bench(t).value; assumptionSrc[k] = { from: 'document', src: bench(t).src, text: bench(t).text }; }
@@ -3044,6 +3076,15 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     else { fxNeeded.push({ id, c }); dataChecks.push({ status: 'warn', text: `${docNm(id)} is in ${c}, and this deal reports in ${CUR.code}. Enter the exchange rate (1 ${c} = ? ${CUR.code}) so its figures can be combined with the others. Until then they are not converted.`, doc: id, fx: c, fxTarget: CUR.code }); } });
   if (fxPending) dataChecks.push({ status: 'warn', text: `Figures are shown in ${CUR.code}, the documents' currency. To show them in ${fxPending.target}, enter ${fxPending.missing.map(c => `1 ${c} = ? ${fxPending.target}`).join(' and ')} under Currency on the Mandate page.`, fx: fxPending.missing[0], fxTarget: fxPending.target });
   const L = X.gl.length ? analyze({ gl: X.gl, bs: X.bs, debt: X.debt }, S, dec) : null;
+  /* figures the seller states, confirmed against the ledger's trailing twelve months */
+  if (L && L.ttmEntries && L.ttm.length === 12) { const T = L.ttmEntries; const sumR = rs => rs.reduce((a, r) => a + (+r.amount || 0), 0); const near = (a, b) => Math.abs(a - b) <= Math.max(1, Math.abs(b) * 0.02);
+    const conf = (f, rows, what) => { if (!f || !rows.length) return; const led = sumR(rows);
+      dataChecks.push(near(led, f.value) ? { status: 'ok', text: `${what} is stated as ${fmtUSD(f.value)} a year; the ledger shows ${fmtUSD(led)} for the trailing twelve months.`, src: f.src }
+        : { status: 'warn', text: `${what} is stated as ${fmtUSD(f.value)} a year, but the ledger shows ${fmtUSD(led)} for the trailing twelve months. The ledger figure is used.`, src: f.src }); };
+    conf(factsOf('rentStated')[0], T.filter(r => r.category === 'OpEx' && /\b(rent|lease)\b/i.test(r.account_name + ' ' + r.description)), 'Rent');
+    conf(factsOf('ownerPayStated')[0], T.filter(r => r.category === 'OpEx' && /officer|owner comp|shareholder salary/i.test(r.account_name)), "The owner's salary"); }
+  { const f = factsOf('arAged')[0]; if (f) { const arL = L && L.lines && L.lines.find(l => L.cls[l] === 'NWC asset' && /receivable/i.test(l)); const ar = arL && L.bsv[arL] ? L.bsv[arL][L.last] : null;
+    dataChecks.push({ status: 'info', text: `Receivables over ${f.days} days are stated as ${fmtUSD(f.value)}${ar ? `, ${(f.value / ar * 100).toFixed(1)}% of receivables of ${fmtUSD(ar)} at the latest month-end` : ''}. Ask for the aging report to support the reserve.`, src: f.src }); } }
   let SM = X.blocks.length ? statementModel(X) : null;
   if (SM && SM.basis && SM.pl.revenue && SM.pl.revenue[SM.basis]) {
     const rv = SM.pl.revenue[SM.basis]; const did = rv.src && rv.src.d;
@@ -3190,7 +3231,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       if (f.id === 'R13') L.nwc.lines.forEach(l => cites.push(l.srcs[l.srcs.length - 1]));
       let ev = f.evidence;
       if (f.id === 'R01' && L.customers.list[0]) ev = L.ttmEntries.filter(r => r.category === 'Revenue' && r.counterparty === L.customers.list[0].name).sort((a, b) => b.amount - a.amount).slice(0, 25).map(r => ({ date: r.date, id: r.entry_id, account: r.account + ' ' + r.account_name, desc: r.description, cp: r.counterparty, amount: r.amount, src: r.src }));
-      if (f.id === 'R12') { const rp = String(S.relatedParties).split(/[;\n]/).map(s => s.trim().toLowerCase()).filter(Boolean); ev = L.ttmEntries.filter(r => rp.includes(String(r.counterparty).toLowerCase())).slice(0, 40).map(r => ({ date: r.date, id: r.entry_id, account: r.account + ' ' + r.account_name, desc: r.description, cp: r.counterparty, amount: r.amount, src: r.src })); }
+      if (f.id === 'R12') { const rp = String(S.relatedParties).split(/[;\n]/).map(rpKey).filter(Boolean); ev = L.ttmEntries.filter(r => rp.includes(rpKey(r.counterparty))).slice(0, 40).map(r => ({ date: r.date, id: r.entry_id, account: r.account + ' ' + r.account_name, desc: r.description, cp: r.counterparty, amount: r.amount, src: r.src })); }
       let impact = null;
       if (f.id === 'R10') impact = { kind: 'equity', amount: -L.debt.rows.filter(r => r.status === 'Variance' || r.status === 'Unrecorded').reduce((s, r) => s + r.variance, 0), note: 'Additional funded debt per lenders' };
       if (f.id === 'R14') { const a = L.adj.find(x => x.id === 'A7'); if (a) impact = { kind: 'ebitda', amount: a.amount, note: 'Revenue reversed after period end' }; }
@@ -5999,16 +6040,28 @@ function workbookModel(R, m) {
   sum.push(['Pre-LOI confidence (0–100)', R.confidence, 'n', `Verdict: ${R.verdict}`]);
   add('Summary', ['Figure', 'Value', 'Source'], sum.map(r => [r[0], { v: r[1], k: r[2] }, r[3]]), { widths: [46, 18, 70], title: `${m.name || 'Deal'}${m.target ? ' · ' + m.target : ''}`, sub: `Exported ${new Date().toISOString().slice(0, 10)} · run ${R.fingerprint} · all amounts in ${(R.currency && R.currency.code) || 'USD'} · diligence analysis, not an audit or attestation` });
 
-  /* Income statement */
-  if (L && L.ttm) {
-    const LN = [['Revenue', 'Revenue'], ['COGS', 'Cost of revenue'], ['GP', 'Gross profit'], ['OpEx', 'Operating expenses'], ['EBITDA', 'Reported EBITDA'], ['D&A', 'Depreciation and amortization'], ['Interest', 'Interest'], ['OtherIncome', 'Other income'], ['Tax', 'Tax'], ['NI', 'Net income']].filter(([k]) => L.ttm.some(mm => L.pl[mm] && L.pl[mm][k] != null));
-    const tot = k => L.ttm.reduce((a, mm) => a + ((L.pl[mm] || {})[k] || 0), 0);
-    add('Income statement', ['Line', ...L.ttm, 'Trailing 12 months'], LN.map(([k, lab]) => [lab, ...L.ttm.map(mm => ({ v: (L.pl[mm] || {})[k], k: 'usd' })), { v: tot(k), k: 'usd' }]), { widths: [30, ...L.ttm.map(() => 13), 18], note: 'Monthly, summed from the general ledger' });
-  } else if (SM && SM.periods.length) {
-    const NAMES = { revenue: 'Revenue', cogs: 'Cost of revenue', gp: 'Gross profit', opex: 'Operating expenses', operatingIncome: 'Operating income', otherIncome: 'Other income', da: 'Depreciation and amortization', ebitda: 'EBITDA', adjEbitda: 'Adjusted EBITDA (management)', interest: 'Interest', tax: 'Income tax', netIncome: 'Net income', cfo: 'Cash from operations', capex: 'Capital expenditure', nwcChange: 'Change in working capital (cash flow)' };
-    const keys = Object.keys(NAMES).filter(k => SM.pl[k]);
-    add('Income statement', ['Line', ...SM.periods.map(p => p.label), 'Source (latest period)'], keys.map(k => { const last = [...SM.periods].reverse().find(p => SM.pl[k][p.key]); const o = last && SM.pl[k][last.key];
-      return [NAMES[k], ...SM.periods.map(p => ({ v: SM.pl[k][p.key] ? SM.pl[k][p.key].v : null, k: 'usd' })), o ? (o.computed ? 'Computed: ' + (o.parts ? o.parts.join(' + ') : 'operating income + D&A') : where(o.src)) : '']; }), { widths: [36, ...SM.periods.map(() => 15), 60] });
+  /* Income statement: annual figures for the model (from the statements, or the ledger's trailing twelve months when
+     there are no statements), with margins; the ledger's months on their own tab */
+  { const NAMES = { revenue: 'Revenue', cogs: 'Cost of revenue', gp: 'Gross profit', opex: 'Operating expenses', operatingIncome: 'Operating income', otherIncome: 'Other income', da: 'Depreciation and amortization', ebitda: 'EBITDA', adjEbitda: 'Adjusted EBITDA (management)', interest: 'Interest', tax: 'Income tax', netIncome: 'Net income', cfo: 'Cash from operations', capex: 'Capital expenditure', nwcChange: 'Change in working capital (cash flow)' };
+    const LMAP = { revenue: 'Revenue', cogs: 'COGS', gp: 'GP', opex: 'OpEx', otherIncome: 'OtherIncome', da: 'D&A', ebitda: 'EBITDA', interest: 'Interest', tax: 'Tax', netIncome: 'NI' };
+    const cols = []; /* each column: label and a getter */
+    if (SM && SM.periods.length) SM.periods.forEach(p => cols.push({ label: p.label + (p.type === 'P' ? ' (projected)' : ''), get: k => SM.pl[k] && SM.pl[k][p.key] ? SM.pl[k][p.key].v : null, src: k => SM.pl[k] && SM.pl[k][p.key] }));
+    if (L && L.ttm && L.ttm.length) { const lm = monthLabel(L.last); const sumL = (ms, k) => Math.round(ms.reduce((a, mm) => a + (((L.pl[mm] || {})[LMAP[k]]) || 0), 0) * 100) / 100;
+      if (L.prior && L.prior.length === 12) cols.push({ label: `Prior TTM (ledger)`, get: k => LMAP[k] ? sumL(L.prior, k) : null });
+      cols.push({ label: `TTM ${lm} (ledger)`, get: k => LMAP[k] ? sumL(L.ttm, k) : null }); }
+    if (cols.length) {
+      const keys = Object.keys(NAMES).filter(k => cols.some(c => { const v = c.get(k); return v != null && isFinite(v); }));
+      const rows = keys.map(k => { const last = SM ? [...SM.periods].reverse().find(p => SM.pl[k] && SM.pl[k][p.key]) : null; const o = last && SM.pl[k][last.key];
+        return [NAMES[k], ...cols.map(c => { const v = c.get(k); return { v: v != null && isFinite(v) ? v : null, k: 'usd' }; }), o ? (o.computed ? 'Computed: ' + (o.parts ? o.parts.join(' + ') : 'from the other statement lines') : where(o.src)) : (L ? 'General ledger' : '')]; });
+      const mrg = (lab, num) => { if (!keys.includes(num) || !keys.includes('revenue')) return; rows.push([lab, ...cols.map(c => { const a = c.get(num), r0 = c.get('revenue'); return { v: a != null && r0 ? a / r0 : null, k: 'pct' }; }), '']); };
+      mrg('Gross margin', 'gp'); mrg('EBITDA margin', 'ebitda'); mrg('Adjusted EBITDA margin (management)', 'adjEbitda');
+      add('Income statement', ['Line', ...cols.map(c => c.label), 'Source (latest period)'], rows, { widths: [36, ...cols.map(() => 16), 60], note: `Annual figures${SM ? ' from the financial statements' : ''}${L ? `${SM ? ', with' : ' from'} the general ledger's trailing twelve months` : ''}.${L ? ' Monthly figures are on the Monthly P&L tab.' : ''}` });
+    }
+    if (L && L.ttm && L.ttm.length) {
+      const LN = [['Revenue', 'Revenue'], ['COGS', 'Cost of revenue'], ['GP', 'Gross profit'], ['OpEx', 'Operating expenses'], ['EBITDA', 'Reported EBITDA'], ['D&A', 'Depreciation and amortization'], ['Interest', 'Interest'], ['OtherIncome', 'Other income'], ['Tax', 'Tax'], ['NI', 'Net income']].filter(([k]) => L.ttm.some(mm => L.pl[mm] && L.pl[mm][k] != null));
+      const ms = L.months; const tot = k => Math.round(L.ttm.reduce((a, mm) => a + ((L.pl[mm] || {})[k] || 0), 0) * 100) / 100, c2 = v => v == null ? v : Math.round(v * 100) / 100;
+      add('Monthly P&L', ['Line', ...ms.map(monthLabel), `TTM ${monthLabel(L.last)}`], LN.map(([k, lab]) => [lab, ...ms.map(mm => ({ v: c2((L.pl[mm] || {})[k]), k: 'usd' })), { v: tot(k), k: 'usd' }]), { widths: [30, ...ms.map(() => 13), 18], note: 'Monthly, summed from the general ledger' });
+    }
   }
 
   /* EBITDA bridge */
@@ -6019,14 +6072,34 @@ function workbookModel(R, m) {
     rows.push(['Diligence-adjusted EBITDA', '', '', { v: R.diligence, k: 'usd' }, '']);
     if (M && M.stated != null) rows.push(["Management's Adjusted EBITDA, as stated", '', '', { v: M.stated, k: 'usd' }, where(M.statedSrc)]);
     add('EBITDA bridge', ['Item', 'Rule / class', 'Status', 'Amount', 'Source'], rows, { widths: [44, 16, 12, 16, 70], totals: [0, rows.length - (M && M.stated != null ? 2 : 1)] }); }
+  /* management's own bridge, every period as the documents print it, with DealBasis's view of each item */
+  if (M && M.recon && M.recon.periods && M.recon.periods.length) { const rc = M.recon, ps = rc.periods, u = rc.units || 1;
+    const rowV = r => ps.map((p, i) => r && r.values[i] != null && isFinite(r.values[i]) ? r.values[i] * ((r.scales && r.scales[i]) || u) : null);
+    const cell = v => ({ v, k: 'usd' }); const rows = [];
+    const rep = rowV(rc.ebitdaRow); rows.push([rc.ebitdaRow ? rc.ebitdaRow.label : 'EBITDA', ...rep.map(cell), '', '', rc.ebitdaRow ? where(rc.ebitdaRow.src) : '']);
+    const abs = rc.addbacks || []; abs.forEach(a => { const mine = (M.addbacks || []).find(x => x.label === a.label);
+      rows.push([a.label, ...ps.map(p => cell(a.values[p.key] != null ? a.values[p.key] : null)), mine ? mine.cls || '' : '', mine ? `${mine.accepted ? 'Accepted' : 'Not accepted'}${mine.support && mine.support.status ? ' · ' + mine.support.status : ''}` : '', where(a.src)]); });
+    const listed = ps.map(p => abs.reduce((t, a) => t + (+a.values[p.key] || 0), 0));
+    if (rc.totalRow) rows.push([`${rc.totalRow.label}, as stated`, ...rowV(rc.totalRow).map(cell), '', '', where(rc.totalRow.src)]);
+    rows.push(['Total adjustments, as listed', ...listed.map(cell), '', 'Sum of the items above', '']);
+    const adj = rowV(rc.adjRow); if (rc.adjRow) rows.push([`${rc.adjRow.label}, as stated`, ...adj.map(cell), '', '', where(rc.adjRow.src)]);
+    const comp = rep.map((v, i) => v != null ? v + listed[i] : null); rows.push(['EBITDA plus listed adjustments', ...comp.map(cell), '', '', '']);
+    if (rc.adjRow) rows.push(['Difference (stated less computed)', ...adj.map((v, i) => cell(v != null && comp[i] != null ? v - comp[i] : null)), '', '', '']);
+    add('Management bridge', ['Item', ...ps.map(p => p.label), 'Class', 'DealBasis view', 'Source'], rows, { widths: [44, ...ps.map(() => 16), 20, 28, 50], note: "Management's adjusted EBITDA reconciliation as presented, every period" }); }
 
   /* Balance sheet */
   if (L && L.lines && L.lines.length) {
     const ms = L.months.slice(-13);
     add('Balance sheet', ['Line', 'Class', ...ms], L.lines.map(l => [l, L.cls[l], ...ms.map(mm => ({ v: (L.bsv[l] || {})[mm], k: 'usd' }))]), { widths: [34, 14, ...ms.map(() => 13)], note: 'Month-end balances, last 13 months' });
   } else if ((R.bsItems || []).length) {
-    add('Balance sheet', ['Line', 'Class', 'As of', 'Amount', 'Note', 'Source'], R.bsItems.map(i => [i.label, i.cls, i.asOf || '', { v: i.value, k: 'usd' }, i.within ? `Part of ${i.within}` : i.residual ? 'Not identified in the documents' : '', where(i.src)]), { widths: [40, 14, 10, 16, 30, 60] });
+    add('Balance sheet', ...stmtBS());
   }
+  /* the balance sheet as the documents state it, totals included, in the order printed */
+  function stmtBS() { const ord = a => !a ? 1e9 : (a.p || a.s || 0) * 1e5 + (a.l || a.r || a.b || 0);
+    const rows = [...(R.bsItems || []).map(i => ({ i, t: false })), ...(R.bsTotals || []).map(i => ({ i, t: true }))].sort((x, y) => ord(x.i.src) - ord(y.i.src))
+      .map(({ i, t }) => [t ? i.label.replace(/^./, c => c.toUpperCase()) : i.label, t ? (/^total\b/i.test(i.label) ? 'Total' : /equity|capital|deficit/i.test(i.label) ? 'Equity' : 'Total') : i.cls, i.asOf || '', { v: i.value, k: 'usd' }, t ? 'As stated' : i.within ? `Part of ${i.within}` : i.residual ? 'Not identified in the documents' : '', where(i.src)]);
+    return [['Line', 'Class', 'As of', 'Amount', 'Note', 'Source'], rows, { widths: [40, 14, 10, 16, 30, 60], note: 'As stated in the documents' }]; }
+  if (L && L.lines && L.lines.length && (R.bsItems || []).length) add('Stated balance sheet', ...stmtBS());
 
   /* Working capital */
   if (W) {
@@ -6042,7 +6115,9 @@ function workbookModel(R, m) {
     if (L && L.debt) L.debt.rows.forEach(r => rows.push(['Funded debt', r.facility || r.line, { v: r.conf != null ? r.conf : r.bs, k: 'usd' }, r.status || '', where(r.srcConf || r.srcBS)]));
     else (R.bsItems || []).filter(i => i.cls === 'Debt').forEach(i => rows.push(['Funded debt', i.label, { v: i.value, k: 'usd' }, '', where(i.src)]));
     (L ? L.debt.debtLike : P.debtLikeItems || []).forEach(d => rows.push(['Debt-like', d.line, { v: d.amount, k: 'usd' }, d.included ? 'Deducted from price' : 'Kept in working capital', where(d.src)]));
-    (R.bsItems || []).filter(i => i.cls === 'Cash').forEach(i => rows.push(['Cash', i.label, { v: i.value, k: 'usd' }, '', where(i.src)]));
+    const cashL = L && L.lines ? L.lines.filter(l => L.cls[l] === 'Cash') : [];
+    if (cashL.length) cashL.forEach(l => rows.push(['Cash', l, { v: ((L.bsv[l] || {})[L.last]) || 0, k: 'usd' }, `Month-end ${L.last}`, where(L.srcAt(l, L.last))]));
+    else (R.bsItems || []).filter(i => i.cls === 'Cash').forEach(i => rows.push(['Cash', i.label, { v: i.value, k: 'usd' }, '', where(i.src)]));
     add('Debt and cash', ['Type', 'Item', 'Amount', 'Treatment', 'Source'], rows, { widths: [14, 40, 16, 26, 60] }); }
 
   /* Findings and questions */
@@ -6539,7 +6614,7 @@ function vMandate() {
     <div class="field"><label for="m-currency">Show figures in</label><select id="m-currency" data-m="currency">${curOptions(m.currency || 'auto', `<option value="auto" ${(m.currency || 'auto') === 'auto' ? 'selected' : ''}>The documents' currency (${esc(R.baseCurrency || 'USD')})</option>`)}</select><span class="hint">${currencyHint()}</span></div>
     ${currencyRates()}
     <div class="field"><label for="m-industry">Industry metrics</label><select id="m-industry" data-m="industry">${[['auto', `Detect from the documents (now: ${R.industry === 'saas' ? 'SaaS' : 'general'})`], ['general', 'General'], ['saas', 'SaaS / subscription']].map(([v, l]) => `<option value="${v}" ${(m.industry || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="hint">SaaS adds ARR, retention, churn, CAC payback and Rule of 40</span></div>
-    <div class="field"><label for="m-relatedParties">Related parties</label><input id="m-relatedParties" data-m="relatedParties" value="${esc(m.relatedParties)}"><span class="hint">Separate with semicolons</span></div>
+    <div class="field"><label for="m-relatedParties">Related parties</label><input id="m-relatedParties" data-m="relatedParties" value="${esc(m.relatedParties)}"><span class="hint">Separate with semicolons${typeof R !== 'undefined' && R && R.assumptionSrc && R.assumptionSrc.relatedParties ? `. Also read from the documents: ${esc(R.assumptionSrc.relatedParties.names.join('; '))} ${cite(R.assumptionSrc.relatedParties.src)}` : ''}</span></div>
   </div></section>
   <section class="sec"><div class="sechead"><h2>Owners</h2><span class="aside">Approval gates follow these roles</span></div><div class="formgrid">
     ${ROLES.map(r => `<div class="field"><label for="o-${r}">${r}</label><input id="o-${r}" data-owner="${r}" value="${esc(o[r] || '')}"></div>`).join('')}
@@ -6585,7 +6660,7 @@ function versionsPanel(m) {
 function vSources() {
   const m = MD(); const X = R.X;
   const SM = R.SM; const NAMES = { revenue: 'Revenue', cogs: 'Cost of revenue', gp: 'Gross profit', opex: 'Operating expenses', otherIncome: 'Other income', ebitda: 'EBITDA', adjEbitda: 'Adjusted EBITDA', da: 'D&A', interest: 'Interest', tax: 'Taxes', netIncome: 'Net income' };
-  const FK = { topN: f => `Top ${f.n} customers: ${pc(f.pct)}`, largest: f => `Largest customer${f.name ? ' (' + f.name + ')' : ''}: ${pc(f.pct)}`, founded: f => `Founded ${f.value}`, employees: f => `${f.value} employees`, hq: f => `Headquarters: ${f.value}`, recurring: f => `Recurring revenue: ${pc(f.pct)}`, debtMention: f => `Debt mentioned: ${$(f.amount)}${f.notRecorded ? ' (stated as not recorded)' : ''}`, benchmark: f => `Market ${f.target === 'officer' ? 'owner compensation' : 'rent'}: ${$(f.value)} a year` };
+  const FK = { topN: f => `Top ${f.n} customers: ${pc(f.pct)}`, largest: f => `Largest customer${f.name ? ' (' + f.name + ')' : ''}: ${pc(f.pct)}`, founded: f => `Founded ${f.value}`, employees: f => `${f.value} employees`, hq: f => `Headquarters: ${f.value}`, recurring: f => `Recurring revenue: ${pc(f.pct)}`, debtMention: f => `Debt mentioned: ${$(f.amount)}${f.notRecorded ? ' (stated as not recorded)' : ''}`, benchmark: f => `Market ${f.target === 'officer' ? 'owner compensation' : 'rent'}: ${$(f.value)} a year`, relatedParty: f => `Related party: ${f.name}`, rentStated: f => `Rent paid: ${$(f.value)} a year`, ownerPayStated: f => `Owner's salary: ${$(f.value)}`, arAged: f => `Receivables over ${f.days} days: ${$(f.value)}` };
   return `${head('Workspace', 'Sources')}
   ${sampleBanner()}
   <section class="sec"><div class="drop" id="drop"><h3>Add source documents</h3><p class="lede" style="font-size:13px">Drop in anything from the data room: CIMs and statements as PDF, Excel (xlsx, xls, xlsm, ods), Word, PowerPoint, SEC filings as HTML with their XBRL tags read directly, CSV or TSV ledgers, JSON, Markdown, text, RTF, emails (.eml) and whole .zip data rooms. Files are read in this browser and every figure keeps a link to its page, cell, row, slide, paragraph or XBRL tag. Scanned PDFs are read with text recognition in this browser; image files (PNG, JPG) are not read.</p>
