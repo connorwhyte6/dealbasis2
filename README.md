@@ -4,7 +4,7 @@ These files are the whole website, with no folders, no build and no packages. Ve
 
 ## 1. Supabase (skip if already done)
 
-1. In your Supabase project, open **SQL Editor → New query**, paste all of `schema.sql` and click **Run**. Optional first: in that file, put your email on the `owner_email` line and remove the `-- ` in front, so only you can become the first admin.
+1. In your Supabase project, open **SQL Editor → New query**, paste all of `schema.sql` and click **Run**. Run it again whenever `schema.sql` changes; it's safe to repeat. Each firm that signs up gets its own private workspace, and an existing install moves into one workspace automatically. See `SOC2.md` for the recommended security settings.
 2. **Authentication → URL Configuration:** set **Site URL** to your Vercel address (e.g. `https://dealbasis-site.vercel.app`), and add the same address followed by `/**` under **Redirect URLs**.
 
 ## 2. GitHub: a fresh repository
@@ -40,13 +40,16 @@ The notes in the full README still apply:
 | File | What it is |
 |---|---|
 | `index.html` | Homepage: what DealBasis does, with Sign in and Try the sample deal. Sign-in links from emails that land here go straight on to `/signin` |
-| `product.html`, `why.html`, `example.html`, `faq.html` | Website pages at `/product`, `/why`, `/example` and `/faq`: product tour and features, why deals die with sources, the Project Saguaro example, and FAQ with security |
+| `product.html`, `why.html`, `example.html`, `faq.html`, `team.html` | Website pages at `/product`, `/why`, `/example`, `/faq` and `/team`: product tour and features, why deals die with sources, the Project Saguaro example, FAQ with security, and the co-founders |
 | `home.css`, `home.js` | Shared styles and script for the homepage and the website pages |
 | `signin.html` | Sign-in page (at `/signin`): sign in, create account, email sign-in link, password reset |
 | `app.html` | The DealBasis platform (at `/app`; the sample is at `/app?demo=1`) |
-| `admin.html` | Workspace admin: invites, access, firm domain (at `/admin`) |
-| `adapter.js` | Connects the platform to Supabase |
+| `admin.html` | Workspace admin (at `/admin`): name, invites, access, firm domain, two-factor and inactivity rules, activity log, export and delete |
+| `adapter.js` | Connects the platform to Supabase, keeping every record and file inside the signed-in firm's workspace |
+| `guard.js` | Two-factor sign-in checks and sign-out after inactivity, shared by the app, Admin and Account pages |
+| `account.html` | Account security page (at `/account`): turn two-factor sign-in on or off |
 | `config.js` | Your Supabase URL and public key, the only file you edit |
 | `site.css`, `favicon.svg` | Styles and icon |
 | `vercel.json` | Clean addresses and security headers |
-| `schema.sql` | Run once in Supabase; not published with the site |
+| `schema.sql` | Run in Supabase (safe to rerun): firm workspaces, access rules, audit log; not published with the site |
+| `SOC2.md` | What's in place for SOC 2, the Supabase and Vercel settings to turn on, and what the company still needs |

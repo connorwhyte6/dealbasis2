@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/site.css">
 <script src="/config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script><script src="/guard.js"></script>
 </head>
 <body>
 <div class="authgrid">
@@ -38,7 +38,7 @@
     return;
   }
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-  var mode = 'signin', msg = null, busy = false, recovering = false;
+  var mode = 'signin', msg = null, busy = false, recovering = false, factorId = null;
 
   function field(id, label, type, ac, extra) { return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" name="' + id + '" type="' + type + '" autocomplete="' + ac + '" required ' + (extra || '') + '></div>'; }
   function note() { return msg ? '<div class="msg ' + (msg.err ? 'err' : 'ok') + '" role="' + (msg.err ? 'alert' : 'status') + '">' + esc(msg.text) + '</div>' : ''; }
@@ -53,14 +53,16 @@
         '<p class="small">New to DealBasis? <button class="lnk" data-mode="signup">Create an account</button></p>';
     } else if (mode === 'signup') {
       h = '<h1 id="authh">Create your account</h1><form id="f" novalidate>' + field('name', 'Full name', 'text', 'name') + field('email', 'Work email', 'email', 'email') + field('password', 'Password', 'password', 'new-password', 'minlength="8"') +
-        '<p class="small">At least 8 characters. The first person to sign up becomes the workspace admin; everyone after needs an invite or an email at your firm’s domain.</p>' + note() +
+        '<p class="small">At least 8 characters. A new account gets its own private workspace for your firm. Invited by a colleague? Use the email they invited, and you join their workspace instead.</p>' + note() +
         '<button class="btn big" ' + (busy ? 'disabled' : '') + '>Create account</button></form><p class="small">Already have an account? <button class="lnk" data-mode="signin">Sign in</button></p>';
     } else if (mode === 'magic') {
       h = '<h1 id="authh">Sign in by email</h1><form id="f" novalidate>' + field('email', 'Work email', 'email', 'email') + note() + '<button class="btn big" ' + (busy ? 'disabled' : '') + '>Send sign-in link</button></form><p class="small"><button class="lnk" data-mode="signin">Sign in with a password</button></p>';
     } else if (mode === 'forgot') {
       h = '<h1 id="authh">Reset your password</h1><form id="f" novalidate>' + field('email', 'Work email', 'email', 'email') + note() + '<button class="btn big" ' + (busy ? 'disabled' : '') + '>Send reset link</button></form><p class="small"><button class="lnk" data-mode="signin">Back to sign in</button></p>';
     } else if (mode === 'denied') {
-      h = '<h1 id="authh">Not in this workspace yet</h1><p class="lede">You are signed in as <b>' + esc(msg && msg.email) + '</b>, but this DealBasis workspace has not added you. Ask an admin to invite that email, then sign in again.</p><button class="btn big ghost" data-out="1">Sign out</button>';
+      h = '<h1 id="authh">Can’t open a workspace</h1><p class="lede">You are signed in as <b>' + esc(msg && msg.email) + '</b>, but DealBasis couldn’t open a workspace for this account. Sign out and sign in again, or ask your firm’s admin to invite this email.</p><button class="btn big ghost" data-out="1">Sign out</button>';
+    } else if (mode === 'mfa') {
+      h = '<h1 id="authh">Two-factor sign-in</h1><p class="lede">Enter the 6-digit code from your authenticator app.</p><form id="f" novalidate>' + field('code', 'Code', 'text', 'one-time-code', 'inputmode="numeric" pattern="[0-9]*" maxlength="6"') + note() + '<button class="btn big" ' + (busy ? 'disabled' : '') + '>Verify</button></form><p class="small"><button class="lnk" data-out="1">Use a different account</button></p>';
     } else if (mode === 'unconfirmed') {
       h = '<h1 id="authh">Confirm your email</h1><p class="lede">We sent a confirmation link to <b>' + esc(msg && msg.email) + '</b>. Open it to finish signing in. The link brings you back here.</p><button class="btn big ghost" data-out="1">Use a different account</button>';
     } else if (mode === 'entering') {
@@ -85,6 +87,16 @@
     if (j.error) { mode = 'signin'; msg = { err: true, text: 'The workspace did not respond: ' + j.error.message }; return render(); }
     if (r === 'unconfirmed') { mode = 'unconfirmed'; msg = { email: session.user.email }; return render(); }
     if (r === 'none') { mode = 'denied'; msg = { email: session.user.email }; return render(); }
+    /* two-factor: a code if they have an authenticator, setup if their firm requires one */
+    var w = await sb.rpc('my_workspace');
+    var step = await window.DealBasisGuard.mfaStep(sb, w.data);
+    if (step === 'code') { var f = await sb.auth.mfa.listFactors(); var t = f.data && f.data.totp && f.data.totp[0]; factorId = t && t.id; mode = 'mfa'; msg = null; return render(); }
+    if (step === 'setup') { location.replace('/account?setup=1&next=' + encodeURIComponent(next)); return; }
+    return finish();
+  }
+  async function finish() {
+    try { await sb.rpc('log_event', { act: 'auth.sign_in' }); } catch (e) { }
+    window.DealBasisGuard.stamp();
     location.replace(next);
   }
   card.addEventListener('click', async function (e) {
@@ -95,6 +107,15 @@
   card.addEventListener('submit', async function (e) {
     e.preventDefault(); if (busy) return;
     var f = e.target; var v = function (n) { var el = f.querySelector('[name="' + n + '"]'); return el ? el.value.trim() : ''; };
+    if (mode === 'mfa') {
+      var code = v('code').replace(/\s/g, '');
+      if (!/^\d{6}$/.test(code)) { msg = { err: true, text: 'Enter the 6 digits from your authenticator app.' }; return render(); }
+      busy = true; msg = null; render();
+      var vr = factorId ? await sb.auth.mfa.challengeAndVerify({ factorId: factorId, code: code }) : { error: { message: 'No authenticator is set up for this account.' } };
+      busy = false;
+      if (vr.error) { msg = { err: true, text: /invalid|expired/i.test(vr.error.message) ? 'That code didn’t match. Codes change every 30 seconds; try the current one.' : vr.error.message }; return render(); }
+      return finish();
+    }
     var email = v('email'), pw = f.querySelector('[name="password"]') ? f.querySelector('[name="password"]').value : '';
     if (f.querySelector('[name="email"]') && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg = { err: true, text: 'Enter a valid email address.' }; return render(); }
     if ((mode === 'signup' || recovering) && pw.length < 8) { msg = { err: true, text: 'Use at least 8 characters for the password.' }; return render(); }
@@ -118,12 +139,13 @@
   });
   sb.auth.onAuthStateChange(function (event, session) {
     if (event === 'PASSWORD_RECOVERY') { recovering = true; msg = null; render(); }
-    else if (event === 'SIGNED_IN' && session && mode !== 'entering' && !recovering && !busy) enter(session);
+    else if (event === 'SIGNED_IN' && session && mode !== 'entering' && mode !== 'mfa' && !recovering && !busy) enter(session);
   });
   (async function () {
     var access = params.get('access');
     var s = await sb.auth.getSession(); var session = s.data && s.data.session;
     if (/type=recovery/.test(location.hash)) { recovering = true; return render(); }
+    if (access === 'idle') { msg = { err: false, text: 'You were signed out after a period of inactivity. Sign in again to continue.' }; if (session) await sb.auth.signOut(); return render(); }
     if (session && !access) return enter(session);
     if (session && access === 'unconfirmed') { mode = 'unconfirmed'; msg = { email: session.user.email }; }
     else if (session && access) { mode = 'denied'; msg = { email: session.user.email }; }

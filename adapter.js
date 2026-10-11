@@ -20,25 +20,34 @@
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   window.DEALBASIS_SB = sb;
   var never = new Promise(function () { });
-  var me = null, role = null;
+  var me = null, role = null, ws = null;
 
   var ready = (async function () {
     var got = await sb.auth.getSession();
     var session = got && got.data && got.data.session;
-    if (!session) { location.replace('/?next=' + encodeURIComponent(location.pathname + location.hash)); return never; }
+    if (!session) { location.replace('/signin?next=' + encodeURIComponent(location.pathname + location.hash)); return never; }
     var j = await sb.rpc('join_workspace');
-    if (j.error || !j.data || j.data === 'none' || j.data === 'unconfirmed') { location.replace('/?access=' + encodeURIComponent((j.data) || 'error')); return never; }
+    if (j.error || !j.data || j.data === 'none' || j.data === 'unconfirmed') { location.replace('/signin?access=' + encodeURIComponent((j.data) || 'error')); return never; }
     role = j.data;
+    /* the firm workspace this person belongs to: every record and file below is kept inside it */
+    var w = await sb.rpc('my_workspace');
+    if (w.error || !w.data || !w.data.id) { location.replace('/signin?access=error'); return never; }
+    ws = w.data;
+    /* two-factor: ask for the code, or set up an authenticator when the firm requires one */
+    var G = window.DealBasisGuard;
+    var step = G ? await G.mfaStep(sb, ws) : null;
+    if (step) { G.mfaRedirect(step); return never; }
     var u = session.user, md = u.user_metadata || {};
     var prof = await sb.from('profiles').select('name, avatar_url').eq('id', u.id).maybeSingle();
     me = { id: u.id, name: (prof.data && prof.data.name) || md.full_name || md.name || (u.email || '').split('@')[0], email: u.email || null,
       avatarUrl: (prof.data && prof.data.avatar_url) || md.avatar_url || '', isOwner: role === 'admin', canEdit: role === 'admin' };
     /* the platform opens straight into the workspace for the person signed in here */
     try { sessionStorage.setItem('sorai.session', u.id); } catch (e) { }
+    if (G) G.watchIdle(sb, ws.idleMinutes);
     return true;
   })();
 
-  sb.auth.onAuthStateChange(function (event) { if (event === 'SIGNED_OUT') location.replace('/'); });
+  sb.auth.onAuthStateChange(function (event) { if (event === 'SIGNED_OUT' && !/\/signin/.test(location.pathname)) setTimeout(function () { location.replace('/signin'); }, 400); });
 
   /* ---------------- errors, in the codes the platform branches on ---------------- */
   function dbError(e) {
@@ -66,7 +75,7 @@
 
   var listeners = {}; var timers = {};
   async function fetchCollection(c) {
-    var r = await sb.from('kv').select('path, data').eq('collection', c);
+    var r = await sb.from('kv').select('path, data').eq('workspace_id', ws.id).eq('collection', c);
     if (r.error) throw dbError(r.error);
     var docs = r.data.map(function (row) { return snapOf(row.path, row.data); });
     return { docs: docs, size: docs.length, empty: !docs.length };
@@ -82,7 +91,7 @@
   var channel = null;
   function live() {
     if (channel) return;
-    channel = sb.channel('dealbasis-kv').on('postgres_changes', { event: '*', schema: 'public', table: 'kv' }, function (payload) {
+    channel = sb.channel('dealbasis-kv-' + ws.id).on('postgres_changes', { event: '*', schema: 'public', table: 'kv', filter: 'workspace_id=eq.' + ws.id }, function (payload) {
       var c = (payload.new && payload.new.collection) || (payload.old && payload.old.collection);
       if (c) notify(c); else Object.keys(listeners).forEach(notify);
     }).subscribe();
@@ -95,12 +104,12 @@
     return {
       id: path.split('/').pop(), path: path,
       get: async function () {
-        var r = await sb.from('kv').select('data').eq('path', path).maybeSingle();
+        var r = await sb.from('kv').select('data').eq('workspace_id', ws.id).eq('path', path).maybeSingle();
         if (r.error) throw dbError(r.error);
         return snapOf(path, r.data ? r.data.data : null);
       },
       set: async function (data) {
-        var r = await sb.from('kv').upsert({ path: path, collection: parentOf(path), data: copy(data), updated_by: me && me.id, updated_at: new Date().toISOString() });
+        var r = await sb.from('kv').upsert({ workspace_id: ws.id, path: path, collection: parentOf(path), data: copy(data), updated_by: me && me.id, updated_at: new Date().toISOString() }, { onConflict: 'workspace_id,path' });
         if (r.error) throw dbError(r.error);
         notify(parentOf(path));
       },
@@ -110,7 +119,7 @@
         return this.set(base);
       },
       delete: async function () {
-        var r = await sb.from('kv').delete().eq('path', path);
+        var r = await sb.from('kv').delete().eq('workspace_id', ws.id).eq('path', path);
         if (r.error) throw dbError(r.error);
         notify(parentOf(path));
       },
@@ -136,27 +145,40 @@
 
   /* ---------------- assets: documents and originals in a private Storage bucket ---------------- */
   var BUCKET = 'assets';
+  /* each workspace's files live in a folder named after it; files from before workspaces sit at the top of the bucket */
+  function key(id) { return ws.id + '/' + id; }
+  async function fromStore(id, fn) {
+    var r = await fn(key(id));
+    if ((r.error || !r.data) && ws.legacyFiles) r = await fn(String(id));
+    return r;
+  }
+  async function listFolder(folder) {
+    var all = [], offset = 0;
+    for (; ;) {
+      var r = await sb.storage.from(BUCKET).list(folder, { limit: 1000, offset: offset });
+      if (r.error) throw assetError(r.error);
+      all = all.concat((r.data || []).filter(function (o) { return o.id; })); if (!r.data || r.data.length < 1000) break; offset += 1000;
+    }
+    return all;
+  }
   var assets = Object.freeze({
     upload: async function (blob, opts) {
       var id = (crypto.randomUUID ? crypto.randomUUID() : newId()).replace(/-/g, '');
       var type = (opts && opts.type) || blob.type || 'application/octet-stream';
-      var r = await sb.storage.from(BUCKET).upload(id, blob, { contentType: type, upsert: false });
+      var r = await sb.storage.from(BUCKET).upload(key(id), blob, { contentType: type, upsert: false });
       if (r.error) throw assetError(r.error);
       return { id: id, url: '/_blob/' + id, sizeBytes: blob.size, contentType: type };
     },
     list: async function () {
-      var all = [], offset = 0;
-      for (; ;) {
-        var r = await sb.storage.from(BUCKET).list('', { limit: 1000, offset: offset });
-        if (r.error) throw assetError(r.error);
-        all = all.concat(r.data || []); if (!r.data || r.data.length < 1000) break; offset += 1000;
-      }
+      var all = await listFolder(ws.id);
+      if (ws.legacyFiles) all = all.concat(await listFolder(''));
       var bytes = all.reduce(function (s, o) { return s + ((o.metadata && o.metadata.size) || 0); }, 0);
       return { assets: all.map(function (o) { return { id: o.name, url: '/_blob/' + o.name, sizeBytes: (o.metadata && o.metadata.size) || 0, contentType: (o.metadata && o.metadata.mimetype) || '', createdAt: o.created_at }; }),
         usage: { bytes: bytes, maxBytes: cfg.storageMaxBytes || 1073741824, count: all.length } };
     },
     delete: async function (id) {
-      var r = await sb.storage.from(BUCKET).remove([String(id)]);
+      var names = [key(id)]; if (ws.legacyFiles) names.push(String(id));
+      var r = await sb.storage.from(BUCKET).remove(names);
       if (r.error) throw assetError(r.error);
     }
   });
@@ -168,7 +190,7 @@
     var m = /^(?:https?:\/\/[^/]+)?\/_blob\/([A-Za-z0-9_-]+)$/.exec(url);
     if (!m || (m[0].indexOf('http') === 0 && url.indexOf(location.origin) !== 0)) return nativeFetch(input, init);
     await ready;
-    var r = await sb.storage.from(BUCKET).download(m[1]);
+    var r = await fromStore(m[1], function (name) { return sb.storage.from(BUCKET).download(name); });
     if (r.error || !r.data) return new Response('Not found', { status: 404 });
     return new Response(r.data, { status: 200, headers: { 'Content-Type': r.data.type || 'application/octet-stream' } });
   };
@@ -176,7 +198,9 @@
   document.addEventListener('click', function (e) {
     var a = e.target && e.target.closest && e.target.closest('a[href^="/_blob/"]'); if (!a) return;
     e.preventDefault(); var id = a.getAttribute('href').slice(7); var w = window.open('about:blank', '_blank');
-    sb.storage.from(BUCKET).createSignedUrl(id, 300).then(function (r) { if (r.data && r.data.signedUrl && w) w.location.href = r.data.signedUrl; else if (w) w.close(); });
+    sb.rpc('log_event', { act: 'file.downloaded', tgt: id }).then(function () { }, function () { });
+    ready.then(function () { return fromStore(id, function (name) { return sb.storage.from(BUCKET).createSignedUrl(name, 300); }); })
+      .then(function (r) { if (r.data && r.data.signedUrl && w) w.location.href = r.data.signedUrl; else if (w) w.close(); });
   }, true);
 
   /* ---------------- user ---------------- */
@@ -219,6 +243,6 @@
 
   /* signing out ends the Supabase session too */
   window.addEventListener('load', function () {
-    window.signOut = async function () { try { sessionStorage.removeItem('sorai.session'); } catch (e) { } await sb.auth.signOut(); location.replace('/'); };
+    window.signOut = async function () { try { sessionStorage.removeItem('sorai.session'); } catch (e) { } try { await sb.rpc('log_event', { act: 'auth.sign_out' }); } catch (e) { } await sb.auth.signOut(); location.replace('/'); };
   });
 })();

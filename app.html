@@ -1,5 +1,5 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<script src="/config.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script><script src="/adapter.js"></script>
+<script src="/config.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script><script src="/guard.js"></script><script src="/adapter.js"></script>
 <title>DealBasis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -6134,7 +6134,7 @@ function renderRail() {
   const me = auth.me;
   document.getElementById('railfoot').innerHTML = (auth.demo || !me || !me.id ? `<label for="role" style="font:inherit">Acting as (sample mode)</label><select id="role">${ROLES.map(r => `<option value="${r}" ${r === actingAs ? 'selected' : ''}>${esc(m.owners[r] || r)} (${r})</option>`).join('')}</select>`
     : `<div class="acct"><img src="${esc(me.avatarUrl)}" alt=""><div><b id="acctname"></b><span>${esc(ROLE_LABEL[myRole()] || myRole())}${auth.admin ? ' \u00b7 admin' : ''}</span></div></div>`)
-    + `<div class="row" style="gap:6px"><button class="btn sm ghost rl" data-signout="1">${auth.demo || !me || !me.id ? 'Exit sample' : 'Sign out'}</button><button class="btn sm ghost rl" data-nav="help">Help</button></div><div id="savestate">${saveStateHTML()}</div><div>Run <b>${R.fingerprint}</b></div><div>Deterministic \u00b7 no models</div>`;
+    + `<div class="row" style="gap:6px"><button class="btn sm ghost rl" data-signout="1">${auth.demo || !me || !me.id ? 'Exit sample' : 'Sign out'}</button><button class="btn sm ghost rl" data-nav="help">Help</button>${auth.demo || !me || !me.id ? '' : '<a class="btn sm ghost rl" href="/account">Security</a>'}</div><div id="savestate">${saveStateHTML()}</div><div>Run <b>${R.fingerprint}</b></div><div>Deterministic \u00b7 no models</div>`;
   const an = document.getElementById('acctname'); if (an && me) an.textContent = me.name || 'Signed in';
 }
 function render() {

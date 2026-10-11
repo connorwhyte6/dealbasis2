@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DealBasis · Account security</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/site.css">
+<script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script src="/guard.js"></script>
+<style>
+.qr{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.qr img{width:184px;height:184px;background:#fff;padding:8px;border:1px solid var(--rule)}
+.secret{font:500 13px/1.5 var(--f-mono);word-break:break-all;background:var(--panel);padding:8px 10px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;font-size:14px}
+.kv dt{color:var(--ink3)}.kv dd{margin:0}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/app"><span class="word">Deal<b class="wb">Basis</b></span></a>
+  <nav><a href="/app" id="back">Back to deals</a><button class="lnk" id="out">Sign out</button></nav>
+</header>
+<main id="main" aria-live="polite"><p class="lede">Loading…</p></main>
+<script>
+(function () {
+  'use strict';
+  var cfg = window.DEALBASIS_CONFIG || {}, main = document.getElementById('main'), G = window.DealBasisGuard;
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  if (!cfg.supabaseUrl || !window.supabase) { main.innerHTML = '<p class="lede">This site is not configured yet.</p>'; return; }
+  var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } });
+  var params = new URLSearchParams(location.search);
+  var next = params.get('next'); if (!next || next.charAt(0) !== '/' || next.indexOf('//') === 0) next = '/app';
+  var setup = params.get('setup') === '1';
+  var user = null, ws = null, factor = null, enrolling = null, aal = null, note = null, busy = false;
+  document.getElementById('back').href = next;
+  document.getElementById('out').onclick = async function () { try { await sb.rpc('log_event', { act: 'auth.sign_out' }); } catch (e) { } await sb.auth.signOut(); location.replace('/'); };
+
+  async function load() {
+    var f = await sb.auth.mfa.listFactors();
+    factor = (f.data && f.data.totp || []).filter(function (x) { return x.status === 'verified'; })[0] || null;
+    var a = await sb.auth.mfa.getAuthenticatorAssuranceLevel(); aal = a.data && a.data.currentLevel;
+    var w = await sb.rpc('my_workspace'); ws = w.data || null;
+    render();
+  }
+  function render() {
+    var required = ws && ws.requireMfa;
+    var h = '<header><div class="eyebrow">Account</div><h1>Account security</h1><p class="lede">' +
+      (setup && !factor ? 'Your firm requires two-factor sign-in. Set it up below to open your workspace.' : 'Protect your account with a code from an authenticator app each time you sign in.') + '</p></header>' +
+      (note ? '<div class="msg ' + (note.err ? 'err' : 'ok') + '" role="status">' + esc(note.text) + '</div>' : '') +
+      '<section class="sec"><div class="sechead"><h2>Your account</h2></div><dl class="kv"><dt>Email</dt><dd>' + esc(user.email) + '</dd>' +
+      (ws ? '<dt>Workspace</dt><dd>' + esc(ws.name) + '</dd><dt>Access</dt><dd>' + esc({ admin: 'Admin', member: 'Member', viewer: 'Viewer' }[ws.role] || ws.role) + '</dd>' : '') + '</dl></section>' +
+      '<section class="sec"><div class="sechead"><h2>Two-factor sign-in</h2><span class="aside">' + (factor ? 'On' : 'Off') + (required ? ' · required by your firm' : '') + '</span></div>';
+    if (factor) {
+      h += '<p class="lede">Each sign-in asks for a 6-digit code from your authenticator app.</p>' +
+        (required ? '<p class="small">Your firm requires two-factor sign-in, so it can’t be turned off. To move to a new phone, ask an admin.</p>'
+          : (aal === 'aal2' ? '<div class="row"><button class="btn ghost" id="remove" ' + (busy ? 'disabled' : '') + '>Turn off two-factor sign-in</button></div>'
+            : '<p class="small">To turn it off, <a href="/signin?mfa=1&next=/account">sign in with your code</a> first.</p>'));
+    } else if (enrolling) {
+      h += '<ol class="lede" style="padding-left:18px;display:flex;flex-direction:column;gap:6px"><li>Open an authenticator app, such as Google Authenticator, Microsoft Authenticator or 1Password.</li><li>Scan this code, or enter the key by hand.</li><li>Type the 6-digit code it shows.</li></ol>' +
+        '<div class="qr"><img alt="QR code to add DealBasis to your authenticator app" src="' + esc(enrolling.qr) + '"><div style="display:flex;flex-direction:column;gap:12px;min-width:240px;flex:1">' +
+        '<div><div class="small" style="margin-bottom:4px">Key</div><div class="secret">' + esc(enrolling.secret) + '</div></div>' +
+        '<form id="verify" class="row" novalidate><div class="field"><label for="code">Code</label><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:140px"></div><button class="btn" ' + (busy ? 'disabled' : '') + '>Turn on</button></form></div></div>';
+    } else {
+      h += '<p class="lede">Two-factor sign-in is off. Turning it on means a stolen password alone can’t open your account.</p><div class="row"><button class="btn red" id="start" ' + (busy ? 'disabled' : '') + '>Set up two-factor sign-in</button></div>';
+    }
+    h += '</section>';
+    main.innerHTML = h;
+    var c = document.getElementById('code'); if (c) c.focus();
+  }
+  main.addEventListener('click', async function (e) {
+    var b = e.target.closest('#start,#remove'); if (!b || busy) return;
+    busy = true; note = null; render();
+    try {
+      if (b.id === 'start') {
+        /* clear any half-finished setup, then start a new one */
+        var f = await sb.auth.mfa.listFactors();
+        for (var x of (f.data && f.data.all || [])) if (x.status !== 'verified') await sb.auth.mfa.unenroll({ factorId: x.id });
+        var en = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'DealBasis ' + new Date().toISOString().slice(0, 10) });
+        if (en.error) throw en.error;
+        enrolling = { id: en.data.id, qr: en.data.totp.qr_code, secret: en.data.totp.secret };
+      } else {
+        var un = await sb.auth.mfa.unenroll({ factorId: factor.id });
+        if (un.error) throw un.error;
+        try { await sb.rpc('log_event', { act: 'mfa.removed' }); } catch (er) { }
+        await sb.auth.refreshSession();
+        note = { err: false, text: 'Two-factor sign-in is off.' };
+      }
+    } catch (err) { note = { err: true, text: err.message || 'That didn’t work. Try again.' }; }
+    busy = false; await load();
+  });
+  main.addEventListener('submit', async function (e) {
+    e.preventDefault(); if (busy || !enrolling) return;
+    var code = (document.getElementById('code').value || '').replace(/\s/g, '');
+    if (!/^\d{6}$/.test(code)) { note = { err: true, text: 'Enter the 6 digits from your authenticator app.' }; return render(); }
+    busy = true; note = null; render();
+    var v = await sb.auth.mfa.challengeAndVerify({ factorId: enrolling.id, code: code });
+    busy = false;
+    if (v.error) { note = { err: true, text: 'That code didn’t match. Codes change every 30 seconds; try the current one.' }; return render(); }
+    enrolling = null;
+    try { await sb.rpc('log_event', { act: 'mfa.enrolled' }); } catch (er) { }
+    if (setup) { try { await sb.rpc('log_event', { act: 'auth.sign_in' }); } catch (er) { } location.replace(next); return; }
+    note = { err: false, text: 'Two-factor sign-in is on. You’ll be asked for a code each time you sign in.' };
+    await load();
+  });
+  (async function () {
+    var s = await sb.auth.getSession(); if (!s.data.session) return location.replace('/signin?next=/account');
+    user = s.data.session.user;
+    await sb.rpc('join_workspace');
+    await load();
+    /* someone with an authenticator who hasn't entered its code yet signs in with it first */
+    if (factor && aal !== 'aal2') return G.mfaRedirect('code', setup ? next : '/account');
+    if (ws) G.watchIdle(sb, ws.idleMinutes);
+  })();
+})();
+</script>
+</body>
+</html>

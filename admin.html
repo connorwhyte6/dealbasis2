@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
 <title>DealBasis · Workspace admin</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -10,97 +11,234 @@
 <link rel="stylesheet" href="/site.css">
 <script src="/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="/guard.js"></script>
+<style>.danger{border:1px solid var(--rule2);padding:16px;display:flex;flex-direction:column;gap:12px}.log td{font-size:12.5px}.log td.when{white-space:nowrap;color:var(--ink3);font-family:var(--f-mono);font-size:11.5px}.switch{display:flex;gap:10px;align-items:center;font-size:14px}.switch input{width:18px;height:18px;accent-color:var(--brand)}</style>
 </head>
 <body>
 <header class="top">
   <a class="brand" href="/app"><span class="word">Deal<b class="wb">Basis</b></span></a>
-  <nav><a href="/app">Back to deals</a><button class="lnk" id="out">Sign out</button></nav>
+  <nav><a href="/app">Back to deals</a><a href="/account">Account security</a><button class="lnk" id="out">Sign out</button></nav>
 </header>
 <main id="main" aria-live="polite"><p class="lede">Loading…</p></main>
 <script>
 (function () {
   'use strict';
-  var cfg = window.DEALBASIS_CONFIG || {}; var main = document.getElementById('main');
+  var cfg = window.DEALBASIS_CONFIG || {}; var main = document.getElementById('main'); var G = window.DealBasisGuard;
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   if (!cfg.supabaseUrl || !window.supabase) { main.innerHTML = '<p class="lede">This site is not configured yet.</p>'; return; }
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } });
-  var me = null, state = { members: [], invites: [], settings: {}, usage: null }, note = null;
-  document.getElementById('out').onclick = async function () { await sb.auth.signOut(); location.replace('/'); };
+  var me = null, ws = null, mfaOn = false, state = { members: [], invites: [], usage: null, log: [], logFilter: '' }, note = null, busy = false;
+  document.getElementById('out').onclick = async function () { try { await sb.rpc('log_event', { act: 'auth.sign_out' }); } catch (e) { } await sb.auth.signOut(); location.replace('/'); };
   var ROLE = { admin: 'Admin', member: 'Member', viewer: 'Viewer' };
   var ROLE_HINT = 'Admins manage this page, firm settings and team roles. Members open deals, upload and edit. Viewers read only. Deal roles (partner, manager, analyst) are set on the Team & Access page inside DealBasis.';
+  var IDLE = [15, 30, 60, 120, 240, 480];
+
+  /* ---------- files: this workspace's folder, plus files from before workspaces existed ---------- */
+  async function listFolder(folder) {
+    var all = [], off = 0;
+    for (; ;) { var l = await sb.storage.from('assets').list(folder, { limit: 1000, offset: off }); if (l.error) throw l.error;
+      all = all.concat((l.data || []).filter(function (o) { return o.id; }).map(function (o) { return Object.assign({ path: folder ? folder + '/' + o.name : o.name }, o); }));
+      if (!l.data || l.data.length < 1000) break; off += 1000; }
+    return all;
+  }
+  async function allFiles() { var f = await listFolder(ws.id); if (ws.legacyFiles) f = f.concat(await listFolder('')); return f; }
+  async function allRows(table, cols, order) {
+    var out = [], from = 0;
+    for (; ;) { var q = sb.from(table).select(cols).eq('workspace_id', ws.id); if (order) q = q.order(order, { ascending: true }); var r = await q.range(from, from + 999);
+      if (r.error) throw r.error; out = out.concat(r.data || []); if (!r.data || r.data.length < 1000) break; from += 1000; }
+    return out;
+  }
 
   async function load() {
+    var w = await sb.rpc('my_workspace'); ws = w.data;
     var m = await sb.from('members').select('user_id, email, role, created_at').order('created_at');
     var i = await sb.from('invites').select('email, role, created_at').order('created_at');
-    var s = await sb.from('settings').select('workspace_name, allowed_domain').eq('id', 1).maybeSingle();
     var p = await sb.from('profiles').select('id, name');
+    var lg = await sb.from('audit_log').select('at, actor_email, action, target, detail').order('at', { ascending: false }).limit(300);
     var names = {}; (p.data || []).forEach(function (x) { names[x.id] = x.name; });
     state.members = (m.data || []).map(function (x) { return Object.assign({ name: names[x.user_id] || '' }, x); });
-    state.invites = i.data || []; state.settings = s.data || {};
-    try { var all = [], off = 0; for (; ;) { var l = await sb.storage.from('assets').list('', { limit: 1000, offset: off }); all = all.concat(l.data || []); if (!l.data || l.data.length < 1000) break; off += 1000; }
-      state.usage = { n: all.length, bytes: all.reduce(function (a, o) { return a + ((o.metadata && o.metadata.size) || 0); }, 0) }; } catch (e) { state.usage = null; }
+    state.invites = i.data || []; state.log = lg.data || [];
+    try { var all = await allFiles(); state.usage = { n: all.length, bytes: all.reduce(function (a, o) { return a + ((o.metadata && o.metadata.size) || 0); }, 0) }; } catch (e) { state.usage = null; }
     render();
   }
+
+  /* ---------- activity log in plain words ---------- */
+  function what(e) {
+    var d = e.detail || {}, t = e.target || '';
+    function thing() {
+      if (/^deals\//.test(t)) return 'deal' + (d.name ? ' “' + d.name + '”' : ' ' + t.split('/')[1]);
+      if (/^firm\//.test(t)) return 'firm settings';
+      if (/^team\//.test(t)) return 'team access';
+      return t;
+    }
+    switch (e.action) {
+      case 'record.created': return 'Created ' + thing();
+      case 'record.updated': return 'Changed ' + thing();
+      case 'record.deleted': return 'Deleted ' + thing();
+      case 'member.joined': return t + ' joined as ' + (ROLE[d.role] || d.role);
+      case 'member.role_changed': return t + ': access changed from ' + (ROLE[d.from] || d.from) + ' to ' + (ROLE[d.to] || d.to);
+      case 'member.removed': return 'Removed ' + t;
+      case 'member.left': return t + ' left the workspace';
+      case 'invite.sent': return 'Invited ' + t + ' as ' + (ROLE[d.role] || d.role);
+      case 'workspace.settings_changed': return 'Changed workspace settings: ' + Object.keys(d).map(function (k) { return ({ name: 'name', allowed_domain: 'firm domain', require_mfa: 'two-factor ' + (d[k] ? 'required' : 'optional'), idle_minutes: 'sign-out after ' + d[k] + ' min' })[k] || k; }).join(', ');
+      case 'workspace.exported': return 'Exported the whole workspace';
+      case 'workspace.deleted': return 'Deleted the workspace';
+      case 'file.uploaded': return 'Uploaded a file';
+      case 'file.deleted': return 'Deleted a file';
+      case 'file.downloaded': return 'Opened an original file';
+      case 'auth.sign_in': return 'Signed in';
+      case 'auth.sign_out': return 'Signed out';
+      case 'auth.idle_sign_out': return 'Signed out after inactivity';
+      case 'mfa.enrolled': return 'Turned on two-factor sign-in';
+      case 'mfa.removed': return 'Turned off two-factor sign-in';
+      default: return e.action + (t ? ' ' + t : '');
+    }
+  }
+  var GROUPS = { '': 'Everything', 'record.': 'Deal changes', 'member.,invite.': 'People and access', 'auth.,mfa.': 'Sign-ins', 'file.': 'Files', 'workspace.': 'Workspace settings' };
+  function inGroup(e) { return !state.logFilter || state.logFilter.split(',').some(function (p) { return e.action.indexOf(p) === 0; }); }
+  function when(at) { var d = new Date(at); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
+
   function render() {
     var admins = state.members.filter(function (x) { return x.role === 'admin'; }).length;
+    var log = state.log.filter(inGroup);
     main.innerHTML =
       '<header><div class="eyebrow">Workspace</div><h1>Admin</h1><p class="lede">' + esc(ROLE_HINT) + '</p></header>' +
       (note ? '<div class="msg ' + (note.err ? 'err' : 'ok') + '" role="status">' + esc(note.text) + '</div>' : '') +
+      '<section class="sec"><div class="sechead"><h2>Workspace</h2><span class="aside">Private to your firm</span></div>' +
+        '<form id="wsname" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="wn">Workspace name</label><input id="wn" maxlength="80" value="' + esc(ws.name) + '"></div><button class="btn">Save</button></form>' +
+        '<p class="small">Only people in this workspace can see its deals, files and members. Other firms using DealBasis have their own workspaces and can never reach this one.</p></section>' +
       '<section class="sec"><div class="sechead"><h2>Invite people</h2><span class="aside">They join when they first sign in with this email</span></div>' +
         '<form id="inv" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="ie">Email</label><input id="ie" type="email" autocomplete="off" placeholder="name@yourfirm.com"></div>' +
         '<div class="field"><label for="ir">Access</label><select id="ir"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div><button class="btn">Invite</button></form>' +
         (state.invites.length ? '<div class="tbl"><table><thead><tr><th>Invited email</th><th>Access</th><th>Invited</th><th></th></tr></thead><tbody>' + state.invites.map(function (x) {
           return '<tr><td>' + esc(x.email) + '</td><td>' + esc(ROLE[x.role]) + '</td><td class="muted">' + esc((x.created_at || '').slice(0, 10)) + '</td><td style="text-align:right"><button class="btn sm ghost" data-uninvite="' + esc(x.email) + '">Cancel invite</button></td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="small">No pending invites.</p>') +
-        '<p class="small">Invited people get no email from this page: send them the site address and ask them to create an account with the invited email.</p></section>' +
+        '<p class="small">Invited people get no email from this page: send them the site address and ask them to create an account with the invited email. Someone who already made their own empty workspace moves into yours when they next sign in.</p></section>' +
       '<section class="sec"><div class="sechead"><h2>Firm email domain</h2><span class="aside">Optional</span></div>' +
-        '<form id="dom" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="dd">Anyone with a confirmed email at this domain joins as a Member</label><input id="dd" placeholder="yourfirm.com" value="' + esc(state.settings.allowed_domain || '') + '"></div><button class="btn">Save</button></form></section>' +
+        '<form id="dom" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="dd">Anyone with a confirmed email at this domain joins as a Member</label><input id="dd" placeholder="yourfirm.com" value="' + esc(ws.allowedDomain || '') + '"></div><button class="btn">Save</button></form>' +
+        '<p class="small">Personal email domains like gmail.com can’t be used, and each domain can belong to only one workspace.</p></section>' +
       '<section class="sec"><div class="sechead"><h2>Members</h2><span class="aside">' + state.members.length + ' people</span></div><div class="tbl"><table><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Joined</th><th></th></tr></thead><tbody>' +
         state.members.map(function (x) { var self = me && x.user_id === me.id; var lastAdmin = x.role === 'admin' && admins <= 1;
           return '<tr><td>' + esc(x.name || '–') + (self ? ' <span class="muted">(you)</span>' : '') + '</td><td>' + esc(x.email) + '</td><td><select class="inl" data-role="' + esc(x.user_id) + '" ' + (lastAdmin ? 'disabled title="The workspace needs at least one admin"' : '') + '>' +
             ['admin', 'member', 'viewer'].map(function (r) { return '<option value="' + r + '"' + (x.role === r ? ' selected' : '') + '>' + ROLE[r] + '</option>'; }).join('') + '</select></td><td class="muted">' + esc((x.created_at || '').slice(0, 10)) + '</td>' +
             '<td style="text-align:right">' + (self ? '' : '<button class="btn sm ghost" data-remove="' + esc(x.user_id) + '">Remove</button>') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
-        '<p class="small">Removing someone ends their access at once. Their past activity stays in the record.</p></section>' +
-      (state.usage ? '<section class="sec"><div class="sechead"><h2>Storage</h2></div><p class="lede">' + state.usage.n + ' stored files, ' + (state.usage.bytes / 1048576).toFixed(1) + ' MB. The free Supabase plan includes 1 GB.</p></section>' : '');
+        '<p class="small">Removing someone ends their access at once. Their past activity stays in the record. Review this list regularly and remove anyone who has left the firm.</p></section>' +
+      '<section class="sec"><div class="sechead"><h2>Security</h2></div>' +
+        '<label class="switch"><input type="checkbox" id="reqmfa" ' + (ws.requireMfa ? 'checked' : '') + '> Require two-factor sign-in for everyone in this workspace</label>' +
+        '<p class="small">' + (mfaOn ? 'You signed in with two-factor, so you can turn this on.' : 'To require it, first <a href="/account">set up two-factor sign-in for yourself</a> and sign in with it.') + ' When it’s on, anyone without it is asked to set it up before they can open a deal.</p>' +
+        '<div class="row"><div class="field"><label for="idle">Sign people out after inactivity</label><select id="idle">' + IDLE.map(function (n) { return '<option value="' + n + '"' + (ws.idleMinutes === n ? ' selected' : '') + '>' + (n < 60 ? n + ' minutes' : (n / 60) + (n === 60 ? ' hour' : ' hours')) + '</option>'; }).join('') + '</select></div></div></section>' +
+      '<section class="sec"><div class="sechead"><h2>Activity log</h2><span class="aside">Latest ' + state.log.length + ' events · kept permanently · can’t be edited</span></div>' +
+        '<div class="row"><div class="field"><label for="lf">Show</label><select id="lf">' + Object.keys(GROUPS).map(function (k) { return '<option value="' + k + '"' + (state.logFilter === k ? ' selected' : '') + '>' + GROUPS[k] + '</option>'; }).join('') + '</select></div><button class="btn ghost" id="logcsv">Download full log (CSV)</button></div>' +
+        (log.length ? '<div class="tbl"><table class="log"><thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead><tbody>' + log.slice(0, 150).map(function (e) {
+          return '<tr><td class="when">' + esc(when(e.at)) + '</td><td>' + esc(e.actor_email || 'DealBasis') + '</td><td>' + esc(what(e)) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="small">Nothing here yet.</p>') + '</section>' +
+      (state.usage ? '<section class="sec"><div class="sechead"><h2>Storage</h2></div><p class="lede">' + state.usage.n + ' stored files, ' + (state.usage.bytes / 1048576).toFixed(1) + ' MB.</p></section>' : '') +
+      '<section class="sec"><div class="sechead"><h2>Your data</h2></div>' +
+        '<p class="lede">Download everything in this workspace: deals, settings, members, the activity log and every uploaded file, in one ZIP file.</p><div class="row"><button class="btn" id="export" ' + (busy ? 'disabled' : '') + '>' + (busy === 'export' ? 'Preparing…' : 'Export workspace') + '</button></div>' +
+        '<div class="danger"><h2>Delete this workspace</h2><p class="small">Permanently deletes every deal, file, invite and member in <b>' + esc(ws.name) + '</b>. This can’t be undone. Export first if you need a copy. The activity log keeps a record that the workspace was deleted.</p>' +
+        '<form id="del" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="dn">Type the workspace name to confirm</label><input id="dn" autocomplete="off" placeholder="' + esc(ws.name) + '"></div><button class="btn red" ' + (busy ? 'disabled' : '') + '>' + (busy === 'delete' ? 'Deleting…' : 'Delete permanently') + '</button></form></div></section>';
   }
+
+  function download(blob, name) { var u = URL.createObjectURL(blob), a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 30000); }
+  function slug(s) { return String(s || 'workspace').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace'; }
+  function csv(rows) { return rows.map(function (r) { return r.map(function (c) { c = c == null ? '' : String(c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(','); }).join('\n'); }
+
   main.addEventListener('submit', async function (e) {
     e.preventDefault(); note = null;
+    if (e.target.id === 'wsname') {
+      var n = document.getElementById('wn').value.trim();
+      if (!n) { note = { err: true, text: 'Enter a name.' }; return render(); }
+      var q0 = await sb.from('workspaces').update({ name: n }).eq('id', ws.id);
+      note = q0.error ? { err: true, text: q0.error.message } : { err: false, text: 'Workspace name saved.' };
+    }
     if (e.target.id === 'inv') {
       var em = document.getElementById('ie').value.trim().toLowerCase(), r = document.getElementById('ir').value;
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { note = { err: true, text: 'Enter a valid email address.' }; return render(); }
       if (state.members.some(function (x) { return (x.email || '').toLowerCase() === em; })) { note = { err: true, text: em + ' is already a member.' }; return render(); }
-      var q = await sb.from('invites').upsert({ email: em, role: r, invited_by: me.id });
+      var q = await sb.from('invites').upsert({ workspace_id: ws.id, email: em, role: r, invited_by: me.id }, { onConflict: 'workspace_id,email' });
       note = q.error ? { err: true, text: q.error.message } : { err: false, text: 'Invited ' + em + ' as ' + ROLE[r] + '.' };
     }
     if (e.target.id === 'dom') {
       var d = document.getElementById('dd').value.trim().replace(/^@/, '').toLowerCase();
       if (d && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) { note = { err: true, text: 'Enter a domain like yourfirm.com.' }; return render(); }
-      var u = await sb.from('settings').update({ allowed_domain: d || null }).eq('id', 1);
-      note = u.error ? { err: true, text: u.error.message } : { err: false, text: d ? 'Anyone with a confirmed @' + d + ' email can now join as a Member.' : 'Joining by domain is off. Only invited people can join.' };
+      var u = await sb.from('workspaces').update({ allowed_domain: d || null }).eq('id', ws.id);
+      note = u.error ? { err: true, text: /workspaces_domain_check/.test(u.error.message) ? 'Personal email domains like ' + d + ' can’t be a firm domain.' : /duplicate|unique/i.test(u.error.message) ? d + ' already belongs to another workspace.' : u.error.message }
+        : { err: false, text: d ? 'Anyone with a confirmed @' + d + ' email can now join as a Member.' : 'Joining by domain is off. Only invited people can join.' };
+    }
+    if (e.target.id === 'del') {
+      var typed = document.getElementById('dn').value;
+      if (typed !== ws.name) { note = { err: true, text: 'Type the workspace name exactly as shown to confirm.' }; return render(); }
+      busy = 'delete'; render();
+      try {
+        var files = await allFiles();
+        for (var k = 0; k < files.length; k += 100) { var rm = await sb.storage.from('assets').remove(files.slice(k, k + 100).map(function (f) { return f.path; })); if (rm.error) throw rm.error; }
+        var dr = await sb.rpc('delete_workspace', { confirm_name: typed }); if (dr.error) throw dr.error;
+        await sb.auth.signOut(); location.replace('/'); return;
+      } catch (err) { busy = false; note = { err: true, text: 'The workspace wasn’t deleted: ' + (err.message || err) }; return render(); }
     }
     load();
   });
   main.addEventListener('change', async function (e) {
-    var t = e.target; if (!t.dataset.role) return; note = null;
+    var t = e.target; note = null;
+    if (t.id === 'lf') { state.logFilter = t.value; return render(); }
+    if (t.id === 'reqmfa') {
+      var r1 = await sb.from('workspaces').update({ require_mfa: t.checked }).eq('id', ws.id);
+      note = r1.error ? { err: true, text: r1.error.message } : { err: false, text: t.checked ? 'Two-factor sign-in is now required for everyone.' : 'Two-factor sign-in is now optional.' };
+      return load();
+    }
+    if (t.id === 'idle') {
+      var r2 = await sb.from('workspaces').update({ idle_minutes: +t.value }).eq('id', ws.id);
+      note = r2.error ? { err: true, text: r2.error.message } : { err: false, text: 'People are now signed out after ' + t.options[t.selectedIndex].text + ' without activity.' };
+      return load();
+    }
+    if (!t.dataset.role) return;
     var u = await sb.from('members').update({ role: t.value }).eq('user_id', t.dataset.role);
     note = u.error ? { err: true, text: u.error.message } : { err: false, text: 'Access updated.' }; load();
   });
   main.addEventListener('click', async function (e) {
-    var b = e.target.closest('[data-uninvite],[data-remove]'); if (!b) return; note = null;
-    if (b.dataset.uninvite) { var q = await sb.from('invites').delete().eq('email', b.dataset.uninvite); note = q.error ? { err: true, text: q.error.message } : { err: false, text: 'Invite cancelled.' }; }
+    var b = e.target.closest('[data-uninvite],[data-remove],#export,#logcsv'); if (!b) return; note = null;
+    if (b.id === 'logcsv') {
+      var all = await allRows('audit_log', 'at, actor_email, action, target, detail', 'at');
+      download(new Blob([csv([['When (UTC)', 'Who', 'Event', 'Description', 'Target', 'Detail']].concat(all.map(function (x) { return [x.at, x.actor_email || '', x.action, what(x), x.target || '', JSON.stringify(x.detail || {})]; })))], { type: 'text/csv' }), slug(ws.name) + '-activity-log.csv');
+      return;
+    }
+    if (b.id === 'export') {
+      if (!window.JSZip) { note = { err: true, text: 'The export tool didn’t load. Reload the page and try again.' }; return render(); }
+      busy = 'export'; render();
+      try {
+        var zip = new JSZip();
+        var records = await allRows('kv', 'path, collection, data, updated_at, updated_by', 'path');
+        var audit = await allRows('audit_log', 'at, actor_email, action, target, detail', 'at');
+        zip.file('workspace.json', JSON.stringify({ exportedAt: new Date().toISOString(), workspace: { id: ws.id, name: ws.name, allowedDomain: ws.allowedDomain, requireMfa: ws.requireMfa, idleMinutes: ws.idleMinutes },
+          members: state.members, invites: state.invites, records: records }, null, 2));
+        zip.file('activity-log.json', JSON.stringify(audit, null, 2));
+        var files = await allFiles();
+        for (var i = 0; i < files.length; i++) { var dl = await sb.storage.from('assets').download(files[i].path); if (!dl.error && dl.data) zip.file('files/' + files[i].name, dl.data); }
+        var blob = await zip.generateAsync({ type: 'blob' });
+        download(blob, slug(ws.name) + '-export-' + new Date().toISOString().slice(0, 10) + '.zip');
+        try { await sb.rpc('log_event', { act: 'workspace.exported' }); } catch (er) { }
+        note = { err: false, text: 'Exported ' + records.length + ' records and ' + files.length + ' files.' };
+      } catch (err) { note = { err: true, text: 'Export failed: ' + (err.message || err) }; }
+      busy = false; return load();
+    }
+    if (b.dataset.uninvite) { var q = await sb.from('invites').delete().eq('workspace_id', ws.id).eq('email', b.dataset.uninvite); note = q.error ? { err: true, text: q.error.message } : { err: false, text: 'Invite cancelled.' }; }
     if (b.dataset.remove) {
       if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirm remove'; b.classList.add('red'); return; }
       var id = b.dataset.remove;
       var d = await sb.from('members').delete().eq('user_id', id);
-      if (!d.error) await sb.from('blocked').upsert({ user_id: id });
+      if (!d.error) await sb.from('blocked').upsert({ workspace_id: ws.id, user_id: id }, { onConflict: 'workspace_id,user_id' });
       note = d.error ? { err: true, text: d.error.message } : { err: false, text: 'Removed. They can no longer open the workspace.' };
     }
     load();
   });
   (async function () {
-    var s = await sb.auth.getSession(); if (!s.data.session) return location.replace('/?next=/admin');
+    var s = await sb.auth.getSession(); if (!s.data.session) return location.replace('/signin?next=/admin');
     me = s.data.session.user;
     var r = await sb.rpc('join_workspace');
-    if (r.data !== 'admin') { main.innerHTML = '<header><h1>Admins only</h1><p class="lede">This page manages who can open the workspace. Ask an admin for access.</p></header><a class="btn" href="/app">Back to deals</a>'; return; }
+    var w = await sb.rpc('my_workspace'); ws = w.data;
+    var step = await G.mfaStep(sb, ws); if (step) return G.mfaRedirect(step, '/admin');
+    if (r.data !== 'admin' || !ws) { main.innerHTML = '<header><h1>Admins only</h1><p class="lede">This page manages who can open the workspace. Ask an admin for access.</p></header><a class="btn" href="/app">Back to deals</a>'; return; }
+    var a = await sb.auth.mfa.getAuthenticatorAssuranceLevel(); mfaOn = a.data && a.data.currentLevel === 'aal2';
+    G.watchIdle(sb, ws.idleMinutes);
     load();
   })();
 })();
