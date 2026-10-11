@@ -40,7 +40,7 @@ The notes in the full README still apply:
 | File | What it is |
 |---|---|
 | `index.html` | Homepage: what DealBasis does, with Sign in and Try the sample deal. Sign-in links from emails that land here go straight on to `/signin` |
-| `product.html`, `why.html`, `example.html`, `faq.html`, `team.html` | Website pages at `/product`, `/why`, `/example`, `/faq` and `/team`: product tour and features, why deals die with sources, the Project Saguaro example, FAQ with security, and the co-founders |
+| `product.html`, `why.html`, `example.html`, `faq.html`, `about.html`, `team.html` | Website pages at `/product`, `/why`, `/example`, `/faq`, `/about` and `/team`: product tour and features, why deals die with sources, the Project Saguaro example, FAQ with security, the company, and the co-founders with a contact form |
 | `home.css`, `home.js` | Shared styles and script for the homepage and the website pages |
 | `signin.html` | Sign-in page (at `/signin`): sign in, create account, email sign-in link, password reset |
 | `app.html` | The DealBasis platform (at `/app`; the sample is at `/app?demo=1`) |

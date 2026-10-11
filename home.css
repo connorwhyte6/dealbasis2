@@ -324,6 +324,9 @@ sup.ref a{color:var(--brand2);font-weight:600}
 .pagehead h1{font-size:clamp(36px,5vw,56px);font-weight:800;letter-spacing:-.025em;line-height:1.08;margin:12px auto 0;max-width:20ch;text-wrap:balance}
 .pagehead p{color:var(--ink2);font-size:19px;max-width:62ch;margin:18px auto 0}
 .pagehead + section{padding-top:clamp(40px,5vw,64px)}
+.pagehead.left{text-align:left}
+.pagehead.left .wrap{max-width:calc(1040px + 2 * var(--gut))}
+.pagehead.left h1,.pagehead.left p{margin-left:0;margin-right:0}
 .explore{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
 .explore a{display:flex;flex-direction:column;gap:8px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:border-color .15s,box-shadow .15s,transform .15s}
 .explore a:hover{border-color:var(--brand);box-shadow:var(--shadow);transform:translateY(-2px)}
@@ -378,3 +381,18 @@ sup.ref a{color:var(--brand2);font-weight:600}
 .demodone p{color:var(--ink2);max-width:44ch}
 @media (max-width:820px){ .demogrid{grid-template-columns:1fr} .demoform{order:-1} }
 @media (max-width:520px){ .demoform .two{grid-template-columns:1fr} }
+
+/* about page */
+.story{padding-top:clamp(48px,6vw,80px)}
+.storygrid{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:clamp(28px,5vw,72px);max-width:1040px;margin:0 auto;align-items:start}
+.storygrid h2{font-size:clamp(28px,3.2vw,38px);font-weight:800;letter-spacing:-.02em;margin-top:10px;line-height:1.15}
+.storytext p{color:var(--ink2);font-size:17.5px;line-height:1.75}
+.storytext p+p{margin-top:16px}
+.leaders{display:grid;grid-template-columns:repeat(2,minmax(0,320px));gap:20px;justify-content:center}
+.leader{display:flex;flex-direction:column;gap:2px;text-align:center;border:1px solid var(--line);border-radius:var(--radius);padding:28px 24px;background:#fff;transition:border-color .15s,box-shadow .15s}
+.leader:hover{border-color:var(--brand);box-shadow:var(--shadow)}
+.leader h3{font-size:20px;font-weight:700}
+.leader .lt{color:var(--brand);font-weight:700;font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;margin-top:6px}
+.leader p:last-child{color:var(--ink2);font-size:15px;margin-top:2px}
+@media (max-width:820px){ .storygrid{grid-template-columns:1fr} }
+@media (max-width:640px){ .leaders{grid-template-columns:1fr} }
