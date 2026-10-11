@@ -4309,11 +4309,12 @@ function memoPdf(M, jsPDF) {
   });
 
   /* cover */
-  doc.setFillColor(...INK); doc.rect(0, 0, W, 210, 'F');
+  doc.setFillColor(...BRAND); doc.rect(0, 0, W, 6, 'F');
   doc.setFillColor(...BRAND); [0, 1, 2, 3].forEach(i => doc.rect(ML, 64 + i * 6, i === 3 ? 60 : 96, 1.4, 'F'));
+  doc.setDrawColor(...RULE); doc.setLineWidth(0.5); doc.line(ML, 208, ML + CW, 208);
   font('bold', 8.5, BRAND); doc.text(clean(M.meta.classification.toUpperCase()), ML, 112, { charSpace: 1.2 }); if (M.meta.draft) { font('bold', 8.5, BRAND); doc.text(doc.splitTextToSize(clean(M.meta.draft.toUpperCase()), CW), ML, 196); }
-  font('bold', 26, [255, 255, 255]); doc.text(clean(M.meta.title), ML, 146);
-  font('normal', 14, [230, 230, 230]); doc.text(doc.splitTextToSize(clean(`${M.meta.project}: ${M.meta.target}`), CW), ML, 172);
+  font('bold', 26, INK); doc.text(clean(M.meta.title), ML, 146);
+  font('normal', 14, [68, 68, 68]); doc.text(doc.splitTextToSize(clean(`${M.meta.project}: ${M.meta.target}`), CW), ML, 172);
   y = 240;
   [['To', M.meta.to], ['From', M.meta.from], ['Date', M.meta.date], ['Re', M.meta.re], ['Stage', M.meta.stage]].forEach(([k, v]) => {
     font('bold', 9.5, GREY); doc.text(k, ML, y + 9.5); font('normal', 9.5); const ls = doc.splitTextToSize(clean(v), CW - 80); doc.text(ls, ML + 80, y + 9.5); y += Math.max(1, ls.length) * 13 + 6; doc.setDrawColor(...RULE); doc.setLineWidth(0.5); doc.line(ML, y - 2, ML + CW, y - 2); y += 4;
@@ -4477,13 +4478,14 @@ function deckModel(R, m, opts) {
 
   /* 1 title */
   slides.push({ dark: true, section: '', title: '', notes: `Good morning. This is ${m.name}, ${m.dealType ? 'a proposed ' + m.dealType.toLowerCase() + ' of ' : ''}${m.target}. The pack is generated from the DealBasis diligence record; every number on every page traces to a source document.`, els: [
-    { t: 'rect', x: 0, y: 0, w: 10, h: 5.625, fill: C.ink },
+    { t: 'rect', x: 0, y: 0, w: 10, h: 0.09, fill: C.brand },
     ...[0, 1, 2, 3].map(i => ({ t: 'rect', x: X0, y: 0.75 + i * 0.09, w: i === 3 ? 0.9 : 1.4, h: 0.022, fill: C.brand })),
     txt(X0, 1.4, 9, 0.3, 'INVESTMENT COMMITTEE', { size: 10, bold: true, color: C.brand, charSpace: 2 }),
-    txt(X0, 1.75, 9, 0.9, m.name, { size: 40, bold: true, color: C.white }),
-    txt(X0, 2.65, 9, 0.5, m.target || '', { size: 18, color: 'E6E6E6' }),
-    txt(X0, 3.2, 9, 0.35, [m.dealType, m.stage].filter(Boolean).join('  ·  '), { size: 12, color: 'BBBBBB' }),
-    txt(X0, 4.45, 5.5, 0.6, `${longDate}\nDeal team: ${['analyst', 'manager', 'partner'].map(r => m.owners[r]).filter(Boolean).join(', ') || 'Not set'}`, { size: 10, color: 'BBBBBB' }),
+    txt(X0, 1.75, 9, 0.9, m.name, { size: 40, bold: true, color: C.ink }),
+    txt(X0, 2.65, 9, 0.5, m.target || '', { size: 18, color: '333333' }),
+    txt(X0, 3.2, 9, 0.35, [m.dealType, m.stage].filter(Boolean).join('  ·  '), { size: 12, color: '666666' }),
+    { t: 'rect', x: X0, y: 4.3, w: 9, h: 0.008, fill: C.rule },
+    txt(X0, 4.45, 5.5, 0.6, `${longDate}\nDeal team: ${['analyst', 'manager', 'partner'].map(r => m.owners[r]).filter(Boolean).join(', ') || 'Not set'}`, { size: 10, color: '666666' }),
     txt(5.5, 4.75, 4, 0.3, 'STRICTLY CONFIDENTIAL', { size: 9, bold: true, color: C.brand, align: 'right', charSpace: 1.5 })
   ] });
   if (!live) { S('Recommendation', 'No source documents have been analyzed for this mandate', [txt(X0, BODY, W, 1, 'Upload the CIM, financial statements, ledger and balance sheets in Sources to generate the committee pack.', { size: 14 })]); return { slides, meta: { project: m.name, target: m.target, date: longDate } }; }
@@ -4710,10 +4712,10 @@ function deckModel(R, m, opts) {
 
   /* 17 the ask */
   slides.push({ dark: true, section: 'Recommendation', title: '', notes: `To close: ${rec_ask(R, mult, dil, mg, lo, base, hi, RC)}`, els: [
-    { t: 'rect', x: 0, y: 0, w: 10, h: 5.625, fill: C.ink },
+    { t: 'rect', x: 0, y: 0, w: 10, h: 0.09, fill: C.brand },
     txt(X0, 0.7, W, 0.3, 'RECOMMENDATION AND APPROVAL SOUGHT', { size: 10, bold: true, color: C.brand, charSpace: 2 }),
-    txt(X0, 1.1, W, 1.6, rec_ask(R, mult, dil, mg, lo, base, hi, RC), { size: 19, bold: true, color: C.white }),
-    ...(R.highs.length ? [txt(X0, 3.0, W, 0.3, 'CONDITIONS', { size: 9, bold: true, color: C.brand, charSpace: 1.5 }), txt(X0, 3.3, W, 1.7, R.highs.slice(0, 6).map(f => f.title), { size: 11, color: 'DDDDDD', numbered: true, paraAfter: 3, columns: R.highs.length > 3 ? 2 : 1 })] : [])
+    txt(X0, 1.1, W, 1.6, rec_ask(R, mult, dil, mg, lo, base, hi, RC), { size: 19, bold: true, color: C.ink }),
+    ...(R.highs.length ? [{ t: 'rect', x: X0, y: 2.85, w: 9, h: 0.008, fill: C.rule }, txt(X0, 3.0, W, 0.3, 'CONDITIONS', { size: 9, bold: true, color: C.brand, charSpace: 1.5 }), txt(X0, 3.3, W, 1.7, R.highs.slice(0, 6).map(f => f.title), { size: 11, color: '333333', numbered: true, paraAfter: 3, columns: R.highs.length > 3 ? 2 : 1 })] : [])
   ] });
 
   /* appendix */
@@ -4815,7 +4817,7 @@ function deckPptx(D, PptxGenJS) {
   const p = new PptxGenJS(); p.layout = 'LAYOUT_16x9'; p.author = 'DealBasis'; p.title = `${D.meta.project}: Investment Committee`;
   const F = 'Arial'; const total = D.slides.length;
   D.slides.forEach((s, si) => {
-    const sl = p.addSlide(); sl.background = { color: s.dark ? '111111' : 'FFFFFF' };
+    const sl = p.addSlide(); sl.background = { color: 'FFFFFF' };
     if (!s.dark) {
       sl.addText((s.section || '').toUpperCase(), { x: 0.5, y: 0.3, w: 6, h: 0.25, fontFace: F, fontSize: 8.5, bold: true, color: C.red, charSpacing: 1, margin: 0 });
       sl.addText(s.title, { x: 0.5, y: 0.55, w: 9, h: 0.8, fontFace: F, fontSize: 19, bold: true, color: C.ink, valign: 'top', margin: 0, fit: 'shrink' });
@@ -4947,7 +4949,7 @@ function deckSlideHTML(D, si) {
   const e = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const px = v => (v * IN).toFixed(1) + 'px'; const pt = v => (v * IN / 72).toFixed(2) + 'px';
   const box = (x, y, w, h) => `left:${px(x)};top:${px(y)};width:${px(w)};${h != null ? 'height:' + px(h) + ';' : ''}`;
-  let o = `<div class="slide" style="background:#${s.dark ? '111111' : 'FFFFFF'}">`;
+  let o = `<div class="slide" style="background:#FFFFFF">`;
   if (!s.dark) {
     o += `<div class="el" style="${box(0.5, 0.3, 6, 0.25)}font:700 ${pt(8.5)} Arial,Helvetica,sans-serif;color:#D63222;letter-spacing:.12em">${e((s.section || '').toUpperCase())}</div>`;
     o += `<div class="el" style="${box(0.5, 0.55, 9, 0.8)}font:700 ${pt(19)}/1.18 Arial,Helvetica,sans-serif;color:#111">${e(s.title)}</div>`;

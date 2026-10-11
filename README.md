@@ -57,4 +57,4 @@ The notes in the full README still apply:
 
 ## Reading help and demo requests
 
-In Supabase, open **Table Editor**. Help requests from signed-in users are in `support_requests`, with their email, firm workspace, type and message. Demo requests from the website are in `demo_requests`. Reply by email. In `support_requests` you can change `status` to `answered` or `closed` to keep track.
+In Supabase, open **Table Editor**. Help requests from signed-in users are in `support_requests`, with their email, firm workspace, type and message. Demo requests from the website are in `demo_requests`, and messages from the Team page's contact form are in `contact_messages`. Reply by email. In `support_requests` you can change `status` to `answered` or `closed` to keep track.

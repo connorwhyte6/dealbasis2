@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Team | DealBasis</title>
-<meta name="description" content="The DealBasis team: Connor Whyte, Co-Founder (Engineering and Go-to-Market), and Queenie Valencia, Co-Founder (Sales).">
+<meta name="description" content="The DealBasis team: Connor Whyte and Queenie Valencia, Co-Founders.">
 <link rel="canonical" href="https://dealbasis.vercel.app/team">
 <meta name="theme-color" content="#ffffff">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="DealBasis">
 <meta property="og:url" content="https://dealbasis.vercel.app/team">
 <meta property="og:title" content="Team | DealBasis">
-<meta property="og:description" content="The DealBasis team: Connor Whyte, Co-Founder (Engineering and Go-to-Market), and Queenie Valencia, Co-Founder (Sales).">
+<meta property="og:description" content="The DealBasis team: Connor Whyte and Queenie Valencia, Co-Founders.">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Team | DealBasis">
-<meta name="twitter:description" content="The DealBasis team: Connor Whyte, Co-Founder (Engineering and Go-to-Market), and Queenie Valencia, Co-Founder (Sales).">
+<meta name="twitter:description" content="The DealBasis team: Connor Whyte and Queenie Valencia, Co-Founders.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
@@ -35,23 +35,40 @@
 <main id="main">
 <div class="pagehead"><div class="wrap"><span class="eyebrow">Team</span><h1>Two Co-Founders: Build and Sell</h1><p>A builder who ships the product, and a co-founder who sells it.</p></div></div>
 <section class="teamsec"><div class="wrap">
-  <div class="team">
-    <article class="member">
+  <div class="people">
+    <article class="person">
       <h2>Connor Whyte</h2>
-      <p class="role">Co-Founder · Engineering and Go-to-Market</p>
-      <p class="bio">Connor builds the DealBasis platform end to end and leads its Go-to-Market, with hands-on B2B software Sales experience.</p>
-      <ul class="edu">
-        <li><b>BS in Business Administration</b><span>University of Arizona</span></li>
-        <li><b>MS in Finance Candidate</b><span>Arizona State University</span></li>
-      </ul>
+      <p class="title">Co-Founder</p><p class="role">Technology and Go-to-Market Strategy</p>
+      <p class="bio">Connor builds the DealBasis platform end to end and leads its Go-to-Market, with hands-on B2B software Sales experience. He holds a BS in Business Administration from the University of Arizona and is an MS in Finance Candidate at Arizona State University.</p>
     </article>
-    <article class="member dark">
+    <article class="person">
       <h2>Queenie Valencia</h2>
-      <p class="role">Co-Founder · Sales</p>
+      <p class="title">Co-Founder</p><p class="role">Sales and Client Relationships</p>
       <p class="bio">Queenie leads Sales and the relationships with the deal teams DealBasis serves. She brings experience in Venture Capital, giving the company an investor's view of how buyers judge a deal and what earns their trust.</p>
     </article>
   </div>
-  <div class="next"><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a><a class="btn btn-secondary" href="/product">See the product</a></div>
+</div></section>
+<section class="soft contactsec" id="contact"><div class="wrap">
+  <div class="contactgrid">
+    <div class="contactinfo">
+      <span class="eyebrow">Contact</span>
+      <h2>Get in touch</h2>
+      <p>Questions about DealBasis, partnerships or press? Send us a message and one of the co-founders will reply by email.</p>
+      <p class="alt">Want a walkthrough instead? <a href="/demo">Request a demo</a>.</p>
+    </div>
+    <form class="demoform" id="contactform" novalidate>
+      <div class="two">
+        <label>Full name<input name="name" autocomplete="name" maxlength="120" required></label>
+        <label>Email<input name="email" type="email" autocomplete="email" maxlength="200" required></label>
+      </div>
+      <label><span>Company <span class="opt">(optional)</span></span><input name="company" autocomplete="organization" maxlength="160"></label>
+      <label>Message<textarea name="message" maxlength="3000" required></textarea></label>
+      <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+      <div id="contacterr" role="alert"></div>
+      <button class="btn btn-primary" type="submit">Send message</button>
+      <p class="fine">We’ll only use your details to reply to this message.</p>
+    </form>
+  </div>
 </div></section>
 </main>
 
@@ -59,10 +76,35 @@
   <div class="fgrid">
     <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
     <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a></li><li><a href="/faq#security">Security</a></li><li><a href="/faq">FAQ</a></li><li><a href="/team">Team</a></li></ul></div>
-    <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/demo">Request a demo</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
+    <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/demo">Request a demo</a></li><li><a href="/team#contact">Contact us</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
   </div>
   <p class="legal">© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
 </div></footer>
 <script src="/home.js"></script>
+<script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script>
+(function () {
+  'use strict';
+  var form = document.getElementById('contactform'), err = document.getElementById('contacterr');
+  function fail(t) { err.className = 'err'; err.textContent = t; }
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault(); err.className = ''; err.textContent = '';
+    var f = new FormData(form), v = function (k) { return String(f.get(k) || '').trim(); };
+    if (v('website')) return;
+    if (!v('name')) return fail('Enter your name.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('email'))) return fail('Enter a valid email.');
+    if (!v('message')) return fail('Write a message.');
+    var cfg = window.DEALBASIS_CONFIG || {};
+    if (!window.supabase || !cfg.supabaseUrl) return fail('The form isn’t connected yet. Please try again later.');
+    var btn = form.querySelector('button'); btn.disabled = true; btn.textContent = 'Sending…';
+    var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false } });
+    var r = await sb.from('contact_messages').insert({ name: v('name'), email: v('email'), company: v('company') || null, message: v('message') });
+    if (r.error) { btn.disabled = false; btn.textContent = 'Send message'; return fail(/too many/i.test(r.error.message) ? 'We already have your message. We’ll be in touch soon.' : 'That didn’t send. Please try again.'); }
+    form.innerHTML = '<div class="demodone"><h2>Thanks for reaching out</h2><p>We’ll reply to <b></b> soon.</p></div>';
+    form.querySelector('b').textContent = v('email');
+  });
+})();
+</script>
 </body>
 </html>

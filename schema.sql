@@ -589,6 +589,41 @@ grant insert (name, email, firm, role, firm_type, message) on public.demo_reques
 grant usage on sequence public.demo_requests_id_seq to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
+-- Contact messages: sent from the website's Team page contact form. Same rules as demo requests:
+-- visitors can only add a message, and DealBasis reads them in the Supabase Table Editor.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.contact_messages (
+  id         bigserial primary key,
+  name       text not null check (length(name) between 1 and 120),
+  email      text not null check (length(email) between 5 and 200 and email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  company    text check (length(company) <= 160),
+  message    text not null check (length(message) between 1 and 3000),
+  created_at timestamptz not null default now()
+);
+
+create or replace function public.limit_contact_messages() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from public.contact_messages where lower(email) = lower(new.email) and created_at > now() - interval '1 day') >= 3
+     or (select count(*) from public.contact_messages where created_at > now() - interval '1 hour') >= 60 then
+    raise exception 'Too many messages. Try again later.' using errcode = '54000';
+  end if;
+  new.created_at := now();
+  return new;
+end
+$$;
+drop trigger if exists contact_messages_limit on public.contact_messages;
+create trigger contact_messages_limit before insert on public.contact_messages for each row execute function public.limit_contact_messages();
+
+alter table public.contact_messages enable row level security;
+drop policy if exists contact_insert_public on public.contact_messages;
+create policy contact_insert_public on public.contact_messages for insert to anon, authenticated with check (true);
+revoke all on public.contact_messages from anon, authenticated;
+grant insert (name, email, company, message) on public.contact_messages to anon, authenticated;
+grant usage on sequence public.contact_messages_id_seq to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- File storage: uploaded documents and their originals (private bucket, 50 MB per file).
 -- Each workspace's files sit in a folder named after the workspace, and only its members can reach them.
 -- ---------------------------------------------------------------------------
