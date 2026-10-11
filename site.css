@@ -72,3 +72,6 @@ td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:middle}
 .row,form.row{display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;align-items:flex-end}
 .muted{color:var(--ink3)}
 .chip{display:inline-flex;font:600 10.5px/1 var(--f-mono);letter-spacing:.07em;text-transform:uppercase;padding:4px 7px;border-radius:2px;border:1px solid var(--rule2);color:var(--ink2)}
+.agree{display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--ink2);cursor:pointer}
+.agree input{margin-top:3px;width:16px;height:16px;flex:none;accent-color:var(--brand,#d63222)}
+.agree a{color:inherit;text-decoration:underline}

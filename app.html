@@ -67,6 +67,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 main{min-width:0;padding-inline:clamp(16px,4vw,52px);padding-block:32px 72px}
 .wrap{max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:38px}
 .vh{display:flex;flex-direction:column;gap:6px}
+.rptbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-top:10px;font-size:12.5px}.rptbar .rpt{display:inline-flex;align-items:center;gap:6px}.rptbar .rpt b{font-weight:600;font-size:12.5px}
 .eyebrow{font:500 11px/1 var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--brandtext)}
 h1{font-family:var(--f-display);font-weight:800;font-stretch:72%;font-size:clamp(32px,5vw,50px);line-height:.95;margin:4px 0 0;text-transform:uppercase;text-wrap:balance}
 .sub{color:var(--ink2);margin:6px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
@@ -4301,7 +4302,7 @@ function memoModel(R, m, opts) {
       const ex = M.addbacks.filter(a => !a.accepted);
       if (ex.length) b.push({ bullets: ex.map(a => ({ t: `${a.label} (${mn(a.amount)}): ${a.note}`, notes: note([a.src]) })) });
     }
-    if (R.val.contributors.length) b.push({ h: "Reconciliation to management's figure" }, { table: { unit: curUnit('thousands'), head: ['', 'EBITDA', `Value at ${xm(mult)}`], rows: [["Management's Adjusted EBITDA", th(mg), ''], ...R.val.contributors.map(c => [c.label, th(-c.ebitda), th(-c.value)]), ['Diligence-adjusted EBITDA', th(dil), th((dil - mg) * mult)]], align: ['l', 'r', 'r'], widths: [0.6, 0.2, 0.2], totals: [R.val.contributors.length + 1], emph: [0] } });
+    if (R.val.contributors.length) b.push({ h: "Reconciliation to management's figure" }, { table: { unit: curUnit('thousands'), head: ['', 'EBITDA', `Change in value at ${xm(mult)}`], rows: [["Management's Adjusted EBITDA", th(mg), ''], ...R.val.contributors.map(c => [c.label, th(-c.ebitda), th(-c.value)]), ['Diligence-adjusted EBITDA', th(dil), th((dil - mg) * mult)]], align: ['l', 'r', 'r'], widths: [0.6, 0.2, 0.2], totals: [R.val.contributors.length + 1], emph: [0] } });
     sec('Quality of earnings', b);
   }
 
@@ -4399,6 +4400,227 @@ function memoModel(R, m, opts) {
   A.push({ title: 'Sources', blocks: [{ table: { head: ['ID', 'Document', 'Type'], rows: (m.docs || R.docs || []).filter(d => d.type).map(d => [d.id, d.name, d.type.toUpperCase()]), align: ['l', 'l', 'l'], widths: [0.08, 0.76, 0.16] } },
     { h: 'Notes' }, { notesList: true },
     { small: `Bracketed numbers in the text refer to these notes. Line, row and cell references for every figure are in the DealBasis record, run ${R.fingerprint}. No statistical or generative model was used.` }] });
+
+  /* ---------- financial due diligence reports ----------
+     The layout accounting firms use for diligence reports: an important notice, the scope and basis of preparation,
+     an executive summary, then each area with its schedule, adjustments numbered and explained under the schedule,
+     and appendices for findings, open requests and sources. One builder serves the full report and each area's report. */
+  if (opts.report) {
+    const kind = opts.report; const has = k => kind === 'fdd' || kind === k;
+    const getS = t => S.find(x => x.title === t) || null;
+    const RS = [], RA = []; const addR = (title, blocks) => { blocks = (blocks || []).filter(Boolean); if (blocks.some(b => !b.small)) RS.push({ title, blocks }); };
+    const addRA = (title, blocks) => { blocks = (blocks || []).filter(Boolean); if (blocks.length) RA.push({ title, blocks }); };
+    const TITLES = { fdd: 'Financial Due Diligence Report', qoe: 'Quality of Earnings Report', revenue: 'Revenue Quality Report', nwc: 'Net Working Capital Report', debt: 'Net Debt and Debt Tie-Out Report', cash: 'Proof of Cash and Cash Flow Report', economics: 'Valuation and Returns Report', findings: 'Risk and Findings Report', questions: 'Diligence Information Request List' };
+    const AREA = { qoe: ['Earnings quality', 'Controls & data integrity'], revenue: ['Revenue quality'], nwc: ['Working capital'], debt: ['Debt & liabilities'], cash: [], economics: ['Projections'] };
+    const inArea = f => kind === 'fdd' || kind === 'findings' || (AREA[kind] || []).includes(f.category) || (kind === 'cash' && /^B0/.test(f.id)) || (kind === 'debt' && /^B03$/.test(f.id));
+    const mo = k => monthLabel(k);
+    const docsUsed = (m.docs || R.docs || []).filter(d => d.type);
+    const roleOf = d => (((R.X && R.X.docLog) || {})[d.id] || {}).roles || [];
+    const findingBullets = list => list.length ? [{ bullets: list.map(f => ({ t: `${f.severity}: ${f.title}. ${f.text}`, notes: fcite(f) })) }] : [];
+    const st = a => m.dec['adj:' + a.id] === undefined ? 'Proposed' : m.dec['adj:' + a.id] ? 'Approved' : 'Rejected';
+    const area = R.fired.filter(inArea);
+    const who = v => (m.owners && m.owners[v]) || ({ analyst: 'Analyst', manager: 'Manager', partner: 'Partner' })[v] || v || 'Unassigned';
+    const N = L && L.nwc && L.nwc.lines.length ? L.nwc : null, Dt = L && L.debt && L.debt.rows.length ? L.debt : null, PC = R.poc && R.poc.rows && R.poc.rows.length ? R.poc : null;
+
+    /* important notice */
+    addR('Important notice', [
+      { p: `This report was produced by DealBasis from the documents listed under Scope and basis of preparation, for the deal team evaluating ${m.target || m.name || 'the target'}, to support its evaluation of a possible transaction. It is for that team's internal use. No other party, including lenders, co-investors, sellers or their advisers, may rely on it.` },
+      { p: 'It is a diligence analysis prepared by fixed rules. It is not an audit, review, compilation or other attestation, and it is not a quality of earnings report issued by an independent accounting firm. It is not investment, legal, tax or accounting advice.' },
+      { p: `Figures are taken from the documents as provided and were not verified with third parties, except where lender confirmations or bank statements were supplied and are compared in this report. Each figure is cited to its source document in the notes; the line, row and cell behind every figure is in the DealBasis record, run ${R.fingerprint}.` }]);
+
+    /* scope and basis of preparation */
+    { const per = R.SM ? R.SM.periods.filter(p => p.type === 'H').map(p => p.label) : [];
+      const kv = [['Target', m.target || '–'], ['Project', m.name || '–'],
+        ['Periods analyzed', [L ? `Monthly general ledger, ${mo(L.months[0])} to ${mo(L.last)}` : '', per.length ? `Financial statements, ${per.join(', ')}` : ''].filter(Boolean).join('; ') || R.periodLabel || '–'],
+        ['Basis period', R.periodLabel || '–'], ['Currency and units', `${CUR.code}. Schedules are in thousands unless stated; totals may differ from the sum of rounded figures.`], ['Documents analyzed', String(docsUsed.length)], ['Report date', longDate]];
+      const procs = [];
+      if (has('qoe') && L) procs.push('Recomputed reported EBITDA from the general ledger (net income plus interest, income taxes, depreciation and amortization) for the trailing twelve months and the twelve months before.');
+      if (has('qoe') && M && M.addbacks.length) procs.push(`Tested each of management's ${M.addbacks.length} add-backs${L ? ' against the ledger entries behind it' : ''} and classified it as accepted or excluded, with the reason.`);
+      if (has('qoe') && L) procs.push('Identified diligence adjustments by rule, including owner compensation against market, owner personal expenses, non-operating income and revenue recorded before it was earned.');
+      if (has('qoe') && R.SM) procs.push('Compared revenue, EBITDA and margins stated in the text with the financial statements, and the financial statements with the ledger.');
+      if (has('revenue') && L) procs.push('Analyzed revenue by customer for the trailing twelve months and the twelve months before: concentration, retention, and new and lost customers.');
+      if (has('nwc') && N) procs.push(`Built monthly net working capital from ${L.months.length} month-end balance sheets on the ${N.def} definition, and computed the trailing ${N.pegN}-month average as an indicative peg.`, 'Computed days sales, inventory and payables outstanding, and removed invoices reversed after month end from receivables.');
+      if (has('debt') && Dt) procs.push("Compared each debt facility on the balance sheet with the lender's confirmation of its balance, and identified debt-like items on the balance sheet.");
+      if (has('cash') && PC) procs.push('Matched receipts on the bank statements with revenue collected (revenue less the increase in receivables) month by month, after setting aside transfers between accounts, loans, owner money and refunds.', 'Compared month-end bank balances with cash on the balance sheet.');
+      if (has('economics')) procs.push("Applied the deal team's valuation, financing and exit assumptions to diligence-adjusted EBITDA.");
+      if (kind === 'fdd' || kind === 'findings') procs.push('Ran the DealBasis rule set over every document and re-checked each citation behind each finding against its source; findings whose citations could not be confirmed are held back.');
+      if (has('questions')) procs.push('Listed the questions and document requests raised by the analysis, with the answer found in the file where there is one.');
+      const defs = [];
+      if (has('qoe') || kind === 'fdd') defs.push('Reported EBITDA: net income before interest, income taxes, depreciation and amortization, as recorded.', "Management's adjusted EBITDA: reported EBITDA plus the add-backs management proposes.", 'Diligence-adjusted EBITDA: reported EBITDA plus the adjustments the evidence supports, as proposed in this report.', 'TTM: the trailing twelve months to the last month of data.');
+      if (has('nwc')) defs.push(`Net working capital (${N ? N.def : 'operating'} definition): ${((NWC_DEFS.find(d0 => d0.id === (N ? N.def : 'operating')) || NWC_DEFS[1]).formula).replace(/−/g, 'less')}.`, 'Peg: the target level of net working capital delivered at closing, indicated here by the trailing average.');
+      if (has('debt')) defs.push("Funded debt: borrowings confirmed by the lenders.", 'Debt-like items: liabilities treated as debt in the price, such as accrued bonuses, income taxes and interest payable.', 'Net debt: funded debt plus debt-like items, less cash.');
+      if (has('cash')) defs.push('Proof of cash: a test that the cash the bank received matches the revenue the books recorded, after timing differences in receivables.');
+      const lims = ['The analysis is limited to the documents listed; matters not in them are not reflected.', 'Figures that could not be read or placed were left out, so the absence of a finding does not mean no issue exists.', 'Adjustments are proposed by rule and require the deal team’s approval; the status of each is shown.'];
+      if (has('nwc') && N) lims.push('A peg derived from trailing balances should be tested against seasonality and set with a collar in the purchase agreement.');
+      addR('Scope and basis of preparation', [{ kv }, { h: 'Sources of information' }, { table: { head: ['ID', 'Document', 'Read as'], rows: docsUsed.map(d => [d.id, d.name, roleOf(d).join(', ') || d.type.toUpperCase()]), align: ['l', 'l', 'l'], widths: [0.08, 0.6, 0.32] } },
+        ...(procs.length ? [{ h: 'Procedures performed' }, { bullets: procs.map(t => ({ t })) }] : []), ...(defs.length ? [{ h: 'Definitions' }, { bullets: defs.map(t => ({ t })) }] : []), { h: 'Limitations' }, { bullets: lims.map(t => ({ t })) }]); }
+
+    /* executive summary */
+    if (kind !== 'questions') {
+      const kf = [];
+      const k = (a, l, p, v) => { if (has(a) || kind === 'findings') kf.push([l, p, v]); };
+      if (ok(R.revenue)) k('qoe', 'Revenue', R.periodLabel, th(R.revenue));
+      if (ok(R.reported)) k('qoe', 'Reported EBITDA', R.periodLabel, th(R.reported));
+      if (ok(R.management)) k('qoe', "Management's adjusted EBITDA", M && M.basisLabel ? M.basisLabel : '', th(R.management));
+      if (ok(R.diligence)) k('qoe', 'Diligence-adjusted EBITDA', R.periodLabel, th(R.diligence));
+      if (ok(R.diligence) && ok(R.management)) k('qoe', "  Difference from management's figure", '', th(R.diligence - R.management));
+      if (L && L.customers && L.customers.list[0]) k('revenue', 'Largest customer, share of revenue', R.periodLabel, pc(L.customers.list[0].share));
+      if (N && ok(N.peg)) k('nwc', `Net working capital, ${N.pegN}-month average`, `to ${mo(L.last)}`, th(N.peg));
+      if (N && ok(N.delivered)) k('nwc', 'Net working capital, latest month', mo(L.last), th(N.delivered));
+      if (Dt) { k('debt', 'Funded debt, per lender confirmations', mo(L.last), th(Dt.fundedDebt)); k('debt', 'Net debt', mo(L.last), th(Dt.netDebt)); }
+      if (PC && PC.tot && PC.tot.gapPct != null) k('cash', 'Bank deposits vs revenue collected', `${PC.covered} months`, (PC.tot.gap >= 0 ? '+' : '') + pc(PC.tot.gapPct));
+      if (R.cash && ok(R.cash.conversion)) k('cash', 'Cash conversion', R.cash.period || '', pc(R.cash.conversion));
+      if (has('economics') && R.val && ok(R.val.ev)) kf.push([`Enterprise value at ${xm(mult)}`, 'Diligence-adjusted EBITDA', th(R.val.ev)]);
+      const b = [];
+      if (kf.length) b.push({ h: 'Key figures' }, { table: { unit: curUnit('thousands'), head: ['', 'Period', 'Amount'], rows: kf, align: ['l', 'l', 'r'], widths: [0.5, 0.3, 0.2], sub: kf.map((r, i) => r[0].startsWith('  ') ? i : -1).filter(i => i >= 0) } });
+      if (area.length) { const vs = f => { const v = impactVal(f); return v ? th(Math.abs(v)) : '–'; };
+        b.push({ h: 'Key findings' }, { table: { unit: 'Value at stake in $ thousands', head: ['Area', 'Finding', 'Severity', 'Value'], rows: area.slice().sort((x, y) => ({ High: 0, Medium: 1, Low: 2 }[x.severity] - { High: 0, Medium: 1, Low: 2 }[y.severity])).map(f => [f.category, `${f.title}. ${f.text}`, f.severity, vs(f)]), align: ['l', 'l', 'l', 'r'], widths: [0.17, 0.55, 0.13, 0.15], sev: 2 } },
+          { small: 'Value at stake converts EBITDA effects at the valuation multiple and takes balance sheet effects dollar for dollar.' }); }
+      else if (kf.length) b.push({ p: 'No findings were raised in this area by the documents provided.' });
+      addR('Executive summary', b);
+    }
+
+    /* quality of earnings */
+    if (has('qoe') && (L || (M && M.addbacks.length))) {
+      const b = []; const qo = getS('Quality of earnings');
+      if (L) {
+        const T = L.T, P0 = L.P, hp = L.prior.length > 0;
+        const col = f => [...(hp ? [th(f(P0))] : []), th(f(T))]; const mg = (x, v) => x.Revenue ? pc(v / x.Revenue) : '';
+        const head = ['', ...(hp ? [`TTM ${mo(L.prior[L.prior.length - 1])}`] : []), `TTM ${mo(L.last)}`]; const al = ['l', ...head.slice(1).map(() => 'r')]; const wd = hp ? [0.52, 0.24, 0.24] : [0.66, 0.34];
+        b.push({ h: 'Reconciliation of net income to reported EBITDA' }, { table: { unit: curUnit('thousands'), head, align: al, widths: wd, totals: [4], sub: [5], notes: ledgerNote(), rows: [
+          ['Net income', ...col(x => x.NI)], ['Add: interest expense', ...col(x => x.Interest)], ['Add: income taxes', ...col(x => x.Tax)], ['Add: depreciation and amortization', ...col(x => x['D&A'])],
+          ['Reported EBITDA', ...col(x => x.EBITDA)], ['  EBITDA margin', ...(hp ? [mg(P0, P0.EBITDA)] : []), mg(T, T.EBITDA)]] } });
+        const mgA = L.adj.filter(a => a.basis === 'Management'), dgA = L.adj.filter(a => a.basis !== 'Management'); const ref = {};
+        mgA.forEach((a, i) => { ref[a.id] = 'M' + (i + 1); }); dgA.forEach((a, i) => { ref[a.id] = 'D' + (i + 1); });
+        const rows = [['Reported EBITDA', '', th(T.EBITDA), '']]; const emph = [], tot = [], sub = [];
+        if (mgA.length) { emph.push(rows.length); rows.push(["Management's adjustments, as measured in the ledger", '', '', '']); mgA.forEach(a => rows.push(['  ' + a.title, ref[a.id], a.accepted ? th(a.amount) : '–', st(a)])); }
+        if (dgA.length) { emph.push(rows.length); rows.push(['Diligence adjustments', '', '', '']); dgA.forEach(a => rows.push(['  ' + a.title, ref[a.id], a.accepted ? th(a.amount) : '–', st(a)])); }
+        tot.push(rows.length); rows.push(['Total adjustments', '', th(L.adjTotal), '']);
+        tot.push(rows.length); rows.push(['Diligence-adjusted EBITDA', '', th(L.adjEBITDA), '']);
+        sub.push(rows.length); rows.push(['  Adjusted EBITDA margin', '', T.Revenue ? pc(L.adjEBITDA / T.Revenue) : '', '']);
+        b.push({ h: `Summary of adjusted EBITDA, TTM ${mo(L.last)}` }, { table: { unit: curUnit('thousands'), head: ['', 'Ref', 'Amount', 'Status'], rows, align: ['l', 'l', 'r', 'l'], widths: [0.56, 0.08, 0.18, 0.18], emph, totals: tot, sub } });
+        b.push({ h: 'Notes to the adjustments' }, ...[...mgA, ...dgA].map(a => ({ p: `${ref[a.id]}. ${a.title}: ${a.amount < 0 ? 'reduces' : 'increases'} EBITDA by ${mn(Math.abs(a.amount))} (${st(a).toLowerCase()}). ${a.note || ''}`.trim(), notes: note((a.evidence || []).map(e => e && e.src).filter(Boolean).slice(0, 3)) })));
+      }
+      if (qo) { const i = qo.blocks.findIndex(x => x.h && /^Management's bridge/.test(x.h)); if (i >= 0) b.push(...qo.blocks.slice(i)); }
+      b.push(...findingBullets(area.filter(f => f.category === 'Earnings quality' || f.category === 'Controls & data integrity')).map(x => ({ ...x })));
+      if (area.some(f => f.category === 'Earnings quality' || f.category === 'Controls & data integrity')) b.splice(b.length - 1, 0, { h: 'Earnings quality and control findings' });
+      addR('Quality of earnings', b);
+      const hi = getS('Historical financial performance'); if (hi) addR('Historical financial performance', hi.blocks);
+    }
+
+    /* revenue */
+    if (has('revenue')) { const rq = getS('Revenue quality'); if (rq) addR('Revenue analysis', rq.blocks);
+      else if (kind === 'revenue') addR('Revenue analysis', [{ p: 'Revenue by customer needs a general ledger with customer names. None was found in the documents provided.' }]); }
+
+    /* net working capital */
+    if (has('nwc') && N) {
+      const k12 = Math.min(12, L.months.length); const ms = L.months.slice(-k12); const off = L.months.length - k12;
+      /* every line that makes up the total, as the engine adds it: assets positive, liabilities negative */
+      const lines = N.lines; const dlike = lines.filter(l => l.cls === 'Debt-like');
+      const cell = v => v == null ? '' : th(v);
+      const rows = lines.map(l => [l.line + (l.cls === 'Debt-like' ? ' *' : ''), ...ms.map((_, j) => l.values[off + j] == null ? '' : cell(l.sign * l.values[off + j]))]);
+      rows.push(['Reported net working capital', ...ms.map((_, j) => cell(N.reported[off + j]))]);
+      const normed = (N.normalizations || []).length; if (normed) rows.push(['Normalized net working capital', ...ms.map((_, j) => cell(N.monthly[off + j]))]);
+      const tot = [lines.length].concat(normed ? [lines.length + 1] : []);
+      const b = [{ p: `Net working capital averaged ${mn(N.peg)} over the ${N.pegN} months to ${mo(L.last)}, which indicates a peg of that amount, and was ${mn(N.delivered)} at ${mo(L.last)}${normed ? ' after normalization' : ''}. ${N.defNote || ''}`.trim() },
+        { h: `Monthly net working capital, ${mo(ms[0])} to ${mo(ms[ms.length - 1])}` },
+        { table: { unit: `${curUnit('thousands')}; liabilities shown as negatives`, head: ['', ...ms.map(x => mo(x).replace(/ (\d{2})(\d{2})$/, " '$2"))], rows, align: ['l', ...ms.map(() => 'r')], widths: [0.22, ...ms.map(() => 0.78 / ms.length)], totals: tot, small: true } }];
+      if (normed) b.push({ h: 'Normalization adjustments' }, { bullets: N.normalizations.map(x => ({ t: `${mo(x.month)}: ${x.note} (${mn(x.amount)}).` })) });
+      if (dlike.length) { const inDebt = (Dt ? Dt.debtLike.filter(x => x.included).map(x => x.line) : []); const both = dlike.filter(l => inDebt.includes(l.line)).map(l => l.line);
+        b.push({ small: `* Debt-like item, kept in net working capital on the ${N.def} definition used here.${both.length ? ` ${both.join(' and ')} ${both.length === 1 ? 'is' : 'are'} also deducted in net debt; the equity value bridge adds ${both.length === 1 ? 'it' : 'them'} back once so ${both.length === 1 ? 'it is' : 'they are'} not counted twice.` : ''}` }); }
+      const d = (lab, y) => y ? [lab, y.then != null ? y.then.toFixed(1) : 'n/a', y.now.toFixed(1), y.delta != null ? (y.delta >= 0 ? '+' : '') + y.delta.toFixed(1) : ''] : null;
+      const dd = [d('Days sales outstanding (DSO)', N.dsoY), d('Days inventory outstanding (DIO)', N.dioY), d('Days payables outstanding (DPO)', N.dpoY)].filter(Boolean);
+      if (dd.length) b.push({ h: 'Working capital days' }, { table: { head: ['Days', 'Prior year', 'Current', 'Change'], rows: dd, align: ['l', 'r', 'r', 'r'], widths: [0.46, 0.18, 0.18, 0.18] } });
+      if (R.nwcNotes && R.nwcNotes.length) b.push({ h: 'Months outside the normal range' }, { bullets: R.nwcNotes.map(x => ({ t: `${mo(x.month)}: net working capital of ${mn(x.value)}, ${Math.abs(x.z).toFixed(1)} standard deviations ${x.z > 0 ? 'above' : 'below'} the mean.` })) });
+      const wf = area.filter(f => f.category === 'Working capital'); if (wf.length) b.push({ h: 'Working capital findings' }, ...findingBullets(wf));
+      addR('Net working capital', b);
+    } else if (kind === 'nwc') addR('Net working capital', [{ p: 'Monthly net working capital needs month-end balance sheets. None were found in the documents provided.' }]);
+
+    /* net debt and debt tie-out */
+    if (has('debt') && Dt) {
+      const rows = Dt.rows.map(r => [r.facility, r.lender || '', th(r.bs), r.conf != null ? th(r.conf) : '–', r.conf != null ? th(r.conf - r.bs) : '–', r.status]);
+      rows.push(['Total funded debt', '', th(Dt.bsDebt), th(Dt.fundedDebt), th(Dt.fundedDebt - Dt.bsDebt), '']);
+      const dl = Dt.debtLike;
+      const b = [{ h: `Debt tie-out at ${mo(L.last)}` }, { table: { unit: curUnit('thousands'), head: ['Facility', 'Lender', 'Balance sheet', 'Lender confirmation', 'Difference', 'Status'], rows, align: ['l', 'l', 'r', 'r', 'r', 'l'], widths: [0.24, 0.2, 0.13, 0.15, 0.13, 0.15], totals: [rows.length - 1], notes: note(Dt.rows.flatMap(r => [r.srcConf, r.srcBS])) } }];
+      const off = Dt.rows.filter(r => r.conf != null && Math.abs(r.conf - r.bs) > 0.5);
+      b.push({ p: off.length ? `${off.length} of ${Dt.rows.length} facilities do not agree with the lender: ${off.map(r => `${r.facility} (${mn(r.conf)} confirmed vs ${mn(r.bs)} recorded)`).join('; ')}. Net debt uses the confirmed balances.` : `All ${Dt.rows.length} facilities agree with the lender confirmations.` });
+      if (dl.length) b.push({ h: 'Debt-like items' }, { table: { unit: curUnit('thousands'), head: ['Item', 'Amount', 'Treatment'], rows: [...dl.map(x => [x.line, th(x.amount), x.included ? 'Included in net debt' : 'Not included (deal team decision)']), ['Total included', th(Dt.debtLikeTotal), '']], align: ['l', 'r', 'l'], widths: [0.46, 0.18, 0.36], totals: [dl.length], notes: note(dl.map(x => x.src)) } });
+      b.push({ h: 'Net debt' }, { table: { unit: curUnit('thousands'), head: ['', 'Amount'], rows: [['Funded debt, per lender confirmations', th(Dt.fundedDebt)], ['Less: cash', th(-Dt.cash)], ['Net debt', th(Dt.netDebt)], ['Add: debt-like items included', th(Dt.debtLikeTotal)], ['Net debt and debt-like items', th(Dt.netDebt + Dt.debtLikeTotal)]], align: ['l', 'r'], widths: [0.72, 0.28], totals: [2, 4] } },
+        ...(Dt.overlap ? [{ small: `${mn(Dt.overlap)} of the debt-like items is also inside net working capital; the equity value bridge adds it back once so it is not counted twice.` }] : []));
+      const df = area.filter(f => f.category === 'Debt & liabilities' || f.id === 'B03'); if (df.length) b.push({ h: 'Debt findings' }, ...findingBullets(df));
+      addR('Net debt and debt-like items', b);
+    } else if (has('debt')) { const nd = getS('Net debt and debt-like items'); if (nd) addR('Net debt and debt-like items', nd.blocks); else if (kind === 'debt') addR('Net debt and debt-like items', [{ p: 'A debt tie-out needs the balance sheet and lender confirmations. Neither was found in the documents provided.' }]); }
+
+    /* proof of cash and cash flow */
+    if (has('cash')) {
+      const b = [];
+      if (PC) {
+        const rows = PC.rows.map(r => [mo(r.month), th(r.opIn), r.expected == null ? '–' : th(r.expected), r.gapIn == null ? '–' : th(r.gapIn), r.bankClose == null ? '–' : th(r.bankClose), r.bsCash == null ? '–' : th(r.bsCash), r.gapCash == null ? '–' : th(r.gapCash)]);
+        rows.push(['Total', th(PC.tot.opIn), th(PC.tot.expected), th(PC.tot.gap), '', '', '']);
+        b.push({ p: `Over the ${PC.covered} months with both bank statements and books, operating deposits were ${mn(PC.tot.opIn)} against revenue collected of ${mn(PC.tot.expected)}, a difference of ${mn(PC.tot.gap)}${PC.tot.gapPct != null ? ` (${pc(PC.tot.gapPct)})` : ''}.` },
+          { h: 'Proof of cash by month' }, { table: { notes: note([...PC.accounts.map(a => (PC.tx.find(t => t.account === a) || {}).src), ...(L && L.cls ? L.lines.filter(l => L.cls[l] === 'Cash').slice(0, 1).map(l => L.srcAt(l, L.last)) : [])].filter(Boolean)), unit: curUnit('thousands'), head: ['Month', 'Operating deposits', 'Revenue collected', 'Difference', 'Bank balance', 'Book cash', 'Difference'], rows, align: ['l', 'r', 'r', 'r', 'r', 'r', 'r'], widths: [0.13, 0.15, 0.15, 0.13, 0.15, 0.15, 0.14], totals: [rows.length - 1] } },
+          { small: 'Revenue collected is revenue less the increase in receivables. Operating deposits exclude transfers between accounts, loan proceeds, owner contributions and refunds, listed below.' });
+        if (PC.nonOp.length) b.push({ h: 'Non-operating bank activity' }, { table: { unit: curUnit('thousands'), head: ['Date', 'Description', 'Treated as', 'Amount'], rows: PC.nonOp.slice(0, 40).map(t => [t.date, t.desc, t.kind, th(t.amount)]), align: ['l', 'l', 'l', 'r'], widths: [0.14, 0.46, 0.24, 0.16] } });
+      } else if (kind === 'cash') b.push({ p: 'A proof of cash needs bank statements alongside the ledger and monthly balance sheets. No bank statements were found in the documents provided.' });
+      const cf = getS('Cash flow and conversion'); if (cf) b.push({ h: 'Cash flow and conversion' }, ...cf.blocks);
+      const cfF = area.filter(f => /^B0/.test(f.id)); if (cfF.length) b.push({ h: 'Cash findings' }, ...findingBullets(cfF));
+      addR('Proof of cash and cash flow', b);
+    }
+
+    /* projections, valuation and returns */
+    if (kind === 'fdd') { const pr = getS("Management's projections"); if (pr) addR("Management's projections", pr.blocks); }
+    if (kind === 'economics') { ['Transaction and valuation', 'Sources and uses', 'Returns analysis', "Management's projections"].forEach(t => { const s0 = getS(t); if (s0) addR(t, s0.blocks); }); }
+
+    /* an area report with nothing to analyze says what it needs, rather than ending after the summary */
+    if (!['fdd', 'findings', 'questions'].includes(kind) && !RS.some(x => !['Important notice', 'Scope and basis of preparation', 'Executive summary'].includes(x.title))) {
+      const NEED = { qoe: ["Quality of earnings", "A quality of earnings analysis needs a general ledger or management's EBITDA bridge. The documents provided contain neither; any figures they state are summarized above."], revenue: ['Revenue analysis', 'Revenue by customer needs a general ledger with customer names. None was found in the documents provided.'], nwc: ['Net working capital', 'Monthly net working capital needs month-end balance sheets. None were found in the documents provided.'], debt: ['Net debt and debt-like items', 'A debt tie-out needs the balance sheet and lender confirmations. Neither was found in the documents provided.'], cash: ['Proof of cash and cash flow', 'A proof of cash needs bank statements alongside the ledger and monthly balance sheets. None were found in the documents provided.'], economics: ['Valuation and returns', 'Valuation and returns need an EBITDA figure from the documents and the deal team\u2019s assumptions. Neither is available yet.'] }[kind];
+      if (NEED) RS.push({ title: NEED[0], blocks: [{ p: NEED[1] }] });
+    }
+
+    /* findings register */
+    if (kind === 'fdd' || kind === 'findings') {
+      const rows = R.issues.map((x, i) => { const f = x.finding; const v = impactVal(f); return [String(i + 1), f.category, f.title, f.severity, v ? th(Math.abs(v)) : '–', `${who(x.owner)}; ${x.status}`]; });
+      const blocks = [{ table: { unit: 'Value at stake in $ thousands', head: ['#', 'Area', 'Finding', 'Severity', 'Value', 'Owner; status'], rows, align: ['l', 'l', 'l', 'l', 'r', 'l'], widths: [0.05, 0.18, 0.33, 0.11, 0.12, 0.21], sev: 3 } },
+        { h: 'Findings in detail' }, { bullets: R.issues.map(x => ({ t: `${x.finding.title} (${x.finding.severity}). ${x.finding.text} Next step: ${NEXT_STEP[x.finding.id] || 'Confirm with the seller.'}`, notes: fcite(x.finding) })), numbered: true }];
+      if (kind === 'findings') { addR('Risk scores', [{ table: { head: ['Area', 'Weight', 'Findings', 'Score'], rows: [...R.risk.map(r => [r.cat, Math.round(r.weight * 100) + '%', `${r.findings.length} of ${r.tested}`, String(r.score)]), ['Pre-LOI confidence score', '', '', String(R.confidence)]], align: ['l', 'r', 'r', 'r'], widths: [0.46, 0.16, 0.2, 0.18], totals: [R.risk.length] } }]); addR('Findings register', blocks); }
+      else addRA('Findings register', blocks);
+    }
+
+    /* information requests */
+    { const qs = R.questions || []; const reqs = (R.actions || []).filter(a => a.type === 'Send request'); const sq = (m.rv && m.rv.sq) || [];
+      const blocks = [];
+      if (sq.length) blocks.push({ h: 'Seller question list' }, { table: { head: ['#', 'Question', 'Owner', 'Status', 'Due', 'Response'], rows: sq.map((q, i) => ['Q' + (i + 1), q.text + (q.from ? ` (from ${q.from})` : ''), who(q.owner), q.status || 'Draft', q.due || '', q.answer || '']), align: ['l', 'l', 'l', 'l', 'l', 'l'], widths: [0.06, 0.38, 0.13, 0.1, 0.11, 0.22] } });
+      if (reqs.length) blocks.push({ h: 'Document requests' }, { table: { head: ['#', 'Request', 'Purpose'], rows: reqs.map((a, i) => ['R' + (i + 1), a.text, a.why || '']), align: ['l', 'l', 'l'], widths: [0.06, 0.6, 0.34] } });
+      if (qs.length) blocks.push({ h: "The deal team's diligence questions" }, { table: { head: ['#', 'Question', 'Status', 'Answer in the file'], rows: qs.map((q, i) => [String(i + 1), q.text, q.status === 'Cannot answer' ? 'Open' : q.status === 'Answered: concerns' ? 'Answered, concerns' : q.status, (q.status === 'Cannot answer' ? q.why : q.answer) || '']), align: ['l', 'l', 'l', 'l'], widths: [0.05, 0.38, 0.15, 0.42] } });
+      if (kind === 'questions') addR('Information requests', blocks.length ? blocks : [{ p: 'The analysis raised no open questions or document requests.' }]);
+      else if (kind === 'fdd' && blocks.length) addRA('Information requests', blocks); }
+
+    /* sources */
+    addRA('Sources and notes', [{ table: { head: ['ID', 'Document', 'Type'], rows: docsUsed.map(d => [d.id, d.name, d.type.toUpperCase()]), align: ['l', 'l', 'l'], widths: [0.08, 0.76, 0.16] } },
+      { h: 'Notes' }, { notesList: true }, { small: `Bracketed numbers refer to these notes. Line, row and cell references for every figure are in the DealBasis record, run ${R.fingerprint}. No statistical or generative model was used.` }]);
+
+    /* number the notes in reading order */
+    const map = {}; const order = []; const seenArr = new Set();
+    const visit = arr => (arr || []).forEach(n => { if (!map[n]) { order.push(n); map[n] = order.length; } });
+    const each = (bs, fnc) => bs.forEach(b => { if (b.notes) fnc(b.notes); if (b.bullets) b.bullets.forEach(x => fnc(x.notes)); if (b.kv) b.kv.forEach(r => fnc(r[2])); if (b.table) fnc(b.table.notes); });
+    RS.forEach(x => each(x.blocks, visit)); RA.forEach(x => each(x.blocks, visit));
+    const remap = arr => { if (!arr || seenArr.has(arr)) return; seenArr.add(arr); arr.splice(0, arr.length, ...arr.map(n => map[n]).filter(Boolean)); };
+    RS.forEach(x => each(x.blocks, remap)); RA.forEach(x => each(x.blocks, remap));
+    const ordered = order.map((old, i) => ({ n: i + 1, label: notes[old - 1].label })); notes.length = 0; notes.push(...ordered);
+    const highs = area.filter(f => f.severity === 'High').length;
+    const sumLine = { qoe: ok(R.diligence) ? `Diligence-adjusted EBITDA of ${mn(R.diligence)}${ok(R.management) ? `, ${mn(Math.abs(R.management - R.diligence))} ${R.diligence < R.management ? 'below' : 'above'} management's ${mn(R.management)}` : ''}` : 'Quality of earnings',
+      nwc: N ? `Indicative peg of ${mn(N.peg)}` : 'Net working capital', debt: Dt ? `Net debt of ${mn(Dt.netDebt)}` : 'Net debt', cash: PC ? `Deposits ${PC.tot.gap === 0 ? 'agree with' : 'differ from'} revenue collected${PC.tot.gap ? ` by ${mn(Math.abs(PC.tot.gap))}` : ''}` : 'Cash flow',
+      revenue: L && L.customers && L.customers.list[0] ? `Largest customer ${pc(L.customers.list[0].share)} of revenue` : 'Revenue quality', economics: R.val && ok(R.val.ev) ? `Enterprise value of ${mn(R.val.ev)} at ${xm(mult)}` : 'Valuation and returns',
+      findings: `${R.fired.length} findings, ${R.highs.length} high severity`, questions: `${((m.rv && m.rv.sq) || []).filter(q => q.status !== 'Closed' && q.status !== 'Answered').length + (R.questions || []).filter(q => q.status === 'Cannot answer').length} open questions, ${(R.actions || []).filter(a => a.type === 'Send request').length} document requests`, fdd: ok(R.diligence) ? `Diligence-adjusted EBITDA of ${mn(R.diligence)}` : 'Financial due diligence' }[kind];
+    const team = ['analyst', 'manager', 'partner'].map(r => m.owners[r]).filter(Boolean).join(', ');
+    return {
+      meta: { kind: 'report', report: kind, draft: highs ? 'Draft for discussion' : '', title: TITLES[kind] || 'Financial Due Diligence Report', project: m.name, target: m.target || '', date: longDate, period: R.periodLabel, fingerprint: R.fingerprint, classification: 'Strictly confidential',
+        cover: [['Prepared for', team ? `${m.name} deal team (${team})` : `${m.name} deal team`], ['Prepared with', 'DealBasis, from the documents listed in the scope section'], ['Date', longDate], ['Basis period', R.periodLabel || '–'], ['Status', highs ? `Draft: ${highs} high-severity finding${highs === 1 ? '' : 's'} open` : 'No high-severity findings open']],
+        description: `${TITLES[kind]} generated from the DealBasis record` },
+      rec: { label: 'Summary', headline: sumLine, ask: area.length ? `${area.length} finding${area.length === 1 ? '' : 's'} in scope, ${highs} high severity. Every figure is cited to its source document.` : 'Every figure is cited to its source document.', score: null, verdict: '', conditions: [] },
+      sections: RS, appendices: RA, notes
+    };
+  }
 
   /* ---------- the standard investment committee memo ----------
      Executive summary, company, industry, financial analysis, thesis, deal terms, returns
@@ -4624,8 +4846,8 @@ function memoDocx(M, X) {
     return [];
   });
   // cover page
-  const memoRows = [['To', M.meta.to], ['From', M.meta.from], ['Date', M.meta.date], ['Re', M.meta.re], ['Stage', M.meta.stage]];
-  const cws = [1500, TW - 1500];
+  const memoRows = M.meta.cover || [['To', M.meta.to], ['From', M.meta.from], ['Date', M.meta.date], ['Re', M.meta.re], ['Stage', M.meta.stage]];
+  const cws = M.meta.cover ? [1900, TW - 1900] : [1500, TW - 1500];
   const cover = [
     new X.Paragraph({ spacing: { after: 360 }, border: { top: { style: X.BorderStyle.SINGLE, size: 36, color: INK, space: 12 } }, children: [run(M.meta.classification.toUpperCase() + (M.meta.draft ? '   ·   ' + M.meta.draft.toUpperCase() : ''), { size: 16, bold: true, color: RED, characterSpacing: 40 })] }),
     new X.Paragraph({ spacing: { after: 80 }, children: [run(M.meta.title, { size: 48, bold: true })] }),
@@ -4636,7 +4858,7 @@ function memoDocx(M, X) {
     P([], { spacing: { after: 360 } }),
     new X.Table({ width: { size: TW, type: X.WidthType.DXA }, columnWidths: [TW], rows: [new X.TableRow({ children: [new X.TableCell({ width: { size: TW, type: X.WidthType.DXA }, shading: { fill: SOFT, type: X.ShadingType.CLEAR, color: 'auto' }, margins: { top: 200, bottom: 200, left: 280, right: 280 },
       borders: { left: { style: X.BorderStyle.SINGLE, size: 36, color: BRAND }, top: NONE, right: NONE, bottom: NONE },
-      children: [P([run('RECOMMENDATION', { size: 15, bold: true, color: BRAND, characterSpacing: 30 })], { spacing: { after: 60 } }), P([run(M.rec.headline, { size: 30, bold: true })], { spacing: { after: 60 } }),
+      children: [P([run((M.rec.label || 'Recommendation').toUpperCase(), { size: 15, bold: true, color: BRAND, characterSpacing: 30 })], { spacing: { after: 60 } }), P([run(M.rec.headline, { size: 30, bold: true })], { spacing: { after: 60 } }),
         ...(M.rec.score != null ? [P([run(`Pre-LOI confidence score ${M.rec.score} / 100  ·  ${M.rec.verdict}`, { size: 17, color: GREY, bold: true })], { spacing: { after: 100 } })] : []), ...(M.rec.short ? [] : [P([run(M.rec.ask, { size: 19 })], { spacing: { after: 0 } })])] })] })] }),
     ...(M.meta.length === 'screening' ? [] : [P([], { spacing: { after: 360 } }),
     P([run('CONTENTS', { size: 15, bold: true, color: GREY, characterSpacing: 30 })], { spacing: { after: 80 } }),
@@ -4649,10 +4871,10 @@ function memoDocx(M, X) {
   ];
   const header = new X.Header({ children: [new X.Paragraph({ border: { bottom: { style: X.BorderStyle.SINGLE, size: 6, color: BRAND, space: 4 } }, tabStops: [{ type: X.TabStopType.RIGHT, position: TW }],
     children: [run(`${M.meta.draft ? 'DRAFT  ·  ' : ''}${M.meta.project}  ·  ${M.meta.title}`, { size: 15, color: GREY }), run(`\t${M.meta.classification.toUpperCase()}`, { size: 15, color: RED, bold: true })] })] });
-  const footer = new X.Footer({ children: [new X.Paragraph({ tabStops: [{ type: X.TabStopType.RIGHT, position: TW }], children: [run(`Prepared from the DealBasis record, run ${M.meta.fingerprint}`, { size: 14, color: GREY }), new X.TextRun({ children: ['\tPage ', X.PageNumber.CURRENT, ' of ', X.PageNumber.TOTAL_PAGES], size: 14, color: GREY, font: FONT })] })] });
+  const footer = new X.Footer({ children: [new X.Paragraph({ tabStops: [{ type: X.TabStopType.RIGHT, position: TW }], children: [run(`Prepared from the DealBasis record, run ${M.meta.fingerprint} \u00b7 Diligence analysis, not an audit or attestation`, { size: 14, color: GREY }), new X.TextRun({ children: ['\tPage ', X.PageNumber.CURRENT, ' of ', X.PageNumber.TOTAL_PAGES], size: 14, color: GREY, font: FONT })] })] });
   const page = { size: { width: 12240, height: 15840 }, margin: { top: 1300, bottom: 1200, left: 1440, right: 1440, header: 600, footer: 600 } };
   return new X.Document({
-    creator: 'DealBasis', title: `${M.meta.project}: ${M.meta.title}`, description: 'Investment committee memorandum generated from the DealBasis record',
+    creator: 'DealBasis', title: `${M.meta.project}: ${M.meta.title}`, description: M.meta.description || 'Investment committee memorandum generated from the DealBasis record',
     styles: { default: { document: { run: { font: FONT, size: 20 } } } },
     numbering: { config: [{ reference: 'num', levels: [{ level: 0, format: X.LevelFormat.DECIMAL, text: '%1.', alignment: X.AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 360 } } } }] }] },
     sections: M.meta.length === 'screening' ? [{ properties: { page }, footers: { default: footer }, children: [...cover, P([], { spacing: { after: 240 } }), ...body] }] : [{ properties: { page }, children: cover }, { properties: { page }, headers: { default: header }, footers: { default: footer }, children: body }]
@@ -4732,14 +4954,14 @@ function memoPdf(M, jsPDF) {
   font('bold', 26, INK); doc.text(clean(M.meta.title), ML, 146);
   font('normal', 14, [68, 68, 68]); doc.text(doc.splitTextToSize(clean(`${M.meta.project}: ${M.meta.target}`), CW), ML, 172);
   y = 240;
-  [['To', M.meta.to], ['From', M.meta.from], ['Date', M.meta.date], ['Re', M.meta.re], ['Stage', M.meta.stage]].forEach(([k, v]) => {
-    font('bold', 9.5, GREY); doc.text(k, ML, y + 9.5); font('normal', 9.5); const ls = doc.splitTextToSize(clean(v), CW - 80); doc.text(ls, ML + 80, y + 9.5); y += Math.max(1, ls.length) * 13 + 6; doc.setDrawColor(...RULE); doc.setLineWidth(0.5); doc.line(ML, y - 2, ML + CW, y - 2); y += 4;
+  (M.meta.cover || [['To', M.meta.to], ['From', M.meta.from], ['Date', M.meta.date], ['Re', M.meta.re], ['Stage', M.meta.stage]]).forEach(([k, v]) => {
+    const kw = M.meta.cover ? 96 : 80; font('bold', 9.5, GREY); doc.text(k, ML, y + 9.5); font('normal', 9.5); const ls = doc.splitTextToSize(clean(v), CW - kw); doc.text(ls, ML + kw, y + 9.5); y += Math.max(1, ls.length) * 13 + 6; doc.setDrawColor(...RULE); doc.setLineWidth(0.5); doc.line(ML, y - 2, ML + CW, y - 2); y += 4;
   });
   y += 18;
-  { font('normal', 10); const ask = M.rec.short ? [] : doc.splitTextToSize(clean(M.rec.ask), CW - 40); const head = doc.splitTextToSize(clean(M.rec.headline), CW - 40);
+  { font('normal', 10); const ask = M.rec.short ? [] : doc.splitTextToSize(clean(M.rec.ask), CW - 40); font('bold', 16); const head = doc.splitTextToSize(clean(M.rec.headline), CW - 40); font('normal', 10);
     const h = 30 + head.length * 20 + (M.rec.score != null ? 18 : 0) + ask.length * 14 + 16;
     doc.setFillColor(247, 245, 245); doc.rect(ML, y, CW, h, 'F'); doc.setFillColor(...BRAND); doc.rect(ML, y, 4, h, 'F');
-    let yy = y + 22; font('bold', 8, RED); doc.text('RECOMMENDATION', ML + 20, yy, { charSpace: 1 }); yy += 18;
+    let yy = y + 22; font('bold', 8, RED); doc.text((M.rec.label || 'Recommendation').toUpperCase(), ML + 20, yy, { charSpace: 1 }); yy += 18;
     font('bold', 16); doc.text(head, ML + 20, yy); yy += head.length * 20 - 4;
     if (M.rec.score != null) { font('bold', 9, GREY); doc.text(clean(`Pre-LOI confidence score ${M.rec.score} / 100  ·  ${M.rec.verdict}`), ML + 20, yy); yy += 18; }
     font('normal', 10); if (ask.length) doc.text(ask, ML + 20, yy); y += h + 30; }
@@ -4757,11 +4979,11 @@ function memoPdf(M, jsPDF) {
   const n = doc.getNumberOfPages();
   for (let i = M.meta.length === 'screening' ? 1 : 2; i <= n; i++) {
     doc.setPage(i);
-    if (M.meta.length === 'screening' && i === 1) { font('normal', 7, GREY); doc.text(clean(`Prepared from the DealBasis record, run ${M.meta.fingerprint}`), ML, H - 32); doc.text(`Page 1 of ${n}`, W - MR, H - 32, { align: 'right' }); continue; }
+    if (M.meta.length === 'screening' && i === 1) { font('normal', 7, GREY); doc.text(clean(`Prepared from the DealBasis record, run ${M.meta.fingerprint} \u00b7 Diligence analysis, not an audit or attestation`), ML, H - 32); doc.text(`Page 1 of ${n}`, W - MR, H - 32, { align: 'right' }); continue; }
     font('normal', 7.5, GREY); doc.text(clean(`${M.meta.draft ? 'DRAFT  ·  ' : ''}${M.meta.project}  ·  ${M.meta.title}`), ML, 42);
     font('bold', 7.5, RED); doc.text(clean(M.meta.classification.toUpperCase()), W - MR, 42, { align: 'right', charSpace: 0.6 });
     doc.setDrawColor(...BRAND); doc.setLineWidth(0.8); doc.line(ML, 50, W - MR, 50);
-    font('normal', 7, GREY); doc.text(clean(`Prepared from the DealBasis record, run ${M.meta.fingerprint}`), ML, H - 32); doc.text(M.meta.length === 'screening' ? `Page ${i} of ${n}` : `Page ${i - 1} of ${n - 1}`, W - MR, H - 32, { align: 'right' });
+    font('normal', 7, GREY); doc.text(clean(`Prepared from the DealBasis record, run ${M.meta.fingerprint} \u00b7 Diligence analysis, not an audit or attestation`), ML, H - 32); doc.text(M.meta.length === 'screening' ? `Page ${i} of ${n}` : `Page ${i - 1} of ${n - 1}`, W - MR, H - 32, { align: 'right' });
   }
   return doc;
 }
@@ -5141,7 +5363,7 @@ function deckModel(R, m, opts) {
   ], '', '');
   S('Appendix', 'Source documents', [
     tbl(X0, BODY, W, ['ID', 'Document', 'Type', 'Content hash'], (m.docs || R.docs || []).filter(d => d.type).slice(0, 14).map(d => [d.id, d.name, d.type.toUpperCase(), d.hash]), { size: 9, colW: [0.07, 0.63, 0.12, 0.18], align: ['l', 'l', 'l', 'l'] }),
-    txt(X0, 4.7, W, 0.3, `DealBasis record run ${R.fingerprint}. Every figure in this pack traces to a page and line, cell, row, paragraph or XBRL tag in these documents.`, { size: 8.5, italic: true, color: C.grey })
+    txt(X0, 4.7, W, 0.3, `DealBasis record run ${R.fingerprint}. Every figure in this pack traces to a page and line, cell, row, paragraph or XBRL tag in these documents. Diligence analysis, not an audit, attestation or accounting firm\u2019s quality of earnings report.`, { size: 8.5, italic: true, color: C.grey })
   ], '', '');
 
   /* the standard committee order, mirroring the memo */
@@ -5431,7 +5653,7 @@ function workbookModel(R, m) {
   if (R.cash) { row('Cash conversion (EBITDA − capex − ΔNWC) / EBITDA', R.cash.conversion, 'pct', null, R.cash.period || ''); row('Capital expenditure', R.cash.capex, 'usd', null, R.cash.period || ''); }
   if (R.saas) { const S2 = R.saas; [['arr', 'ARR', 'usd'], ['nrr', 'Net revenue retention', 'pct'], ['grr', 'Gross revenue retention', 'pct'], ['churn', 'Annual churn', 'pct'], ['ruleOf40', 'Rule of 40', 'pct'], ['cacPayback', 'CAC payback (months)', 'n'], ['ltvCac', 'LTV / CAC', 'x']].forEach(([k, l, kind]) => { if (S2[k]) row(l, S2[k].value, kind, S2[k].src, S2[k].note || ''); }); }
   sum.push(['Pre-LOI confidence (0–100)', R.confidence, 'n', `Verdict: ${R.verdict}`]);
-  add('Summary', ['Figure', 'Value', 'Source'], sum.map(r => [r[0], { v: r[1], k: r[2] }, r[3]]), { widths: [46, 18, 70], title: `${m.name || 'Deal'}${m.target ? ' · ' + m.target : ''}`, sub: `Exported ${new Date().toISOString().slice(0, 10)} · run ${R.fingerprint} · all amounts in ${(R.currency && R.currency.code) || 'USD'}` });
+  add('Summary', ['Figure', 'Value', 'Source'], sum.map(r => [r[0], { v: r[1], k: r[2] }, r[3]]), { widths: [46, 18, 70], title: `${m.name || 'Deal'}${m.target ? ' · ' + m.target : ''}`, sub: `Exported ${new Date().toISOString().slice(0, 10)} · run ${R.fingerprint} · all amounts in ${(R.currency && R.currency.code) || 'USD'} · diligence analysis, not an audit or attestation` });
 
   /* Income statement */
   if (L && L.ttm) {
@@ -5545,7 +5767,7 @@ const cache = { sample: sampleMandate() };
 const SHOWCASE = /[?&]demo=1\b/.test(location.search);
 const SHOWCASE_VIEWS = ['qoe', 'nwc', 'debt', 'cash', 'economics', 'risk', 'issues', 'seller', 'readout'];
 const showcaseOk = v => !SHOWCASE || SHOWCASE_VIEWS.includes(v);
-const SHOWCASE_SAFE = ['nav', 'ci', 'close', 'dmode', 'goto', 'present', 'pv', 'deck', 'memo', 'xlsx', 'export', 'open', 'ifilter'];
+const SHOWCASE_SAFE = ['report', 'nav', 'ci', 'close', 'dmode', 'goto', 'present', 'pv', 'deck', 'memo', 'xlsx', 'export', 'open', 'ifilter'];
 const showcaseSafe = el => SHOWCASE_SAFE.some(k => el.dataset && el.dataset[k] !== undefined) && (!el.dataset.nav || showcaseOk(el.dataset.nav));
 let curId = 'sample', dealIndex = [], R = null, view = 'deals', actingAs = 'partner', drawer = null, confirmKey = null;
 const store = { db: null, assets: null, user: null, mode: 'connecting', note: '', lastSaved: null, saving: 0, usage: null, loaded: false };
@@ -5596,8 +5818,14 @@ function cites(list, max = 4) {
   return `<span class="cites">${u.slice(0, max).map(cite).join('')}${u.length > max ? `<span class="muted mono" style="font-size:11px">+${u.length - max}</span>` : ''}</span>`;
 }
 const kpi = (lab, val, note, lead) => `<div class="kpi${lead ? ' lead' : ''}"><span class="lab">${lab}</span><span class="val">${val}</span><span class="note">${note || ''}</span></div>`;
+/* each analysis page offers its report, laid out the way diligence reports are, as Word or PDF */
+const REPORTS = { qoe: 'Quality of Earnings Report', revenue: 'Revenue Quality Report', nwc: 'Net Working Capital Report', debt: 'Net Debt and Debt Tie-Out Report', cash: 'Proof of Cash and Cash Flow Report', economics: 'Valuation and Returns Report', findings: 'Risk and Findings Report', questions: 'Diligence Information Request List', fdd: 'Financial Due Diligence Report' };
+const PAGE_REPORTS = { 'QoE & Revenue Quality': ['qoe', 'revenue'], 'Working Capital': ['nwc'], 'Debt Tie-outs': ['debt'], 'Cash Flow Review': ['cash'], 'Deal Economics': ['economics'], 'Risk Scoring': ['findings'], 'Issues': ['findings'], 'Seller Questions': ['questions'] };
+const reportBtns = k => `<span class="rpt"><b>${REPORTS[k]}</b><button class="btn sm ghost" data-report="${k}:docx">Word</button><button class="btn sm ghost" data-report="${k}:pdf">PDF</button></span>`;
+const reportBar = title => { const ks = PAGE_REPORTS[title]; if (!ks || !hasData()) return '';
+  return `<div class="rptbar"><span class="muted">Download report</span>${ks.map(reportBtns).join('')}</div>${msgs.report && ks.includes(msgs.report.kind) ? `<div class="msg ${msgs.report.err ? 'err' : 'ok'}" role="status">${esc(msgs.report.text)}</div>` : ''}`; };
 const head = (eyebrow, title, extra) => `<header class="vh"><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>
-  <div class="sub"><span>${esc(MD().target || 'No target set')}</span>${R.periodLabel ? `<span>${esc(R.periodLabel)}</span>` : ''}<span class="mono">Run ${R.fingerprint}</span>${extra || ''}</div></header>`;
+  <div class="sub"><span>${esc(MD().target || 'No target set')}</span>${R.periodLabel ? `<span>${esc(R.periodLabel)}</span>` : ''}<span class="mono">Run ${R.fingerprint}</span>${extra || ''}</div>${reportBar(title)}</header>`;
 const evTable = rows => `<div class="tbl"><table><thead><tr><th>Source</th><th>Date</th><th>Description</th><th>Counterparty</th><th class="n">Amount</th></tr></thead><tbody>
   ${rows.slice(0, 200).map(r => `<tr><td>${cite(r.src) || `<span class="mono muted">${esc(r.id)}</span>`}</td><td class="mono">${r.date}</td><td>${esc(r.desc)}</td><td>${esc(r.cp)}</td><td class="n${nc(r.amount)}">${$(r.amount)}</td></tr>`).join('')}
   </tbody></table></div>`;
@@ -5903,7 +6131,7 @@ function bridgeHTML(items, start, end, startLabel, endLabel, note) {
 const statusChip = s => s === 'Approved' ? '<span class="chip ok">Approved</span>' : s === 'Rejected' ? '<span class="chip bad">Rejected</span>' : s === 'Overridden' ? '<span class="chip warn">Overridden</span>' : '<span class="chip dim">Proposed</span>';
 function vQoE() {
   if (!hasData()) return `${head('Financial Diligence', 'QoE & Revenue Quality')}${emptyState('No earnings data yet')}`;
-  const L = R.L, M = R.M, m = MD(); let html = `${head('Financial Diligence', 'QoE & Revenue Quality')}`;
+  const L = R.L, M = R.M, m = MD(); let html = `${head('Financial Diligence', 'QoE & Revenue Quality')}<p class="muted" style="font-size:12.5px;margin:-6px 0 14px">A quality of earnings analysis built from the documents provided, by fixed rules. It is not an audit or attestation, and not a quality of earnings report issued by an independent accounting firm.</p>`;
   html += `<section class="kpis">${kpi('Reported EBITDA', K(R.reported), esc(R.periodLabel))}${M && M.stated != null ? kpi('Management Adj. EBITDA', K(M.stated), cites([M.statedSrc], 1)) : ''}${kpi('Diligence Adj. EBITDA', K(R.diligence), R.revenue && R.diligence != null ? pc(R.diligence / R.revenue) + ' margin' : R.diligence == null ? 'Not stated in the documents' : '', true)}${M && M.stated != null ? kpi('Gap to management', K(R.diligence - M.stated), `${K((R.diligence - M.stated) * R.val.mult)} at ${R.val.mult}x`) : ''}</section>`;
   if (R.saas) { const S2 = R.saas; const NM = { arr: 'ARR', mrr: 'MRR', nrr: 'Net revenue retention', grr: 'Gross revenue retention', churn: 'Annual churn', customers: 'Customers', cacPayback: 'CAC payback (months)', ltvCac: 'LTV / CAC', ruleOf40: 'Rule of 40' };
     const fmtS = (k, o) => ['nrr', 'grr', 'churn', 'ruleOf40'].includes(k) ? pc(o.value) : ['arr', 'mrr'].includes(k) ? $(o.value) : k === 'ltvCac' ? o.value.toFixed(1) + 'x' : String(Math.round(o.value * 10) / 10);
@@ -6239,6 +6467,11 @@ function vReadout() {
   const D = readoutData();
   return `${head('Deal Intelligence', 'Committee Readout')}
   <p class="lede">Built from the live record. Partners read the same evidence chain the analysts used; nothing is retyped.</p>
+  <section class="sec"><div class="sechead"><h2>Financial due diligence report</h2><span class="aside">Word or PDF, every figure footnoted</span></div>
+    <p class="lede" style="font-size:13px">The full report in the layout diligence providers use: important notice, scope and basis of preparation, executive summary, quality of earnings with each adjustment numbered and explained, historical performance, revenue, net working capital by month, the debt tie-out and net debt, proof of cash and cash flow, then the findings register, information requests and sources.</p>
+    <div class="row"><button class="btn red" data-report="fdd:docx">Download Word</button><button class="btn ghost" data-report="fdd:pdf">Download PDF</button></div>
+    <div class="rptbar" style="margin-top:12px"><span class="muted">Or one area</span>${['qoe', 'revenue', 'nwc', 'debt', 'cash', 'economics', 'findings', 'questions'].map(reportBtns).join('')}</div>
+    ${msgs.report ? `<div class="msg ${msgs.report.err ? 'err' : 'ok'}" role="status">${esc(msgs.report.text)}</div>` : ''}</section>
   ${(() => { const DK = getDeck(); return `<section class="sec"><div class="sechead"><h2>Investment committee presentation</h2><span class="aside">${DK.slides.length} slides with speaker notes</span></div>
     <p class="lede" style="font-size:13px">The deck you present: action titles, native PowerPoint charts you can edit, a source line on every slide and talking points in the speaker notes. Present opens it full screen here; arrow keys move between slides and N shows your notes.</p>
     <div class="row"><button class="btn red" data-present="0">Present</button><button class="btn ghost" data-deck="pptx">Download PowerPoint</button><button class="btn ghost" data-deck="pdf">Download PDF</button></div>
@@ -6535,6 +6768,7 @@ function vHelp() {
   <section class="sec"><div class="sechead"><h2>Questions</h2></div>
     ${qa('Do documents need a set format?', 'No. Exports from QuickBooks, Xero, Sage, NetSuite and spreadsheets are read as they come: any column names, Debit and Credit or one Amount column, accounts with or without numbers, and ledgers grouped under each account. Lines are recognized under the names accounting systems, tax returns and CIMs use (Total Income, Turnover, Gross receipts, Net Operating Income, Normalised EBITDA, Accts. rec.), periods under any heading (FY25, YE Dec-25, Jan - Dec 2025, 31 December 2025), tables with the years across the top or down the side, statements by month (added up into full years and LTM), and figures written in sentences or on the line below their name. The Sources page shows what was read from each file, and nothing is guessed: a figure that can\u2019t be placed is left out.')}
     ${qa('Does DealBasis use AI?', 'No. Documents are parsed and analysed by fixed rules in your browser. The same documents always give the same result, and the run fingerprint shows it.')}
+    ${qa('What reports can I download?', 'Each analysis page has its report, as Word or PDF, laid out the way diligence reports are: an important notice, scope and basis of preparation, an executive summary, then the schedules. Quality of Earnings (net income to EBITDA, adjusted EBITDA with each adjustment numbered and explained, and the reconciliation to management\u2019s figure), Revenue Quality, Net Working Capital (monthly schedule and peg), Net Debt and Debt Tie-Out, Proof of Cash and Cash Flow, Valuation and Returns, Risk and Findings, and the Information Request List. Committee Readout has the full Financial Due Diligence Report with all of them. Every figure is footnoted to its source.')}
     ${qa('Can I take the figures into Excel?', 'Committee Readout has Download Excel: a workbook with the summary and equity bridge, income statement, EBITDA bridge, balance sheet, working capital on every definition, debt and cash, findings, questions and data checks. Every number is a number, and every row names its source.')}
     ${qa('Can I check where a figure came from?', 'Click any citation. The source opens at the page, cell, row, paragraph or XBRL tag, with the figure highlighted.')}
     ${qa('Why can’t I approve something?', 'Approvals follow your role: managers approve adjustments, partners approve escalations. Your role is shown at the bottom of the menu and set by a workspace admin in Team & Access.')}
@@ -6559,14 +6793,13 @@ window.dbSendHelp = async function (e) {
   return false;
 };
 function legalHTML(which) {
-  const terms = `<h2>Terms of use</h2>
-    <p>DealBasis is a tool that organizes and analyses documents you upload. Its outputs are analysis to support your own diligence. They are not investment, legal, tax or accounting advice, and not a substitute for a quality of earnings report or for professional advisers.</p>
-    <p>You are responsible for having the right to upload the documents you add, for the decisions you make, and for keeping access to this page limited to people entitled to see the deals in it.</p>
-    <p>DealBasis reads documents by fixed rules. It flags figures it cannot reconcile, but a document that is wrong, incomplete or misleading at its source will produce analysis that reflects it.</p>`;
+  const terms = `<h2>Terms of Service</h2>
+    <p><b>What DealBasis is, and isn\u2019t.</b> DealBasis produces a quality of earnings analysis and other diligence analysis from the documents you upload, using fixed rules. It is not an audit, review or other attestation, and not a quality of earnings report issued by an independent accounting firm. It is not investment, legal, tax or accounting advice.</p>
+    <p>The analysis is only as complete as the documents provided, and figures that can\u2019t be read or placed are left out, so the absence of an issue doesn\u2019t mean none exists. Outputs are drafts for your review; you are responsible for checking them and for your decisions.</p>
+    <p>You keep all rights to your documents and outputs, and confirm you have the right to upload them. <a href="/terms" target="_blank" rel="noopener">Read the full Terms of Service</a>.</p>`;
   const privacy = `<h2>Privacy</h2>
-    <p>DealBasis signs you in with your Claude account and uses an opaque account id and your name only to show who you are and who did what.</p>
-    <p>Files are read in your browser. Parsed documents, originals and deal records are stored in this page's private database and storage, which only people the page is shared with can open. No AI model reads your documents.</p>
-    <p>Deleting a deal deletes its records and stored files. Removing someone in Claude's Share menu ends their access.</p>`;
+    <p>Documents are read by fixed rules in your browser. Your firm\u2019s documents, deals and activity log are stored in its own private workspace, separated from every other firm by database rules, with encryption in transit and at rest. No AI model reads your documents, and they are never sold, shared with other customers or used to train models.</p>
+    <p>Admins decide who can join the workspace and with what role, can require two-factor sign-in, and can export or permanently delete the workspace from the Admin page. <a href="/privacy" target="_blank" rel="noopener">Read the full Privacy Policy</a>.</p>`;
   return `<div class="legal">${which === 'privacy' ? privacy : which === 'terms' ? terms : terms + privacy}</div>`;
 }
 function vLegal() { return `<header class="vh"><div class="eyebrow">Support</div><h1>Terms and Privacy</h1></header><section class="sec">${legalHTML('both')}</section>`; }
@@ -6788,7 +7021,7 @@ async function copyText(text, btn) {
 }
 document.addEventListener('click', e => {
   if (SHOWCASE) { const b = e.target.closest('button, [data-nav]'); if (b && b.closest('#view, #rail, #drawerhost, #present, .app') && !showcaseSafe(b) && !b.closest('.drawer .x, [data-close]')) { e.preventDefault(); return; } }
-  const t = e.target.closest('[data-addsq],[data-copysq],[data-delsq],[data-asksq],[data-revert],[data-xlsx],[data-auth],[data-signout],[data-rolego],[data-nav],[data-ci],[data-dmode],[data-close],[data-goto],[data-open],[data-rmdoc],[data-act],[data-adj],[data-export],[data-ifilter],[data-addq],[data-delq],[data-icreset],[data-asrole],[data-unfix],[data-oflag],[data-screen],[data-unset],[data-deal],[data-newdeal],[data-savesample],[data-arch],[data-deldeal],[data-dbcopy],[data-cancel],[data-memo],[data-present],[data-deck],[data-pv]'); if (!t) return;
+  const t = e.target.closest('[data-addsq],[data-copysq],[data-delsq],[data-asksq],[data-revert],[data-xlsx],[data-auth],[data-signout],[data-rolego],[data-nav],[data-ci],[data-dmode],[data-close],[data-goto],[data-open],[data-rmdoc],[data-act],[data-adj],[data-export],[data-ifilter],[data-addq],[data-delq],[data-icreset],[data-asrole],[data-unfix],[data-oflag],[data-screen],[data-unset],[data-deal],[data-newdeal],[data-savesample],[data-arch],[data-deldeal],[data-dbcopy],[data-cancel],[data-memo],[data-present],[data-deck],[data-pv],[data-report]'); if (!t) return;
   const m = MD();
   if (t.dataset.nav) return setView(t.dataset.nav);
   if (t.dataset.ci) return openDrawer(CITES[+t.dataset.ci]);
@@ -6808,6 +7041,7 @@ document.addEventListener('click', e => {
   if (t.dataset.deldeal) { const key = 'del:' + t.dataset.deldeal; if (confirmKey !== key) { confirmKey = key; return render(); } confirmKey = null; return deleteDeal(t.dataset.deldeal); }
   if (t.dataset.dbcopy) return copyText(dealsCSV(), t);
   if (t.dataset.memo) return downloadMemo(t.dataset.memo, t);
+  if (t.dataset.report) { const [rk, rf] = t.dataset.report.split(':'); return downloadReport(rk, rf, t); }
   if (t.dataset.xlsx) return downloadXlsx(t);
   if (t.dataset.addsq) { const el = document.getElementById('newsq'); if (el && el.value.trim()) { addSellerQ(el.value.trim()); } return; }
   if (t.dataset.asksq) { const m = MD(); const f = R.findings.find(x => x.id === t.dataset.asksq); if (!f || sellerQs(m).some(q => q.from === f.id)) return setView('seller'); addSellerQ(sellerQuestionFor(f), f.id); return setView('seller'); }
@@ -7213,6 +7447,26 @@ async function downloadMemo(kind, btn) {
   } catch (e) {
     const c = e && e.code;
     msgs.memo = c === 'declined' ? null : { err: true, text: c === 'rate_limited' ? 'A save prompt is already open.' : c === 'extension_not_enabled' ? `${kind.toUpperCase()} downloads are switched off here. Try Markdown or HTML.` : (e && e.message) || 'The memo could not be generated.' };
+  }
+  btn.textContent = old; btn.disabled = false; render();
+}
+async function downloadReport(kind, fmt, btn) {
+  if (!hasData() || !REPORTS[kind]) return;
+  const m = MD(); const date = new Date().toISOString().slice(0, 10);
+  const base = `${m.name} - ${REPORTS[kind]} - ${date}`.replace(/[\\/:*?"<>|]+/g, '-');
+  const old = btn.textContent; btn.textContent = 'Preparing\u2026'; btn.disabled = true;
+  try {
+    const dl = store.downloads === undefined ? (window.claude && claude.use ? await claude.use('downloads') : null) : store.downloads;
+    store.downloads = dl;
+    const M = memoModel(R, m, { date, bench: benchFor(m), report: kind });
+    let data;
+    if (fmt === 'docx') { await lib('docx'); data = await docx.Packer.toBlob(memoDocx(M, docx)); }
+    else { await lib('jspdf'); data = memoPdf(M, window.jspdf.jsPDF).output('blob'); }
+    if (!dl) msgs.report = { err: true, kind, text: 'Downloads are not available in this view.' };
+    else { await dl.save({ filename: `${base}.${fmt}`, data }); msgs.report = { err: false, kind, text: `Saved ${base}.${fmt}` }; log(`Exported the ${REPORTS[kind].toLowerCase()} (${fmt.toUpperCase()})`); scheduleSave(); }
+  } catch (e) {
+    const c = e && e.code;
+    msgs.report = c === 'declined' ? null : { err: true, kind, text: c === 'rate_limited' ? 'A save prompt is already open.' : (e && e.message) || 'The report could not be generated.' };
   }
   btn.textContent = old; btn.disabled = false; render();
 }

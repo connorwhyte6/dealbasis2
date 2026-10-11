@@ -38,7 +38,8 @@
     return;
   }
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-  var mode = 'signin', msg = null, busy = false, recovering = false, factorId = null;
+  var mode = 'signin', msg = null, busy = false, recovering = false, factorId = null, shown = null;
+  var TERMS_VERSION = '2026-10-11';
 
   function field(id, label, type, ac, extra) { return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" name="' + id + '" type="' + type + '" autocomplete="' + ac + '" required ' + (extra || '') + '></div>'; }
   function note() { return msg ? '<div class="msg ' + (msg.err ? 'err' : 'ok') + '" role="' + (msg.err ? 'alert' : 'status') + '">' + esc(msg.text) + '</div>' : ''; }
@@ -53,7 +54,8 @@
         '<p class="small">New to DealBasis? <button class="lnk" data-mode="signup">Create an account</button></p>';
     } else if (mode === 'signup') {
       h = '<h1 id="authh">Create your account</h1><form id="f" novalidate>' + field('name', 'Full name', 'text', 'name') + field('email', 'Work email', 'email', 'email') + field('password', 'Password', 'password', 'new-password', 'minlength="8"') +
-        '<p class="small">At least 8 characters. A new account gets its own private workspace for your firm. Invited by a colleague? Use the email they invited, and you join their workspace instead.</p>' + note() +
+        '<p class="small">At least 8 characters. A new account gets its own private workspace for your firm. Invited by a colleague? Use the email they invited, and you join their workspace instead.</p>' +
+        '<label class="agree"><input type="checkbox" name="agree" value="1"> <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>, and understand DealBasis provides diligence analysis, not an audit or an accounting firm\u2019s quality of earnings report.</span></label>' + note() +
         '<button class="btn big" ' + (busy ? 'disabled' : '') + '>Create account</button></form><p class="small">Already have an account? <button class="lnk" data-mode="signin">Sign in</button></p>';
     } else if (mode === 'magic') {
       h = '<h1 id="authh">Sign in by email</h1><form id="f" novalidate>' + field('email', 'Work email', 'email', 'email') + note() + '<button class="btn big" ' + (busy ? 'disabled' : '') + '>Send sign-in link</button></form><p class="small"><button class="lnk" data-mode="signin">Sign in with a password</button></p>';
@@ -68,8 +70,11 @@
     } else if (mode === 'entering') {
       h = '<h1 id="authh">Signing in…</h1><p class="lede">Opening your workspace.</p>';
     }
-    card.innerHTML = h;
-    var first = card.querySelector('input'); if (first) try { first.focus({ preventScroll: true }); } catch (e) { }
+    /* keep what was typed when the same form is shown again with a message */
+    var keep = {}; if (shown === mode + recovering) card.querySelectorAll('input[name]').forEach(function (i) { keep[i.name] = i.type === 'checkbox' ? i.checked : i.value; });
+    card.innerHTML = h; shown = mode + recovering;
+    card.querySelectorAll('input[name]').forEach(function (i) { if (!(i.name in keep)) return; if (i.type === 'checkbox') i.checked = keep[i.name]; else i.value = keep[i.name]; });
+    var first = card.querySelector('input'); if (first && !Object.keys(keep).length) try { first.focus({ preventScroll: true }); } catch (e) { }
   }
   function friendly(e) {
     var m = (e && e.message) || 'Something went wrong. Try again.';
@@ -120,13 +125,14 @@
     if (f.querySelector('[name="email"]') && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg = { err: true, text: 'Enter a valid email address.' }; return render(); }
     if ((mode === 'signup' || recovering) && pw.length < 8) { msg = { err: true, text: 'Use at least 8 characters for the password.' }; return render(); }
     if (mode === 'signup' && !v('name')) { msg = { err: true, text: 'Enter your name, so your team sees who did what.' }; return render(); }
+    if (mode === 'signup' && !(f.querySelector('[name="agree"]') || {}).checked) { msg = { err: true, text: 'To create an account, agree to the Terms of Service and Privacy Policy.' }; return render(); }
     busy = true; msg = null; render();
     try {
       var back = location.origin + '/signin' + (next !== '/app' ? '?next=' + encodeURIComponent(next) : '');
       if (recovering) { var u = await sb.auth.updateUser({ password: pw }); if (u.error) throw u.error; recovering = false; busy = false; var s = await sb.auth.getSession(); return enter(s.data.session); }
       if (mode === 'signin') { var r = await sb.auth.signInWithPassword({ email: email, password: pw }); if (r.error) throw r.error; busy = false; return enter(r.data.session); }
       if (mode === 'signup') {
-        var su = await sb.auth.signUp({ email: email, password: pw, options: { data: { full_name: v('name') }, emailRedirectTo: back } });
+        var su = await sb.auth.signUp({ email: email, password: pw, options: { data: { full_name: v('name'), terms_accepted_at: new Date().toISOString(), terms_version: TERMS_VERSION }, emailRedirectTo: back } });
         if (su.error) throw su.error;
         busy = false;
         if (su.data.session) return enter(su.data.session);
