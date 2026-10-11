@@ -1083,6 +1083,8 @@ const MONTH_HDR = v => {
   if ((m = v.match(/^(\d{4})-(\d{2})(-\d{2})?$/))) return m[1] + '-' + m[2];
   if ((m = v.match(/^([A-Za-z]{3})[a-z]*\.?[-\s']?(\d{2}|\d{4})$/)) && MON.includes(m[1].toLowerCase())) { const y = m[2].length === 2 ? '20' + m[2] : m[2]; return y + '-' + String(MON.indexOf(m[1].toLowerCase()) + 1).padStart(2, '0'); }
   if ((m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/))) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return y + '-' + m[1].padStart(2, '0'); }
+  /* 31-Dec-24, 31 Dec 2024 */
+  if ((m = v.match(/^\d{1,2}[-\s]([A-Za-z]{3})[a-z]*\.?[-\s'](\d{2}|\d{4})$/)) && MON.includes(m[1].toLowerCase())) { const y = m[2].length === 2 ? '20' + m[2] : m[2]; return y + '-' + String(MON.indexOf(m[1].toLowerCase()) + 1).padStart(2, '0'); }
   if (/^\d{5}$/.test(v) && +v > 30000 && +v < 70000) { const d = new Date(Date.UTC(1899, 11, 30) + +v * 86400000); return d.toISOString().slice(0, 7); }
   return null;
 };
@@ -1127,31 +1129,55 @@ const TERMS = {
   },
   /* income statement: figure → names */
   pl: {
-    revenue: ['revenue', 'revenues', 'net revenue', 'net revenues', 'total revenue', 'total revenues', 'sales', 'net sales', 'total sales', 'turnover', 'operating revenue', 'operating revenues', 'total net revenue', 'sales revenue'],
-    cogs: ['cost of goods sold', 'cogs', 'cost of sales', 'cost of revenue', 'cost of revenues', 'direct costs', 'cost of services', 'direct cost of revenue'],
-    gp: ['gross profit', 'gross income'],
-    opex: ['operating expenses', 'opex', 'sg&a', 'overhead', 'overheads', 'total overhead', 'total overheads', 'selling, general and administrative', 'operating costs'],
-    ebitda: ['ebitda', 'reported ebitda', 'unadjusted ebitda'],
-    adjEbitda: ['adjusted ebitda', 'adj. ebitda', 'adj ebitda', 'normalized ebitda', 'normalised ebitda', 'recast ebitda', 'pro forma ebitda', 'pro forma adjusted ebitda', 'management adjusted ebitda'],
-    operatingIncome: ['operating income', 'operating profit', 'ebit', 'income from operations'],
-    netIncome: ['net income', 'net profit', 'net earnings', 'profit for the year', 'profit after tax'],
-    da: ['depreciation and amortization', 'depreciation and amortisation', 'depreciation & amortization', 'd&a', 'depreciation'],
-    interest: ['interest expense', 'finance costs', 'finance cost']
+    /* QuickBooks calls revenue "Total Income", Xero "Total Trading Income", a tax return "Gross receipts or sales" */
+    revenue: ['revenue', 'revenues', 'net revenue', 'net revenues', 'total revenue', 'total revenues', 'sales', 'net sales', 'total sales', 'turnover', 'net turnover', 'operating revenue', 'operating revenues', 'total net revenue', 'sales revenue', 'total income', 'income', 'trading income', 'total trading income', 'gross receipts', 'gross receipts or sales', 'gross sales', 'revenue from contracts with customers', 'revenues from contracts with customers', 'sales and services', 'total sales and services', 'net sales and services', 'sales and service revenue', 'revenue and other income', 'fee income', 'fees', 'fee revenue', 'total fees', 'net fees', 'service revenue', 'services revenue', 'revenue net', 'sales net', 'total operating revenue', 'total operating revenues', 'gross revenue', 'gross revenues', 'income from sales', 'top line'],
+    cogs: ['cost of goods sold', 'cogs', 'cost of sales', 'cost of revenue', 'cost of revenues', 'direct costs', 'cost of services', 'direct cost of revenue', 'total cost of goods sold', 'total cost of sales', 'total cost of revenue', 'total cogs', 'cost of sales and services', 'cost of goods and services sold', 'direct expenses', 'total direct costs', 'total direct expenses', 'cost of goods sold cogs', 'cost of operations', 'costs of revenue', 'costs of sales', 'cost of products sold', 'cost of contract revenue', 'job costs', 'total job costs'],
+    gp: ['gross profit', 'gross income', 'total gross profit', 'gross profit loss', 'gross margin dollars', 'gross margin $'],
+    opex: ['operating expenses', 'opex', 'sg&a', 'overhead', 'overheads', 'total overhead', 'total overheads', 'selling, general and administrative', 'operating costs', 'total operating expenses', 'expenses', 'total expenses', 'total operating costs', 'overhead expenses', 'total overhead expenses', 'administrative expenses', 'selling general and administrative expenses', 'total sg&a', 'indirect expenses', 'total indirect expenses', 'operating expenses total', 'total administrative expenses', 'other operating expenses total'],
+    ebitda: ['ebitda', 'reported ebitda', 'unadjusted ebitda', 'earnings before interest taxes depreciation and amortization', 'earnings before interest tax depreciation and amortization', 'earnings before interest, taxes, depreciation and amortization', 'ebitda reported', 'ebitda unadjusted', 'ebitda as reported', 'gaap ebitda'],
+    adjEbitda: ['adjusted ebitda', 'adj. ebitda', 'adj ebitda', 'normalized ebitda', 'normalised ebitda', 'recast ebitda', 'pro forma ebitda', 'pro forma adjusted ebitda', 'management adjusted ebitda', 'ebitda as adjusted', 'ebitda adjusted', 'ebitda normalized', 'adjusted ebitda normalized', 'normalized adjusted ebitda', 'management ebitda', 'mgmt ebitda', 'qoe adjusted ebitda', 'diligence adjusted ebitda', 'adjusted earnings before interest taxes depreciation and amortization', 'ebitda after adjustments', 'ebitda post adjustments', 'total adjusted ebitda', 'consolidated adjusted ebitda', 'recast adjusted ebitda', 'owner adjusted ebitda'],
+    operatingIncome: ['operating income', 'operating profit', 'ebit', 'income from operations', 'net operating income', 'net ordinary income', 'operating profit loss', 'operating income loss', 'profit from operations', 'income loss from operations', 'operating earnings', 'earnings from operations', 'total operating income'],
+    netIncome: ['net income', 'net profit', 'net earnings', 'profit for the year', 'profit after tax', 'net loss', 'net income loss', 'net profit loss', 'net earnings loss', 'profit for the period', 'profit loss for the year', 'profit loss for the period', 'profit after taxation', 'profit for the financial year', 'ordinary business income', 'ordinary business income loss', 'net income attributable to the company', 'net income after taxes', 'net income after tax', 'bottom line', 'comprehensive income', 'total comprehensive income'],
+    da: ['depreciation and amortization', 'depreciation and amortisation', 'depreciation & amortization', 'd&a', 'depreciation', 'depreciation expense', 'amortization and depreciation', 'total depreciation and amortization', 'depreciation and amortization expense', 'depreciation amortization'],
+    interest: ['interest expense', 'finance costs', 'finance cost', 'interest expense net', 'net interest expense', 'interest paid', 'interest and finance costs', 'interest charges', 'bank interest']
   }
 };
-const termKey = s => normLabel(s).replace(/\s*\((?:\$|usd|eur|gbp|cad|\$?\s?0{3}'?s?|\$?\s?(?:k|m|mm|bn)|in (?:thousands|millions|billions|\$?0{3}'?s)|thousands|millions|%)?\)\s*$/, '').replace(/^less:?\s*/, '').replace(/,?\s*net( of [a-z -]+)?$/, '').replace(/\s*\((net|current)\)$/, '').replace(/[.]$/, '').trim();
+/* the same line however it is written: account numbers in front ("4000 · Sales", "1100 Accounts Receivable (A/R)"),
+   "&" for "and", abbreviations ("Accts. rec.", "Mgmt. Adj."), British spellings, a trailing "(loss)" or "(A/R)",
+   and capitals or punctuation make no difference */
+const ACCT_NO_RE = /^\d{3,6}(?:[.-]\d{1,4})?(\s*[·•:|–-]\s*|\s+)(?=[a-z(])/;
+function canonLabel(s) {
+  let l = normLabel(s).replace(/[‘’]/g, "'");
+  const an = l.match(ACCT_NO_RE);
+  if (an && (an[1].trim() || !/^(19|20)\d{2}\b/.test(l) || /payable|receivable|cash|checking|savings|loan|debt|inventory/.test(l))) l = l.slice(an[0].length);
+  l = l.replace(/\s*\((?:a\/r|a\/p|ar|ap|loss|losses|net|py|adj\.?|adjusted|unaudited|audited|restated|usd|\$)\)/g, '')
+    .replace(/\s*&\s*/g, ' and ').replace(/\s*\+\s*/g, ' and ')
+    .replace(/\baccts?\.?(?=\s|$)/g, 'accounts').replace(/\bacc\.(?=\s)/g, 'accounts')
+    .replace(/\b(accounts) rec(?:v|eiv)?\.?(?=[\s,]|$)/g, '$1 receivable').replace(/\b(accounts) pay\.?(?=[\s,]|$)/g, '$1 payable')
+    .replace(/\bmgmt\.?(?=\s|$)/g, 'management').replace(/\bmgt\.?(?=\s)/g, 'management').replace(/\badj\.?(?=\s|$)/g, 'adjusted').replace(/\bnorm\.?(?=\s)/g, 'normalized')
+    .replace(/\bexp\.(?=\s|$)/g, 'expense').replace(/\brev\.(?=\s|$)/g, 'revenue').replace(/\bdepr?\.(?=\s|$)/g, 'depreciation').replace(/\bamort\.(?=\s|$)/g, 'amortization')
+    .replace(/isation\b/g, 'ization').replace(/ised\b/g, 'ized').replace(/\bstock in trade\b/g, 'inventory')
+    .replace(/[,;]/g, ' ').replace(/\s+-\s+(trade|operating|bank|net)$/, (m0, w) => w === 'net' ? '' : ' ' + w).replace(/\s+/g, ' ').trim();
+  return l;
+}
+const termKey = s => canonLabel(s).replace(/\s*\((?:\$|usd|eur|gbp|cad|\$?\s?0{3}'?s?|\$?\s?(?:k|m|mm|bn)|in (?:thousands|millions|billions|\$?0{3}'?s)|thousands|millions|%)?\)\s*$/, '').replace(/^less:?\s*/, '').replace(/,?\s*net( of [a-z -]+)?$/, '').replace(/\s*\((net|current)\)$/, '').replace(/[.]$/, '').trim();
 const BS_TERM = {}, PL_TERM = {};
 Object.entries(TERMS.bs).forEach(([concept, [cls, names]]) => names.forEach(n => { BS_TERM[termKey(n)] = { concept, cls }; }));
 Object.entries(TERMS.pl).forEach(([metric, names]) => names.forEach(n => { PL_TERM[termKey(n)] = metric; }));
 const bsTerm = label => BS_TERM[termKey(label)] || null;
+/* an income statement name, with or without "Total" in front */
+const plTerm = label => { const k = termKey(label); return PL_TERM[k] || PL_TERM[k.replace(/^total\s+/, '')] || null; };
 /* the date a passage states its figures at ("as of December 31, 2025", "at June 30, 2026") */
 const asOfIn = text => { const m = String(text || '').match(new RegExp(`\\b(?:as of|as at|at|on)\\s+${'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?'}\\s+\\d{1,2},?\\s+(\\d{4})\\b`, 'i')); return m ? m[2] + '-' + String(MON.indexOf(m[1].slice(0, 3).toLowerCase()) + 1).padStart(2, '0') : null; };
 
 /* ---------- balance sheet line classes ---------- */
 function bsClass(label) {
-  const l = normLabel(label);
+  const l = canonLabel(label);
+  if (/^total\b/.test(l)) return 'Skip';
   const tm = bsTerm(label); if (tm) return tm.cls;
   if (/^total|equity|retained earnings|^net (income|loss)|liabilities and/.test(l)) return 'Skip';
+  /* bank accounts listed by name, as accounting systems do ("Wells Fargo Checking", "Chase Savings x1234", "Undeposited Funds") */
+  if (/\b(checking|chequing|savings|petty cash|money market|undeposited funds|cash on hand|cash in bank|operating account|payroll account|sweep account|business account|current account|bank account)\b/.test(l) && !/\b(loan|overdraft|line of credit|credit card|payable|interest)\b/.test(l)) return 'Cash';
   if (/^cash|cash equivalents|restricted cash|marketable securities|short[- ]term investments|treasury bills|certificates of deposit/.test(l) && !/non-?current|long[- ]term/.test(l)) return 'Cash';
   // tax balances and owner/related-party balances are not operating working capital
   if (/(income )?tax(es)? (receivable|refund)|prepaid (income )?tax|deferred (income )?tax/.test(l)) return 'Other';
@@ -1187,7 +1213,8 @@ const MET = [
   ['capex', /^(total )?(capital expenditures?|capex)( \(capex\))?$|^(purchases?|acquisitions?|additions?|payments?|investments?|expenditures?)( related)? (to |of |for |in )?(property|premises|fixed assets|capital assets|pp&e|ppe|plant)\b/, false],
   ['nwcChange', /^(\(increase\) decrease|increase \(decrease\)|decrease \(increase\)|\(increase\)\/decrease|change|changes|investment) in (net )?(operating )?working capital$|^(net )?working capital (change|investment)$|^(change|\(increase\) decrease|increase) in nwc$/, false]
 ];
-const metricOf = (label, pct) => { const l = normLabel(label); const m = MET.find(([, re, p]) => p === pct && re.test(l)); return m ? m[0] : null; };
+const metricOf = (label, pct) => { const l = normLabel(label); let m = MET.find(([, re, p]) => p === pct && re.test(l));
+  if (!m) { const c = canonLabel(label); if (c !== l) m = MET.find(([, re, p]) => p === pct && re.test(c)); } return m ? m[0] : null; };
 
 const MONTHS_RE = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?';
 function datePeriods(text) {
@@ -1223,13 +1250,49 @@ function columnPeriods(cells, projCtx, near) {
   const kept = cols.filter(c => !c.skip); if (new Set(kept.map(c => c.key)).size !== kept.length) return null;
   const out = kept.map(c => ({ key: c.key, label: c.label, type: projCtx ? c.type : c.type, year: c.year })); out.cols = cols.map(c => !c.skip); return out;
 }
+/* a statement by month (Jan 2025 … Dec 2025, often with a Total): each full calendar year is added up into that
+   year, and the latest twelve months into LTM when the last year is not complete. Months alone are not kept. */
+function monthlyPeriods(cells) {
+  const cs = cells.map(c => String(c).trim()).filter(Boolean); if (cs.length < 4) return null;
+  const hs = cs.map(c => MONTH_HDR(hdrCell(c)));
+  if (cs.some((c, i) => !hs[i] && !/^(total|totals|ytd|ytd total|total ytd|full year|annual|grand total|total \d{4}|fy ?\d{2,4}|\d{4} total)$/i.test(c))) return null;
+  const ix = hs.map((h, i) => h ? i : -1).filter(i => i >= 0); if (ix.length < 3) return null;
+  const ms = ix.map(i => +hs[i].slice(0, 4) * 12 + +hs[i].slice(5, 7) - 1);
+  if (!ms.every((v, k) => k === 0 || v - ms[k - 1] === 1)) return null;
+  const pos = new Map(ix.map((c, k) => [c, k])); const groups = [];
+  const years = [...new Set(ms.map(m => Math.floor(m / 12)))];
+  years.forEach(y => { const ks = ms.map((m, k) => Math.floor(m / 12) === y ? k : -1).filter(k => k >= 0); if (ks.length === 12) groups.push({ key: y + 'A', label: 'FY' + y + ' (12 months added up)', type: 'H', year: y, ks }); });
+  const lastY = Math.floor(ms[ms.length - 1] / 12);
+  if (ms.length >= 12 && !groups.some(g => g.year === lastY)) { const last = hs[ix[ix.length - 1]]; groups.push({ key: 'LTM', label: 'LTM ' + last, type: 'H', ks: ms.slice(-12).map((m, k) => ms.length - 12 + k) }); }
+  if (!groups.length) return null;
+  const out = groups.map(g => ({ key: g.key, label: g.label, type: g.type, year: g.year }));
+  out.cols = cs.map((c, i) => pos.has(i)); out.groups = groups.map(g => g.ks); out.monthly = true; return out;
+}
 /* a statement with one column under "Year ended December 31, 2025" or "Fiscal year 2025" */
 function singlePeriod(cells) {
   if (cells.length !== 1) return null; const t = String(cells[0]).trim(); let m;
+  /* one column headed with a period range or a fiscal year: "Jan - Dec 25", "Jan - Dec 2025", "FY2025", "YE Dec-25" */
+  { const h = hdrCell(t); if (h !== t || /^(fy|cy)/i.test(t)) { const mh = MONTH_HDR(h); const y = (h.match(/^(?:FY|CY)?'?(19\d{2}|20\d{2})$/i) || [])[1] || (mh && /^(ye|fye|.*end)/i.test(t) ? mh.slice(0, 4) : null);
+    if (y) { const out = [{ key: y + 'A', label: 'FY' + y, type: 'H', year: +y }]; out.single = true; return out; } } }
   if ((m = t.match(/^(?:for the )?(?:fiscal )?(?:year|twelve months|12 months)s? end(?:ed|ing)\b.*?\b(19\d{2}|20\d{2})\s*$/i)) || (m = t.match(/^(?:fiscal year|fy)\s*'?(19\d{2}|20\d{2})$/i))) { const out = [{ key: m[1] + 'A', label: 'FY' + m[1], type: 'H', year: +m[1] }]; out.single = true; return out; }
   return null;
 }
+/* a column heading reduced to its period: "YE Dec-24", "12 Months Ended Dec 2025", "Jan - Dec 2025 (PY)", "FY 24" */
+const HDR_MON = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?';
+function hdrCell(c) {
+  let t = String(c).replace(/[\u00a0\u202f]/g, ' ').trim();
+  t = t.replace(/\s*\((?:py|pp|prior year|prior period|actual|actuals|audited|unaudited|reviewed|restated)\)$/i, '');
+  t = t.replace(/^(?:fye|ye|fy ended|fiscal year ended|fiscal year ending|years? ended|years? ending|(?:twelve|12)[- ]months?(?: period)? end(?:ed|ing)|period ended|as of|as at)\s+/i, '');
+  t = t.replace(new RegExp('^' + HDR_MON + '\\s*(?:-|–|through|thru|to)\\s*' + HDR_MON + '\\s*,?\\s*', 'i'), '');
+  if (/^'?\d{2}$/.test(t)) t = '20' + t.replace("'", '');
+  t = t.replace(/^(FY|CY)\s+'?(\d{2}|\d{4})\b/i, '$1$2');
+  return t;
+}
 function headerPeriods(cells, projCtx) {
+  { const hc = cells.map(hdrCell); if (hc.some((c, i) => c !== String(cells[i]).trim())) { const r = headerPeriodsRaw(hc, projCtx); if (r) return r; } }
+  return headerPeriodsRaw(cells, projCtx);
+}
+function headerPeriodsRaw(cells, projCtx) {
   const dp = datePeriods(cells.join(' ')) || (cells.length >= 3 && !datePeriods(cells[0]) ? datePeriods(cells.slice(1).join(' ')) : null);
   if (dp) return dp;
   // fiscal years written as month-year column headers (Dec-24, Dec-25): exactly twelve months apart
@@ -1278,6 +1341,8 @@ function parseRow(cells, n) {
   if (!label || !vals.length || !/[a-z]/i.test(label)) return null;
   let v = vals.slice(); let lab = label;
   if (v.length === n + 1 && /^\(\d{1,2}\)$/.test(v[0].raw)) { lab += ' ' + v[0].raw; v.shift(); }
+  /* a "Note" column between the name and the figures ("Revenue   4   18,600   16,200") */
+  else if (v.length === n + 1 && n >= 1 && /^\d{1,2}(\.\d)?$|^[a-z]$/i.test(String(v[0].raw).trim()) && v.slice(1).some(x => Math.abs(x.v) >= 100)) v.shift();
   /* a label that runs straight into its first number ("Depreciation and amortization 120     140") */
   if (v.length === n - 1) { const mm = lab.match(/^(.*[A-Za-z)])\s+(\(?-?\$?[\d,]+(?:\.\d+)?\)?-?)$/); if (mm && parseNum(mm[2])) { lab = mm[1]; v = [parseNum(mm[2]), ...v]; } }
   if (v.length !== n) { const np = v.filter(x => !x.pct); if (np.length === n) v = np; else return null; }
@@ -1296,16 +1361,60 @@ function mergeCells(cells) {
   return out;
 }
 const BS_HINT = /balance sheets?|financial position|financial condition/i;
+/* a period written in a cell: 2025, FY25, FY 2025, 2025A, 2026E, 2025 Actual, LTM */
+function periodTok(t, projCtx) {
+  t = hdrCell(String(t == null ? '' : t).trim()); let m;
+  if (/^(ltm|ttm)\b/i.test(t)) return { key: 'LTM', label: t.toUpperCase(), type: 'H' };
+  if ((m = t.match(/^(?:FY|CY)?'?(19\d{2}|20\d{2})\s*([AEPFB]|PF|actuals?|budget|forecast|projected|proj\.?|estimated?|est\.?|plan)?$/i)) || (m = t.match(/^FY'?(\d{2})([AEPFB])?$/i))) {
+    const yr = m[1].length === 2 ? 2000 + +m[1] : +m[1]; const suf = (m[2] || '').toLowerCase();
+    const type = suf ? (suf === 'a' || /^actual/.test(suf) ? 'H' : 'P') : projCtx ? 'P' : 'H';
+    return { key: yr + (type === 'P' ? 'E' : 'A'), label: t, type, year: yr };
+  }
+  return null;
+}
+/* the name of an income statement line, as a column heading */
+const lineOfName = c => metricOf(c, false) || metricOf(c, true) || plTerm(c);
+/* a table turned on its side: the lines across the top and the years down the side
+   ("Year | Revenue | Gross Profit | EBITDA", then "2024 | 16,200 | 6,400 | 2,600") */
+function sidewaysHeader(cells) {
+  if (cells.length < 2) return null;
+  const all = cells.map(lineOfName);
+  const first = String(cells[0]).trim();
+  const lead = !all[0] && (/^(years?|fiscal( years?)?|fy|periods?|fiscal years? end(ed|ing)?|years? end(ed|ing)?|date|as of|\(?\$.*|\(?(in )?(thousands|millions|000s?)\)?|usd.*|metric|financials?)$/i.test(first) || first === '');
+  const names = lead ? cells.slice(1) : cells; const ms = lead ? all.slice(1) : all;
+  const known = ms.filter(Boolean);
+  if (names.length < 2 || known.length < 2 || known.length * 2 < names.length || new Set(known).size !== known.length) return null;
+  if (names.some(n => periodTok(n) || parseNum(n))) return null;
+  return { names, metrics: ms };
+}
 function tablesFromLines(lines, ctx, out) {
-  let block = null; const recent = [];
+  let block = null; const recent = []; let side = null;
+  /* a line's name on one line and its figure alone on the next ("Revenue" / "$18,600,000") is one line */
+  { const merged = []; for (let k = 0; k < lines.length; k++) { const l = lines[k], nx = lines[k + 1]; const c = mergeCells(l.cells || []);
+      if (nx && c.length === 1 && !/\d/.test(c[0]) && c[0].length <= 60 && (lineOfName(c[0]) || bsTerm(c[0]))) { const nc = mergeCells(nx.cells || []);
+        if (nc.length >= 1 && nc.length <= 3 && nc.every(x => { const v = parseNum(x); return v && !v.dash; })) { merged.push({ ...l, cells: [c[0], ...nc], text: l.text + '  ' + nx.text }); k++; continue; } }
+      merged.push(l); }
+    lines = merged; }
+  const flushSide = () => { const t = side; side = null; if (!t || !t.rows.length || new Set(t.rows.map(r => r.p.key)).size !== t.rows.length) return;
+    const units = unitsOf(t.near + ' ' + t.head) || ctx.units;
+    const b = { periods: t.rows.map(r => r.p), rows: [], cur: currencyOf(t.near + ' ' + t.head) || ctx.cur || null, units, src: t.src, doc: ctx.doc, isBS: false, sideways: true };
+    t.names.forEach((name, k) => { const vs = t.rows.map(r => r.vals[k]);
+      const row = { label: name, values: vs.map(v => v.scale ? v.v * v.scale / (units || 1) : v.v), scales: vs.map(() => null), pct: vs.every(v => v.pct || v.dash) && vs.some(v => v.pct), src: t.rows[0].src, srcs: t.rows.map(r => r.src), text: t.head };
+      row.metric = metricOf(name, row.pct) || (row.pct ? null : null); b.rows.push(row); });
+    out.blocks.push(b); };
   lines.forEach(ln => {
     const cells = mergeCells(ln.cells);
     if (!cells.length) return;
     const near = recent.join(' ');
-    const hp = headerPeriods(cells, ctx.proj || PROJ_CTX.test(near)) || columnPeriods(cells, ctx.proj || PROJ_CTX.test(near), near + ' ' + (ctx.title || '')) || singlePeriod(cells);
+    if (side) { const pr = periodTok(cells[0], side.proj); const vs = pr && cells.length === side.names.length + 1 ? cells.slice(1).map(c => parseNum(String(c).replace(/\$\s+/, '$'))) : null;
+      if (vs && vs.every(Boolean)) { side.rows.push({ p: pr, vals: vs, src: ln.src }); return; }
+      flushSide(); }
+    { const sh = sidewaysHeader(cells); if (sh) { side = { ...sh, rows: [], near: near + ' ' + (ctx.title || ''), head: cells.join(' '), src: ln.src, proj: ctx.proj || PROJ_CTX.test(near) }; block = null; return; } }
+    const hp = monthlyPeriods(cells) || headerPeriods(cells, ctx.proj || PROJ_CTX.test(near)) || columnPeriods(cells, ctx.proj || PROJ_CTX.test(near), near + ' ' + (ctx.title || '')) || singlePeriod(cells);
     if (hp) { block = { periods: hp, rows: [], cur: (unitsOf(near) || /\b(000s?|thousands|millions|currency)\b/i.test(near + ' ' + cells.join(' ')) ? currencyOf(near + ' ' + cells.join(' ')) : null) || ctx.cur || null, units: unitsOf(near + ' ' + cells.join(' ')) || ctx.units, src: ln.src, doc: ctx.doc, isBS: BS_HINT.test(near + ' ' + (ctx.bsHint || '')) }; out.blocks.push(block); recent.length = 0; return; }
     let row = block ? parseRow(cells, block.periods.cols ? block.periods.cols.length : block.periods.length) : null;
     if (row && block.periods.cols) { const ix = block.periods.cols.map((k, i) => k ? i : -1).filter(i => i >= 0); row.values = ix.map(i => row.values[i]); row.scales = ix.map(i => row.scales[i]); }
+    if (row && block.periods.groups) { if (row.pct) row = null; else { const sc = row.scales; row.values = block.periods.groups.map(g => g.reduce((a, k) => a + (sc[k] ? row.values[k] * sc[k] / (block.units || 1) : row.values[k]), 0)); row.scales = row.values.map(() => null); } }
     if (row && row.scales && row.scales.some(Boolean)) row.values = row.values.map((x, k) => row.scales[k] ? x * row.scales[k] / (block.units || 1) : x);
     if (row) { row.metric = metricOf(row.label, row.pct); row.src = ln.src; row.text = ln.text; block.rows.push(row); }
     else {
@@ -1316,6 +1425,7 @@ function tablesFromLines(lines, ctx, out) {
       recent.push(cells.join(' ')); if (recent.length > 4) recent.shift();
     }
   });
+  flushSide();
 }
 
 /* ---------- facts from prose ---------- */
@@ -1336,7 +1446,7 @@ const isAmount = (t, n, u) => !!u || /\$|\busd\b|dollars?/i.test(t) || /^\d{1,3}
 const LINK_P = '\\s*(?:balance\\s+)?(?:of|was|were|is|are|stood at|totaled|totalled|totaling|totalling|amounted to|amounting to|equal to|equaled|:|-|–)\\s*(?:approximately|about|roughly|around|~)?\\s*';
 /* "was", "reached", "grew 15% to", ":" between an income statement line and its figure */
 const TIME_FILL_P = '(?:\\s+(?:each|every|per|a|an|in|for|over|during|the|past|last|prior|previous|recent|fiscal|calendar|year|years|annually|annual|consecutive|of|(?:19|20)\\d{2}|fy\\s?\\d{2,4}|\\d{1,2}|two|three|four|five|six|seven|eight|nine|ten))*';
-const PL_LINK_P = '\\s*(?:(?:of|was|were|is|are|have been|has been|had been|have averaged|has averaged|averaged|to be|will be|should be|at|reached|totaled|totalled|totaling|totalling|amounted to|came in at|stood at|hit|equaled|(?:grew|increased|rose|climbed|expanded|improved)(?:\\s+(?:by\\s+)?\\d+(?:\\.\\d+)?\\s?%)?\\s+to)|:|-|–)\\s*(?:approximately|about|roughly|around|nearly|over|~)?\\s*';
+const PL_LINK_P = '\\s*(?:(?:of|was|were|is|are|have been|has been|had been|have averaged|has averaged|averaged|to be|will be|should be|at|reached|totaled|totalled|totaling|totalling|amounted to|came in at|stood at|hit|equaled|(?:grew|increased|rose|climbed|expanded|improved)(?:\\s+(?:by\\s+)?\\d+(?:\\.\\d+)?\\s?%)?\\s+to)|:|-|–|(?=\\$))\\s*(?:approximately|about|roughly|around|nearly|over|~)?\\s*';
 const reEsc = s => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 const PROSE_BS_SKIP = new Set(['ar', 'ap', 'a/r', 'a/p', 'loc', 'stock', 'stocks', 'wip', 'debtors', 'creditors', 'payables', 'receivables', 'borrowings', 'merchandise', 'mortgage', 'overdraft']);
 let PROSE_RE = null;
@@ -1364,7 +1474,7 @@ function yearNear(s, at, len) {
   const ys = [...s.matchAll(/\b(?:fiscal(?: year)?\s*|fy\s*'?|calendar(?: year)?\s*|year ended [a-z]+ \d{1,2},?\s*|for |in |during )?((?:19|20)\d{2})\b|\bfy'?(\d{2})\b/gi)]
     .map(m => ({ y: m[1] ? +m[1] : 2000 + +m[2], at: m.index, end: m.index + m[0].length, tagged: /fiscal|fy|year|for |in |during /i.test(m[0]) }));
   if (!ys.length) return null;
-  const CMP = /\b(from|compared (?:to|with)|versus|vs\.?|over|than|against|prior|previous|a year (?:ago|earlier)|last year)\b[\s\w]{0,14}$/i;
+  const CMP = /\b(from|compared (?:to|with)|versus|vs\.?|over|than|against|prior|previous|a year (?:ago|earlier)|last year)\b(?:[\s\w]|\$\s?\d[\d,.]*\s*(?:billion|million|thousand|bn|mm|m|k)?){0,14}$/i;
   const after = ys.find(o => o.at >= at + len && o.at - (at + len) <= 30 && o.tagged && !CMP.test(s.slice(Math.max(at + len, o.at - 30), o.at)));
   if (after) return after.y;
   const before = ys.filter(o => o.end <= at && !CMP.test(s.slice(Math.max(0, o.at - 30), o.at))).pop();
@@ -1526,6 +1636,9 @@ function tabular(rows, anchor, out, where, docId) {
     });
     return { role: 'General ledger', count: body.length - bad, skipped: bad, where };
   }
+  // General ledger from an accounting system: any column names, Debit and Credit or one Amount, a category column
+  // or only account names, or transactions grouped under each account
+  { const g = glFromRows(rows, h, anchor, out, where); if (g) return g; }
   // Bank statement export
   if (idx('facility', 'debt facility') < 0) { const bk = bankFromRows(rows, h, anchor, out, where, docId); if (bk) return bk; }
   // Lender confirmations
@@ -1547,7 +1660,9 @@ function tabular(rows, anchor, out, where, docId) {
   }
   // Balance sheet, wide format (lines down, month-ends across)
   const mcols = hdr.map((x, c) => ({ c, m: MONTH_HDR(rows[h][c]) })).filter(o => o.m);
-  if (mcols.length >= 3) {
+  /* months across with income statement lines down is a profit and loss by month, read further below */
+  const plByMonth = () => { let pl = 0, bs = 0; body.forEach(({ r }) => { const l = r[0]; if (!l || parseNum(l)) return; if (lineOfName(l)) pl++; else if (BS_KNOWN.includes(bsClass(l))) bs++; }); return pl > bs; };
+  if (mcols.length >= 3 && !plByMonth()) {
     const iC = idx('class'); let n = 0;
     body.forEach(({ r, i }) => {
       const label = r[0]; if (!label || parseNum(label)) return;
@@ -1563,6 +1678,93 @@ function tabular(rows, anchor, out, where, docId) {
   tablesFromLines(lines, { units: unitsOf(head) || 1, proj: PROJ_CTX.test(head), doc: docId, bsHint: where + ' ' + head }, out);
   const added = out.blocks.length - before;
   return added ? { role: 'Financial statements', count: out.blocks.slice(before).reduce((s, b) => s + b.rows.length, 0), where } : null;
+}
+
+/* ---------- general ledgers from any accounting system ----------
+   QuickBooks, Xero, Sage, NetSuite and spreadsheet exports name their columns differently, sign amounts differently and
+   may leave out a category. Each column is found by the names systems use; each account is placed in the income
+   statement by its type, then its name, then its number (4xxx revenue, 5xxx cost of sales, 6xxx–7xxx expenses);
+   balance sheet accounts are set aside. */
+const hdrKey = x => String(x == null ? '' : x).toLowerCase().replace(/[_.#:]/g, ' ').replace(/\s+/g, ' ').trim();
+const GL_COLS = {
+  date: ['date', 'posting date', 'post date', 'posted date', 'transaction date', 'txn date', 'trans date', 'entry date', 'gl date', 'document date', 'doc date', 'accounting date', 'journal date', 'effective date', 'period date'],
+  amount: ['amount', 'net amount', 'debit/credit', 'amt', 'signed amount', 'transaction amount', 'amount usd', 'amount (usd)', 'net', 'value', 'net change', 'base amount', 'functional amount', 'home amount'],
+  debit: ['debit', 'debits', 'dr', 'debit amount', 'debit (usd)', 'debit usd', 'debit balance'],
+  credit: ['credit', 'credits', 'cr', 'credit amount', 'credit (usd)', 'credit usd', 'credit balance'],
+  category: ['category', 'fs category', 'financial statement category', 'account type', 'account category', 'acct type', 'gl type', 'statement line', 'fs line', 'report category', 'account class', 'classification'],
+  account: ['account', 'account number', 'account no', 'account num', 'acct', 'acct no', 'account code', 'gl account', 'gl account number', 'gl code', 'gl', 'gl acct', 'nominal code', 'nominal', 'ledger account', 'account id', 'distribution account'],
+  accountName: ['account name', 'account description', 'gl account name', 'account title', 'gl description', 'gl account description', 'nominal name', 'acct name', 'account full name', 'distribution account name'],
+  desc: ['description', 'memo', 'memo/description', 'details', 'narrative', 'line description', 'transaction description', 'line memo', 'particulars', 'comment', 'comments', 'reference description', 'note'],
+  cp: ['counterparty', 'name', 'customer/vendor', 'vendor', 'customer', 'payee', 'vendor name', 'customer name', 'entity', 'contact', 'party', 'supplier', 'client', 'source name'],
+  entry: ['entry_id', 'entry', 'je', 'journal entry', 'je number', 'je no', 'journal no', 'journal number', 'transaction id', 'txn id', 'trans no', 'document number', 'doc number', 'doc no', 'num', 'no', 'number', 'ref', 'reference', 'transaction number'],
+  source: ['source', 'journal', 'source type', 'transaction type', 'type', 'txn type', 'trans type', 'module', 'source journal']
+};
+const glCol = (hdr, key, not) => { const names = GL_COLS[key]; for (const n of names) { const i = hdr.findIndex((x, k) => x === n && !(not || []).includes(k)); if (i >= 0) return i; } return -1; };
+const PL_TYPE = [[/^(income|revenue|revenues|sales|operating revenue|other operating revenue)$/, 'Revenue'], [/^(other income|non-?operating income|other revenue)$/, 'OtherIncome'], [/^(cost of goods sold|cogs|cost of sales|cost of revenue|direct costs?|cost of services)$/, 'COGS'], [/^(expense|expenses|operating expense|operating expenses|overhead|sg&a)$/, 'OpEx'], [/^(depreciation|d&a|depreciation and amortization)$/, 'D&A'], [/^(interest|interest expense)$/, 'Interest'], [/^(tax|taxes|income tax|income taxes)$/, 'Tax']];
+const BS_TYPE = /^(bank|cash|accounts receivable|a\/r|other current assets?|fixed assets?|other assets?|accounts payable|a\/p|credit cards?|other current liabilit\w*|long[- ]term liabilit\w*|equity|asset|assets|liability|liabilities|current assets?|current liabilit\w*|non-?current \w+)$/;
+function glCategory(type, name, number) {
+  const t = canonLabel(type || ''); if (t) { const nc = normCat(t); if (nc) return nc; const pt = PL_TYPE.find(([re]) => re.test(t)); if (pt) return pt[1]; if (BS_TYPE.test(t)) return null; if (/^other expenses?$/.test(t)) type = ''; }
+  const raw = String(name || ''); const numM = String(number || '').match(/^\s*(\d{3,6})/) || raw.match(/^\s*(\d{3,6})\b/);
+  /* "Expenses:Rent", "Cost of Goods Sold:Materials": the parent account helps place the child */
+  const n = canonLabel(raw.replace(/\s*:\s*/g, ' '));
+  if (/\baccumulated\b/.test(n)) return null;
+  if (/\binterest (income|earned|received)\b|\bother income\b|\bmiscellaneous income\b|\bgain on\b|\bdividend income\b|\bemployee retention\b|\bppp loan forgiveness\b|\bforgiveness\b|\brental income\b/.test(n)) return 'OtherIncome';
+  if (/\binterest\b/.test(n) && !/payable|receivable|accrued/.test(n)) return 'Interest';
+  if (/\b(income tax|federal tax|state income|franchise tax|provision for (income )?tax(es)?|corporate tax|corporation tax)\b/.test(n) && !/payable|receivable|deferred|prepaid/.test(n)) return 'Tax';
+  if (/\b(depreciation|amortization)\b/.test(n)) return 'D&A';
+  if (/\b(cash|checking|chequing|savings|bank account|petty|undeposited|receivable|payable|inventory|inventories|prepaid|accrued|deposits? (held|paid)|loan|line of credit|notes? payable|mortgage|equity|retained earnings|capital stock|common stock|paid[- ]in|opening balance|owner'?s? (draw|contribution|investment|equity)|shareholder|member (draw|contribution|capital)|distributions?|fixed assets?|accumulated|due (to|from)|credit card|sales tax payable|payroll liabilit\w*|suspense|clearing|intercompany|goodwill|security deposit|leasehold improvements|furniture and (fixtures|equipment)|vehicles|land|buildings?|machinery and equipment|computer equipment|right of use)\b/.test(n)) return null;
+  if (/\b(cost of (goods|sales|revenue|services)|cogs|direct (labor|labour|costs?|materials?|expenses?)|materials?|subcontract\w*|job (costs?|materials|supplies)|freight in|purchases|merchandise|cost of labor|project costs?)\b/.test(n)) return 'COGS';
+  if (/\b(sales|revenue|revenues|income|fees?|turnover|billings|returns and allowances|discounts given)\b/.test(n) && !/\b(sales (tax|commissions?|salar\w*|wages|expenses?|meals|travel|and marketing|promotion)|marketing|expenses?|fees? (paid|expense)|bank fees?|professional fees?|legal fees?|accounting fees?|merchant fees?|license fees?|filing fees?|dues|service charges?)\b/.test(n)) return 'Revenue';
+  if (/\b(expenses?|rent|salar\w*|wages|payroll|insurance|utilities|advertising|marketing|office|travel|meals|entertainment|professional|legal|accounting|software|repairs?|maintenance|fuel|gas|telephone|phone|internet|bank (fees|charges|service)|merchant|dues|subscriptions?|supplies|commissions?|benefits|bonus\w*|contract labor|contractors?|licen[cs]es?|permits?|postage|shipping|training|auto|vehicle|rental|lease|equipment rental|fees|charitable|donations?|uniforms|tools|small equipment|security|janitorial|cleaning|waste|education|recruiting|consulting|management fees?|officers?|owners? compensation|compensation|401k|retirement|health|workers comp|bad debts?|amortization)\b/.test(n)) return 'OpEx';
+  if (numM) { const d = +numM[1][0], len = numM[1].length; if (len >= 4) { if (d === 4) return 'Revenue'; if (d === 5) return 'COGS'; if (d === 6 || d === 7) return 'OpEx'; } }
+  return null;
+}
+function glFromRows(rows, h, anchor, out, where) {
+  const hdr = rows[h].map(hdrKey);
+  const iDate = glCol(hdr, 'date'); if (iDate < 0) return null;
+  const iDr = glCol(hdr, 'debit'), iCr = glCol(hdr, 'credit');
+  const iAmt = glCol(hdr, 'amount', [iDr, iCr]);
+  if (iAmt < 0 && (iDr < 0 || iCr < 0)) return null;
+  const iCat = glCol(hdr, 'category'), iAcct = glCol(hdr, 'account'), iName = glCol(hdr, 'accountName', [iAcct]);
+  const iDesc = glCol(hdr, 'desc'), iCp = glCol(hdr, 'cp'), iEnt = glCol(hdr, 'entry'), iSrc = glCol(hdr, 'source', [iCat]);
+  const iBal = hdr.findIndex(x => /^(running )?balance$/.test(x));
+  /* QuickBooks' General Ledger report: no account column; each account is a heading row above its transactions */
+  const grouped = iAcct < 0 && iName < 0 && iCat < 0;
+  /* dates written day first (31/01/2025) when any first part is over 12 */
+  const dayFirst = rows.slice(h + 1, h + 400).some(r => { const m = String(r[iDate] || '').match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-]\d{2,4}$/); return m && +m[1] > 12; });
+  const dateOf = v => { const t = String(v == null ? '' : v).trim(); const m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2}|\d{4})$/); if (m) { const [a, b] = dayFirst ? [m[2], m[1]] : [m[1], m[2]]; const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${a.padStart(2, '0')}-${b.padStart(2, '0')}`; } return normDate(t) || bankDate(t, null, null); };
+  const lastCol = hdr.length - 1; const recs = []; let heading = null, headings = 0, bsRows = 0, bad = 0;
+  rows.slice(h + 1).forEach((r, k) => { const i = h + 1 + k; const cells = r.map(x => String(x == null ? '' : x).trim());
+    const date = dateOf(cells[iDate]);
+    if (!date) { const ne = cells.filter(Boolean);
+      if (grouped && ne.length === 1 && !/^total\b/i.test(ne[0]) && !parseNum(ne[0])) { heading = ne[0]; headings++; }
+      return; }
+    let amount;
+    if (iDr >= 0 && iCr >= 0) { const d = parseNum(cells[iDr].replace(/\s/g, '')), c = parseNum(cells[iCr].replace(/\s/g, '')); if (!d && !c) { bad++; return; } amount = { dr: d ? d.v : 0, cr: c ? c.v : 0 }; }
+    else { const a = parseNum(cells[iAmt].replace(/\s/g, '')); if (!a) { bad++; return; } amount = { v: a.v }; }
+    const acctNo = iAcct >= 0 ? cells[iAcct] : ''; const acctName = iName >= 0 ? cells[iName] : (iAcct >= 0 ? cells[iAcct] : heading || '');
+    const cat = glCategory(iCat >= 0 ? cells[iCat] : '', acctName || acctNo, acctNo);
+    if (!cat) { bsRows++; return; }
+    recs.push({ date, cat, amount, i, cells, acctNo, acctName });
+  });
+  if (!recs.length || recs.length < Math.max(2, 0.1 * (recs.length + bsRows))) return null;
+  /* a bank export with a category column ("Income", "Utilities") is a bank statement, not a ledger */
+  if (iAcct < 0 && iName < 0 && !headings && (iBal >= 0 || /bank|statement|checking|chequing|savings|transactions/i.test(where))) return null;
+  /* each category held as a positive amount in its own direction: revenue as credits less debits, costs the reverse;
+     a single Amount column is read as printed unless revenue comes out negative overall (credits shown as minus) */
+  const isIncome = c => c === 'Revenue' || c === 'OtherIncome';
+  let flipIncome = false, flipCost = false;
+  if (iAmt >= 0 && !(iDr >= 0 && iCr >= 0)) { const sumOf = f => recs.filter(x => f(x.cat)).reduce((a, x) => a + x.amount.v, 0);
+    flipIncome = sumOf(isIncome) < 0; flipCost = sumOf(c => !isIncome(c)) < 0; }
+  recs.forEach(({ date, cat, amount, i, cells, acctNo, acctName }) => {
+    const v = amount.v != null ? (isIncome(cat) ? (flipIncome ? -amount.v : amount.v) : (flipCost ? -amount.v : amount.v)) : (isIncome(cat) ? amount.cr - amount.dr : amount.dr - amount.cr);
+    if (!v) return;
+    const num = (String(acctNo || acctName).match(/^\s*(\d{3,6})/) || [])[1] || '';
+    out.gl.push({ date, entry_id: (iEnt >= 0 && cells[iEnt]) || 'R' + (i + 1), account: num || acctNo || '', account_name: String(acctName || acctNo || cat).replace(/^\s*\d{3,6}(?:[.-]\d{1,4})?\s*[·•:|–-]?\s*/, '') || cat,
+      category: cat, description: iDesc >= 0 ? cells[iDesc] : '', counterparty: iCp >= 0 ? cells[iCp] : '', amount: Math.round(v * 100) / 100, source: iSrc >= 0 ? cells[iSrc] : '', src: anchor(i, 0, lastCol) });
+  });
+  const note = bsRows ? `${bsRows} balance sheet lines (cash, receivables, payables and similar) set aside` : '';
+  return { role: 'General ledger', count: recs.length, skipped: bad, where, note };
 }
 
 /* ---------- bank statements (proof of cash) ----------
@@ -1825,9 +2027,19 @@ function docText(d, max) {
    line, unless the same table already has a row under the usual name */
 function aliasMetrics(blocks) {
   blocks.forEach(b => { if (b.xbrl) return;
+    /* an accounting-system export lists accounts under a heading and then its total ("4000 Sales" ... "Total Income"):
+       the total is the line; an account that happens to be named "Sales" is only one part of it */
+    b.rows.forEach((r, i) => { if (!r.metric || !ACCT_NO_RE.test(normLabel(r.label || ''))) return;
+      const nx = b.rows.slice(i + 1).find(o => !ACCT_NO_RE.test(normLabel(o.label || ''))); if (nx && /^total\b/i.test(normLabel(nx.label || ''))) r.metric = null; });
+    /* the same line twice: a "Total" row wins over its detail, and two rows with the same figures are one */
+    { const by = {}; b.rows.forEach(r => { if (r.metric) (by[r.metric] = by[r.metric] || []).push(r); });
+      Object.values(by).forEach(rs => { if (rs.length < 2) return; const tot = rs.filter(r => /^total\b/i.test(normLabel(r.label || '')));
+        const same = rs.every(r => r.values.length === rs[0].values.length && r.values.every((v, k) => Math.abs(v - rs[0].values[k]) < 0.5));
+        const keep = same ? (tot[0] || rs[0]) : tot.length === 1 ? tot[0] : null; if (keep) rs.forEach(r => { if (r !== keep) r.metric = null; }); }); }
     const have = new Set(b.rows.map(r => r.metric).filter(Boolean)); const cand = {};
-    b.rows.forEach(r => { if (r.metric || r.pct) return; const k = PL_TERM[termKey(r.label || '')]; if (k && !have.has(k)) (cand[k] = cand[k] || []).push(r); });
-    Object.entries(cand).forEach(([k, rs]) => { if (rs.length === 1) rs[0].metric = k; });
+    b.rows.forEach(r => { if (r.metric || r.pct) return; const k = plTerm(r.label || ''); if (k && !have.has(k)) (cand[k] = cand[k] || []).push(r); });
+    Object.entries(cand).forEach(([k, rs]) => { if (rs.length > 1) { const own = rs.filter(r => !ACCT_NO_RE.test(normLabel(r.label || ''))); rs = own.length === 1 ? own : own.filter(r => /^total\b/i.test(normLabel(r.label || ''))); }
+      if (rs.length === 1) rs[0].metric = k; });
   });
 }
 const BS_KNOWN = ['Cash', 'NWC asset', 'NWC liability', 'Debt', 'Debt-like'];
@@ -1913,7 +2125,7 @@ function extractAll(docs) {
     if (xn) log.roles.push('SEC filing (XBRL)');
     if (d.rows) {
       const r = tabular(d.rows, (i) => ({ d: d.id, t: 'csv', r: i + 1 }), out, d.name, d.id);
-      if (r) { log.roles.push(r.role); if (r.skipped) log.notes.push(`${r.skipped} rows skipped: missing date, amount or a recognized category`); }
+      if (r) { log.roles.push(r.role); if (r.skipped) log.notes.push(`${r.skipped} rows skipped: missing date, amount or a recognized category`); if (r.note) log.notes.push(r.note); }
     } else if (d.sheets) {
       d.sheets.forEach(s => { const r = tabular(s.rows, (i, c1, c2) => ({ d: d.id, t: 'xlsx', s: s.name, r: i + 1, c1, c2 }), out, s.name, d.id);
         if (r) { log.roles.push(`${r.role} (${s.name})`); if (r.skipped) log.notes.push(`${s.name}: ${r.skipped} rows skipped`); } });
@@ -6303,6 +6515,7 @@ function vHelp() {
     ${qa('Equity value', 'Enterprise value less funded debt and debt-like items, plus cash, plus or minus the working capital adjustment.')}
     ${qa('Units', 'Every figure is the number printed in the document times the document\u2019s unit. DealBasis uses the unit the document states (for example "$ in thousands"); SEC XBRL data and ledgers are in dollars. Change any document\u2019s unit in Sources or Data checks and every number from it is multiplied by that unit and everything recalculates.')}</section>
   <section class="sec"><div class="sechead"><h2>Questions</h2></div>
+    ${qa('Do documents need a set format?', 'No. Exports from QuickBooks, Xero, Sage, NetSuite and spreadsheets are read as they come: any column names, Debit and Credit or one Amount column, accounts with or without numbers, and ledgers grouped under each account. Lines are recognized under the names accounting systems, tax returns and CIMs use (Total Income, Turnover, Gross receipts, Net Operating Income, Normalised EBITDA, Accts. rec.), periods under any heading (FY25, YE Dec-25, Jan - Dec 2025, 31 December 2025), tables with the years across the top or down the side, statements by month (added up into full years and LTM), and figures written in sentences or on the line below their name. The Sources page shows what was read from each file, and nothing is guessed: a figure that can\u2019t be placed is left out.')}
     ${qa('Does DealBasis use AI?', 'No. Documents are parsed and analysed by fixed rules in your browser. The same documents always give the same result, and the run fingerprint shows it.')}
     ${qa('Can I take the figures into Excel?', 'Committee Readout has Download Excel: a workbook with the summary and equity bridge, income statement, EBITDA bridge, balance sheet, working capital on every definition, debt and cash, findings, questions and data checks. Every number is a number, and every row names its source.')}
     ${qa('Can I check where a figure came from?', 'Click any citation. The source opens at the page, cell, row, paragraph or XBRL tag, with the figure highlighted.')}
