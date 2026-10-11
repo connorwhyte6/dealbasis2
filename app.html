@@ -67,11 +67,16 @@ button,input,select,textarea{font:inherit;color:inherit}
 main{min-width:0;padding-inline:clamp(16px,4vw,52px);padding-block:32px 72px}
 .wrap{max-width:1200px;margin:0 auto;display:flex;flex-direction:column;gap:38px}
 .vh{display:flex;flex-direction:column;gap:6px}
+.tbl.qoe table{font-variant-numeric:tabular-nums}.tbl.qoe td.ref{width:44px}.tbl.qoe td.ref .chip{text-decoration:none}.tbl.qoe th.n,.tbl.qoe td.n{width:110px;white-space:nowrap}
+.tbl.qoe tr.qhead td{font-weight:700;padding-top:16px;border-bottom:none}.tbl.qoe tr.qadj td:nth-child(2){padding-left:18px}.tbl.qoe tr.qsub td{color:var(--ink2);border-top:1px solid var(--rule2)}
+.tbl.qoe tr.qpct td{color:var(--ink3);font-style:italic;font-size:12.5px}.tbl.qoe tr.qflag td{color:var(--redtext,#c4151a);font-size:12.5px}.tbl.qoe tr.qmemo td{color:var(--ink3);border-top:1px solid var(--rule)}
+.tbl.qoe tr.grand td{border-bottom:3px double var(--ink);font-weight:700}.tbl.qoe tr.dim td{color:var(--ink3)}
+.qnotes{display:flex;flex-direction:column}.qnote{padding:12px 0;border-bottom:1px solid var(--rule)}.qnote .top{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.qnote p{margin:6px 0 0;color:var(--ink2);max-width:80ch;font-size:13.5px}.qnote:target{background:var(--panel)}
 .rptbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-top:10px;font-size:12.5px}.rptbar .rpt{display:inline-flex;align-items:center;gap:6px}.rptbar .rpt b{font-weight:600;font-size:12.5px}
 .eyebrow{font:500 11px/1 var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--brandtext)}
 h1{font-family:var(--f-display);font-weight:800;font-stretch:72%;font-size:clamp(32px,5vw,50px);line-height:.95;margin:4px 0 0;text-transform:uppercase;text-wrap:balance}
-.sub{color:var(--ink2);margin:6px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
-.sub .mono{font-size:12px}
+div.sub{color:var(--ink2);margin:6px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
+div.sub .mono{font-size:12px}
 h2{font-family:var(--f-display);font-weight:700;font-stretch:88%;font-size:19px;margin:0;text-wrap:balance}
 h3{font-size:13.5px;font-weight:600;margin:0}
 .lede{max-width:72ch;color:var(--ink2);margin:0}
@@ -838,7 +843,9 @@ function analyze(D, S, dec) {
   /* revenue with no customer name is not one customer: it is left out of the customer list, and if it is a large
      part of revenue the concentration test is not run rather than run on part of the revenue */
   const UNNAMED = '\u0000unnamed';
-  const revBy = set => { const o = {}; inPer.filter(r => r.category === 'Revenue' && set.has(r.month)).forEach(r => { const k = String(r.counterparty || '').trim() || UNNAMED; o[k] = (o[k] || 0) + r.amount; }); return o; };
+  /* placeholder names ("Unbilled - various", "Cash sales", "Misc customer") are not customers either */
+  const PLACEHOLDER = n0 => /^(?:-+|n\/?a|none|unknown|internal|multiple|general|various|other|cash|walk[- ]?in|customers?|sales)(?:\s+(?:customers?|sales?|clients?|accounts?|revenue))?$/i.test(n0) || /\b(?:unbilled|various|miscellaneous|sundry)\b|^misc\.?(?:\s|$)/i.test(n0);
+  const revBy = set => { const o = {}; inPer.filter(r => r.category === 'Revenue' && set.has(r.month)).forEach(r => { const nm = String(r.counterparty || '').trim(); const k = !nm || PLACEHOLDER(nm) ? UNNAMED : nm; o[k] = (o[k] || 0) + r.amount; }); return o; };
   const cT = revBy(ttmSet), cP = revBy(priorSet);
   const unnamedRev = Math.max(0, cT[UNNAMED] || 0); delete cT[UNNAMED]; delete cP[UNNAMED];
   const custList = Object.entries(cT).filter(([, v]) => v > 0).map(([name, v]) => ({ name, ttm: v, prior: cP[name] || 0 })).sort((a, b) => b.ttm - a.ttm);
@@ -4110,6 +4117,187 @@ const NEXT_STEP = {
   X06: 'Reconcile stated concentration to revenue by customer.'
 };
 
+/* ---------- the quality of earnings schedule ----------
+   The layout QoE reports use: periods across the top; net income reconciled to reported EBITDA; management's
+   adjustments as presented; diligence adjustments; adjusted EBITDA and margins. Columns add up by construction, and a
+   figure that was not tested for a period shows as n.a., never as zero. The platform page and every report use it. */
+const QOE_MON = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-' .]*(\d{4}|\d{2})\b/i;
+function qoeSchedule(R, m) {
+  const SM = R.SM, M = R.M && R.M.addbacks && R.M.addbacks.length ? R.M : null, L = R.L; m = m || {}; const dec = m.dec || {};
+  if (!M && !L) return null; /* nothing to adjust: the statements are shown on their own */
+  const g = (k, key) => SM && SM.pl[k] && SM.pl[k][key] ? SM.pl[k][key].v : null;
+  const hist = SM ? SM.periods.filter(p => p.type === 'H') : [];
+  const mKeys = M ? [...new Set(M.addbacks.flatMap(a => Object.keys(a.values || {})))] : [];
+  let cols = (mKeys.length ? hist.filter(p => mKeys.includes(p.key)) : hist.slice(-4)).map(p => ({ key: p.key, label: p.label }));
+  if (M && M.basis && !cols.some(c => c.key === M.basis)) cols.push({ key: M.basis, label: M.basisLabel || M.basis });
+  /* the general ledger covers one trailing twelve months: it fills the column for the same period, or gets its own */
+  let LC = -1;
+  if (L) { const lm = +L.last.slice(5, 7), ly = +L.last.slice(0, 4);
+    LC = cols.findIndex(c => { if (c.key !== 'LTM') return false; const x = String(c.label).match(QOE_MON); if (!x) return false; const y = x[2].length === 2 ? 2000 + +x[2] : +x[2]; return MON.indexOf(x[1].slice(0, 3).toLowerCase()) + 1 === lm && y === ly; });
+    if (LC < 0) { cols.push({ key: 'GL', label: `TTM ${monthLabel(L.last)}`, ledger: true }); LC = cols.length - 1; } }
+  cols = cols.slice(-4); LC = L ? cols.findIndex(c => c.ledger || (c.key === 'LTM' && cols.indexOf(c) === cols.length - 1 && LC >= 0)) : -1;
+  if (L && LC < 0) { cols.push({ key: 'GL', label: `TTM ${monthLabel(L.last)}`, ledger: true }); LC = cols.length - 1; }
+  if (!cols.length) return null;
+  const n = cols.length, NA = 'na'; const rows = []; const notes = [];
+  const col = f => cols.map((c, i) => f(c, i));
+  const add = (label, vals, kind, extra) => { rows.push({ label, vals, kind: kind || 'line', ...(extra || {}) }); return vals; };
+  const sum = (...vs) => col((c, i) => { let t = 0; for (const v of vs) { const x = v[i]; if (x === NA) return NA; t += x || 0; } return t; });
+  const fromLedger = c => c.ledger;
+  /* reported EBITDA, and net income to EBITDA where every column states the pieces */
+  const rep = col(c => fromLedger(c) ? L.T.EBITDA : g('ebitda', c.key) != null ? g('ebitda', c.key) : (M && c.key === M.basis ? M.reported : null));
+  const part = (k, lk) => col(c => fromLedger(c) ? Math.abs(L.T[lk] || 0) : g(k, c.key) == null ? null : (k === 'netIncome' ? g(k, c.key) : Math.abs(g(k, c.key))));
+  const ni = part('netIncome', 'NI'), it = part('interest', 'Interest'), tx = part('tax', 'Tax'), da = part('da', 'D&A');
+  const recon = cols.every((c, i) => rep[i] != null && ni[i] != null && da[i] != null && Math.abs(ni[i] + (it[i] || 0) + (tx[i] || 0) + da[i] - rep[i]) <= Math.max(1000, Math.abs(rep[i]) * 0.006));
+  if (recon) { add('Net income', ni); add('Interest expense', col((c, i) => it[i] || 0)); add('Income taxes', col((c, i) => tx[i] || 0)); add('Depreciation and amortization', da);
+    /* rounding in the source (figures in thousands) is shown, not hidden */
+    const rd = col((c, i) => rep[i] - (ni[i] + (it[i] || 0) + (tx[i] || 0) + da[i])); if (rd.some(v => Math.abs(v) >= 0.5)) add('Rounding in the source', rd, 'sub'); }
+  add('Reported EBITDA', rep, 'total', { id: 'reported' });
+  const rev = col(c => fromLedger(c) ? L.T.Revenue : g('revenue', c.key));
+  const margin = v => col((c, i) => v[i] === NA || v[i] == null || !rev[i] ? null : v[i] / rev[i]);
+  add('  EBITDA margin', margin(rep), 'pct');
+  /* management's adjustments, as presented */
+  let mgTot = null, mgAdj = null; const mRef = {};
+  /* management's pro forma items (results not yet achieved) sit below diligence-adjusted EBITDA, for reference */
+  const isPF = a => a.cls === 'Pro forma';
+  const core = M ? M.addbacks.filter(a => !isPF(a)) : [], pfs = M ? M.addbacks.filter(isPF) : [];
+  if (M) [...core, ...pfs].forEach((a, k) => { mRef[a.key] = 'M' + (k + 1); });
+  const mVals = a => col((c, i) => i === LC && c.ledger ? NA : !mKeys.includes(c.key) && c.key !== M.basis ? NA : (a.values && a.values[c.key] != null ? a.values[c.key] : (c.key === M.basis ? a.amount : 0)));
+  if (M) {
+    add("Management's adjustments", col(() => null), 'head');
+    const mv = core.map(a => { return add(a.label, mVals(a), 'adj', { ref: mRef[a.key], ab: a.key, src: a.src, status: a.accepted ? 'Accepted' : 'Excluded' }); });
+    mgTot = add("Total management's adjustments", mv.length ? sum(...mv) : col(() => 0), 'sub');
+    mgAdj = add(pfs.length ? "Management's adjusted EBITDA, before pro forma" : "Management's adjusted EBITDA", sum(rep, mgTot), 'total', { id: 'mgmt' });
+    add('  Adjusted EBITDA margin', margin(mgAdj), 'pct');
+    [...core, ...pfs].forEach((a, k) => notes.push({ ref: mRef[a.key], kind: isPF(a) ? 'proforma' : 'mgmt', title: a.label, status: isPF(a) ? 'Not included' : a.accepted ? 'Accepted' : 'Excluded', text: `${isPF(a) ? 'Pro forma: shown below diligence-adjusted EBITDA for reference and not included in it.' : a.cls + '.'} ${a.note}${L && a.support ? ` Ledger: ${a.support.status.toLowerCase()}${a.support.amount != null ? `, ${fmtUSD(a.support.amount)}` : ''}.` : ''}`, src: a.src, evidence: L && a.support ? a.support.evidence : null }));
+  }
+  /* diligence adjustments */
+  add('Diligence adjustments', col(() => null), 'head'); let dk = 0; const dRef = () => 'D' + (++dk); const dRows = [];
+  if (M) core.filter(a => !a.accepted).forEach(a => { const r = dRef(); const v = rows.find(x => x.ab === a.key).vals; dRows.push(add(`Remove: ${a.label}`, col((c, i) => v[i] === NA ? NA : -(v[i] || 0)), 'adj', { ref: r, src: a.src }));
+    notes.push({ ref: r, kind: 'remove', title: `Remove: ${a.label}`, status: 'Proposed', text: `${mRef[a.key]} is excluded: ${a.note}`, src: a.src }); });
+  if (M && !L && M.s1) { const r = dRef(); dRows.push(add('Deduct non-operating income', col(c => c.key === M.basis ? (M.s1.accepted ? -Math.abs(M.s1.amount) : 0) : (M.s1.accepted && g('otherIncome', c.key) != null ? -Math.abs(g('otherIncome', c.key)) : 0)), 'adj', { ref: r, src: M.s1.src }));
+    notes.push({ ref: r, kind: 'remove', title: 'Deduct non-operating income', status: M.s1.accepted ? 'Accepted' : 'Excluded', text: 'Other income is not earned by operations, so it is taken out of EBITDA.', src: M.s1.src }); }
+  let target = null;
+  if (L) {
+    target = L.adjEBITDA; const only = c => c.ledger || cols.indexOf(c) === LC;
+    const ledgerCol = f => col((c, i) => i === LC ? f() : NA);
+    if (M && !cols[LC].ledger && Math.abs(L.T.EBITDA - rep[LC]) >= 0.5) { const r = dRef(); dRows.push(add('Reported EBITDA: statements to general ledger', ledgerCol(() => L.T.EBITDA - rep[LC]), 'adj', { ref: r }));
+      notes.push({ ref: r, kind: 'ledger', title: 'Reported EBITDA: statements to general ledger', status: 'Computed', text: `Reported EBITDA per the general ledger is ${fmtUSD(L.T.EBITDA)}, against ${fmtUSD(rep[LC])} in the statements, which are rounded to thousands. The ledger figure is the starting point for the diligence adjustments.` }); }
+    const absorbed = new Set();
+    if (M) { const acc = M.addbacks.filter(a => a.accepted);
+      const re = acc.filter(a => a.support && a.support.amount != null).reduce((t, a) => t + (a.support.amount - a.amount), 0);
+      if (Math.abs(re) >= 0.5) { const r = dRef(); dRows.push(add("Accepted add-backs measured in the ledger", ledgerCol(() => re), 'adj', { ref: r }));
+        notes.push({ ref: r, kind: 'ledger', title: "Accepted add-backs measured in the ledger", status: 'Computed', text: `Management's accepted add-backs are restated at the amounts the ledger shows: ${acc.filter(a => a.support && a.support.amount != null && Math.abs(a.support.amount - a.amount) >= 0.5).map(a => `${a.label} ${fmtUSD(a.support.amount)} vs ${fmtUSD(a.amount)} claimed`).join('; ')}.` }); }
+      /* ledger adjustments that are management's add-backs measured in the ledger are already in the schedule */
+      const hasCls = c0 => acc.some(a => a.cls === c0);
+      L.adj.forEach(a => { if (a.basis === 'Management' || (a.amount > 0 && /owner/i.test(a.title) && hasCls('Owner normalization'))) absorbed.add(a.id); }); }
+    L.adj.filter(a => !absorbed.has(a.id)).forEach(a => { const r = dRef(); const st = dec['adj:' + a.id] === undefined ? 'Proposed' : dec['adj:' + a.id] ? 'Approved' : 'Rejected';
+      dRows.push(add(a.title, ledgerCol(() => a.accepted ? a.amount : 0), 'adj', { ref: r, adj: a.id, status: st }));
+      notes.push({ ref: r, kind: 'ledger', adj: a.id, title: a.title, status: st, text: a.note || '', evidence: a.evidence }); });
+    /* anything left between the schedule and the ledger total is shown, so the column always agrees with the ledger */
+    const pre = sum(rep, ...(M ? [mgTot] : []), ...dRows); const resid = pre[LC] === NA ? 0 : target - pre[LC];
+    if (Math.abs(resid) >= 0.5) { const r = dRef(); dRows.push(add('Other differences, statements to ledger', ledgerCol(() => resid), 'adj', { ref: r }));
+      notes.push({ ref: r, kind: 'ledger', title: 'Other differences, statements to ledger', status: 'Computed', text: `The remaining difference between management's add-backs and the adjustments measured in the general ledger (${absorbed.size ? [...absorbed].join(', ') : 'none matched'}).` }); }
+  }
+  const dTot = add('Total diligence adjustments', dRows.length ? sum(...dRows) : col(() => 0), 'sub');
+  const base = M ? mgAdj : rep;
+  let dil = sum(base, dTot);
+  if (L) dil = col((c, i) => i === LC ? dil[i] : NA);
+  add('Diligence-adjusted EBITDA', dil, 'grand', { id: 'diligence' });
+  add('  Adjusted EBITDA margin', margin(dil), 'pct');
+  if (M) {
+    let pfTot = col(() => 0);
+    if (pfs.length) { add('Pro forma adjustments presented by management, not included above', col(() => null), 'head');
+      const pv = pfs.map(a => add(a.label, mVals(a), 'adj', { ref: mRef[a.key], ab: a.key, src: a.src, status: 'Not included', pf: true }));
+      pfTot = add('Total pro forma adjustments', sum(...pv), 'sub', { id: 'pfTotal' });
+      add('Pro forma adjusted EBITDA, for reference', sum(dil, pfTot), 'total', { id: 'pf' }); }
+    /* management's own figure, as presented and as stated, so the schedule reconciles to it */
+    const presented = sum(mgAdj, pfTot);
+    const stated = col(c => c.ledger ? NA : g('adjEbitda', c.key) != null ? g('adjEbitda', c.key) : (c.key === M.basis ? M.stated : null));
+    const diff = col((c, i) => stated[i] == null || stated[i] === NA || presented[i] === NA ? null : stated[i] - presented[i]);
+    add("Management's adjusted EBITDA, as presented", col(() => null), 'head');
+    add(pfs.length ? 'Before pro forma, plus pro forma adjustments' : "Management's adjusted EBITDA, computed", presented, 'line', { id: 'presented' });
+    add('As stated by management', stated, 'line', { src: M.statedSrc, id: 'stated' });
+    if (diff.some(v => v != null && Math.abs(v) >= 1000)) add('Difference: stated figure does not add up', diff, 'flag', { id: 'statedDiff' });
+  }
+  add('Revenue', rev, 'memo');
+  const naNote = L && cols.length > 1 ? `Adjustments measured in the general ledger cover ${cols[LC].label}; for other periods they are shown as n.a. and diligence-adjusted EBITDA is not stated.` : '';
+  return { cols, rows, notes, ledgerCol: LC, naNote, check: { diligence: L ? dil[LC] : dil[dil.length - 1], expected: L ? target : (R.diligence != null ? R.diligence : null) } };
+}
+/* ---------- supporting analyses for diligence reports and the databook ----------
+   Monthly and quarterly income statement, revenue and costs by account, payroll, income taxes, commitments and
+   contingencies, and the matters a purchase agreement needs to address. Built only from what the documents show. */
+function fddAnalysis(R) {
+  const L = R.L, out = {};
+  const sumBy = (rows, f) => rows.reduce((a, r) => a + (f(r) || 0), 0);
+  if (L) {
+    const LINES = ['Revenue', 'COGS', 'GP', 'OpEx', 'OtherIncome', 'EBITDA', 'D&A', 'Interest', 'Tax', 'NI'];
+    out.monthly = { months: L.months.slice(), lines: LINES, v: L.months.map(mo => L.pl[mo] || {}) };
+    /* calendar quarters with all three months in the ledger, then the trailing twelve months */
+    const qs = {}; L.months.forEach(mo => { const y = +mo.slice(0, 4), q = Math.floor((+mo.slice(5, 7) - 1) / 3) + 1; const k = `${y}-Q${q}`; (qs[k] = qs[k] || []).push(mo); });
+    const full = Object.entries(qs).filter(([, ms]) => ms.length === 3);
+    const agg = ms => { const o = {}; LINES.forEach(l => { o[l] = sumBy(ms, mo => (L.pl[mo] || {})[l]); }); return o; };
+    out.quarterly = { cols: [...full.map(([k]) => ({ key: k, label: `Q${k.slice(6)} ${k.slice(0, 4)}` })), { key: 'TTM', label: `TTM ${monthLabel(L.last)}` }], v: [...full.map(([, ms]) => agg(ms)), agg(L.ttm)] };
+    /* by account, trailing twelve months against the twelve months before */
+    const ttm = new Set(L.ttm), pri = new Set(L.prior);
+    const byAcct = cats => { const o = {}; L.gl.filter(r => cats.includes(r.category)).forEach(r => { const k = (r.account ? r.account + ' ' : '') + (r.account_name || r.category); const x = o[k] = o[k] || { account: k, category: r.category, ttm: 0, prior: 0 }; if (ttm.has(r.month)) x.ttm += r.amount; else if (pri.has(r.month)) x.prior += r.amount; });
+      return Object.values(o).filter(x => Math.abs(x.ttm) + Math.abs(x.prior) >= 1).sort((a, b) => b.ttm - a.ttm); };
+    out.revenueByAccount = byAcct(['Revenue']); out.costByAccount = byAcct(['COGS', 'OpEx']); out.hasPrior = L.prior.length > 0;
+    out.revTTM = L.T.Revenue; out.revPrior = L.P ? L.P.Revenue : null;
+    const PAY = /salar|wage|payroll|officer|compensation|bonus|benefit|labor|labour|401k|health|commission/i;
+    out.payroll = out.costByAccount.filter(x => PAY.test(x.account));
+    const off = R.findings.find(f => f.id === 'X03' || /officer compensation|owner compensation/i.test(f.title || ''));
+    out.officerBenchmark = (R.facts.find(f => f.kind === 'benchmark' && f.target === 'officer') || null);
+    /* income taxes */
+    const taxLine = L.lines.find(l => /income tax(es)? payable/i.test(l));
+    out.tax = { ttm: L.T.Tax, prior: L.P ? L.P.Tax : null, pretaxTTM: L.T.NI + L.T.Tax, payable: taxLine ? ((L.bsv[taxLine] || {})[L.last] || null) : null, payableLine: taxLine || null, payableSrc: taxLine ? L.srcAt(taxLine, L.last) : null };
+  }
+  if (R.SM) { const P = R.SM.periods.filter(p => p.type === 'H'); const g = (k, p) => R.SM.pl[k] && R.SM.pl[k][p.key] ? R.SM.pl[k][p.key].v : null;
+    out.taxByPeriod = P.map(p => ({ label: p.label, tax: g('tax', p), ni: g('netIncome', p) })).filter(x => x.tax != null || x.ni != null); }
+  /* commitments and contingencies: obligations the documents disclose, each with its source */
+  const cc = [];
+  R.facts.filter(f => f.kind === 'debtMention' && f.notRecorded).forEach(f => cc.push({ item: 'Debt disclosed but not recorded', detail: f.text, amount: f.amount, src: f.src }));
+  if (R.M) R.M.addbacks.filter(a => /litigation|legal|settlement/i.test(a.cls + ' ' + a.label)).forEach(a => cc.push({ item: 'Litigation', detail: `${a.label}: ${fmtUSD(a.amount)} added back by management as a one-time cost. Confirm the matter is settled and no further amounts are due.`, amount: a.amount, src: a.src }));
+  R.fired.filter(f => f.id === 'R12').forEach(f => cc.push({ item: 'Related-party arrangements', detail: f.text, amount: null, src: (f.cites[0] || (f.evidence[0] || {}).src) }));
+  if (out.costByAccount) out.costByAccount.filter(x => /\brent\b|lease/i.test(x.account) && x.ttm > 0).forEach(x => cc.push({ item: 'Premises lease', detail: `${x.account}: ${fmtUSD(x.ttm)} of rent expense in the trailing twelve months. Obtain the lease to confirm its term, renewal options and remaining payments.`, amount: x.ttm, src: null }));
+  if (L && L.debt) L.debt.rows.filter(r => r.conf != null && Math.abs(r.conf - r.bs) > 0.5 && !(Math.abs(r.bs) < 0.5 && cc.some(x => x.item === 'Debt disclosed but not recorded' && Math.abs((x.amount || 0) - r.conf) < 1))).forEach(r => cc.push({ item: 'Debt balance differs from lender', detail: `${r.facility}: ${fmtUSD(r.conf)} confirmed by ${r.lender || 'the lender'} vs ${fmtUSD(r.bs)} recorded.`, amount: r.conf - r.bs, src: r.srcConf }));
+  out.contingencies = cc;
+  /* matters for the purchase agreement, for the deal team and counsel */
+  const pa = [];
+  if (L && L.nwc && L.nwc.lines.length) pa.push({ area: 'Working capital peg', text: `Trailing ${L.nwc.pegN}-month average net working capital of ${fmtUSD(L.nwc.peg)} on the ${L.nwc.def} definition, against ${fmtUSD(L.nwc.delivered)} at ${monthLabel(L.last)}. Agree the definition, test for seasonality and set a collar.` });
+  if (L && L.debt) { const dl = L.debt.debtLike.filter(x => x.included); pa.push({ area: 'Debt and debt-like items', text: `Funded debt of ${fmtUSD(L.debt.fundedDebt)} per lender confirmations${dl.length ? `, plus debt-like items of ${fmtUSD(L.debt.debtLikeTotal)} (${dl.map(x => x.line.toLowerCase()).join(', ')})` : ''}, deducted in the price. Cash of ${fmtUSD(L.debt.cash)} at ${monthLabel(L.last)}.` }); }
+  cc.filter(x => /not recorded|litigation|differs/i.test(x.item)).forEach(x => pa.push({ area: 'Specific indemnity or escrow', text: x.detail, src: x.src }));
+  if (R.fired.some(f => f.id === 'R14')) pa.push({ area: 'Revenue cut-off', text: 'Invoices recorded at period end and reversed afterwards: confirm the cut-off at closing and consider a specific representation on revenue recognition.' });
+  if (out.tax && out.tax.payable) pa.push({ area: 'Income taxes', text: `Income taxes payable of ${fmtUSD(out.tax.payable)} at ${monthLabel(L.last)}: treat pre-closing taxes as debt-like or cover them with a tax indemnity.`, src: out.tax.payableSrc });
+  out.purchaseAgreement = pa;
+  return out;
+}
+/* the four-way proof of cash: opening balance, receipts, disbursements and closing balance, per bank and per books,
+   month by month. Book receipts are revenue collected (revenue less the increase in receivables) plus the non-operating
+   receipts on the bank statement; book disbursements follow from the book balances. The bank side is also checked for
+   continuity: each month must open where the last one closed and add up to its closing balance. */
+function proofOfCash4(R) {
+  const PC = R.poc, L = R.L; if (!PC || !PC.rows || !PC.rows.length) return null;
+  const prevM = mo => { const [y, m0] = mo.split('-').map(Number); return m0 === 1 ? `${y - 1}-12` : `${y}-${String(m0 - 1).padStart(2, '0')}`; };
+  const cashLines = L ? L.lines.filter(l => L.cls[l] === 'Cash') : []; const bookAt = mo => cashLines.length && cashLines.some(l => (L.bsv[l] || {})[mo] != null) ? cashLines.reduce((a, l) => a + ((L.bsv[l] || {})[mo] || 0), 0) : null;
+  const r2 = v => v == null ? null : Math.round(v * 100) / 100; let prevClose = null;
+  const rows = PC.rows.map((r, i) => {
+    const bankIn = r.opIn + r.otherIn, bankOut = r.opOut + r.otherOut;
+    const bankOpen = prevClose != null ? prevClose : (r.bankClose != null ? r.bankClose - bankIn + bankOut : null);
+    const bankCheck = bankOpen != null && r.bankClose != null ? r2(bankOpen + bankIn - bankOut - r.bankClose) : null;
+    if (r.bankClose != null) prevClose = r.bankClose;
+    const bookOpen = bookAt(prevM(r.month)), bookClose = r.bsCash != null ? r.bsCash : bookAt(r.month);
+    const bookIn = r.expected != null ? r.expected + r.otherIn : null;
+    const bookOut = bookOpen != null && bookClose != null && bookIn != null ? bookOpen + bookIn - bookClose : null;
+    return { month: r.month, bankOpen: r2(bankOpen), bankIn: r2(bankIn), bankOut: r2(bankOut), bankClose: r2(r.bankClose), bankCheck, bookOpen: r2(bookOpen), bookIn: r2(bookIn), bookOut: r2(bookOut), bookClose: r2(bookClose),
+      diffIn: bookIn == null ? null : r2(bankIn - bookIn), diffOut: bookOut == null ? null : r2(bankOut - bookOut), diffClose: bookClose == null || r.bankClose == null ? null : r2(r.bankClose - bookClose) };
+  });
+  const ok = rows.filter(r => r.bookIn != null && r.bookOut != null);
+  const first = rows[0], last = rows[rows.length - 1]; const S = k => rows.reduce((a, r) => a + (r[k] || 0), 0);
+  const total = { bankOpen: first.bankOpen, bankIn: r2(S('bankIn')), bankOut: r2(S('bankOut')), bankClose: last.bankClose, bookOpen: first.bookOpen, bookIn: ok.length === rows.length ? r2(S('bookIn')) : null, bookOut: ok.length === rows.length ? r2(S('bookOut')) : null, bookClose: last.bookClose };
+  return { rows, total, continuityBreaks: rows.filter(r => r.bankCheck != null && Math.abs(r.bankCheck) >= 0.5).map(r => r.month), accounts: PC.accounts };
+}
+/* figures in thousands with negatives in brackets, as a schedule prints them */
+const qoeK = (v, pct) => v === 'na' ? 'n.a.' : v == null ? '' : pct ? (v * 100).toFixed(1) + '%' : Math.abs(v) < 500 ? '–' : (v < 0 ? `(${Math.round(-v / 1000).toLocaleString('en-US')})` : Math.round(v / 1000).toLocaleString('en-US'));
 function memoModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
   opts = opts || {};
@@ -4420,6 +4608,7 @@ function memoModel(R, m, opts) {
     const st = a => m.dec['adj:' + a.id] === undefined ? 'Proposed' : m.dec['adj:' + a.id] ? 'Approved' : 'Rejected';
     const area = R.fired.filter(inArea);
     const who = v => (m.owners && m.owners[v]) || ({ analyst: 'Analyst', manager: 'Manager', partner: 'Partner' })[v] || v || 'Unassigned';
+    const AN = fddAnalysis(R); const qk = (v, p) => qoeK(v, p);
     const N = L && L.nwc && L.nwc.lines.length ? L.nwc : null, Dt = L && L.debt && L.debt.rows.length ? L.debt : null, PC = R.poc && R.poc.rows && R.poc.rows.length ? R.poc : null;
 
     /* important notice */
@@ -4478,38 +4667,61 @@ function memoModel(R, m, opts) {
           { small: 'Value at stake converts EBITDA effects at the valuation multiple and takes balance sheet effects dollar for dollar.' }); }
       else if (kf.length) b.push({ p: 'No findings were raised in this area by the documents provided.' });
       addR('Executive summary', b);
+      if (kind === 'fdd' && AN.purchaseAgreement.length) addR('Matters for the purchase agreement', [{ p: 'Points the analysis raises for the purchase agreement, for discussion with the deal team and counsel. They follow from the figures in this report and are not legal advice.' },
+        { table: { head: ['Area', 'Matter'], rows: AN.purchaseAgreement.map(x => [x.area, x.text]), align: ['l', 'l'], widths: [0.24, 0.76], notes: note(AN.purchaseAgreement.map(x => x.src).filter(Boolean)) } }]);
     }
 
     /* quality of earnings */
     if (has('qoe') && (L || (M && M.addbacks.length))) {
-      const b = []; const qo = getS('Quality of earnings');
-      if (L) {
-        const T = L.T, P0 = L.P, hp = L.prior.length > 0;
-        const col = f => [...(hp ? [th(f(P0))] : []), th(f(T))]; const mg = (x, v) => x.Revenue ? pc(v / x.Revenue) : '';
-        const head = ['', ...(hp ? [`TTM ${mo(L.prior[L.prior.length - 1])}`] : []), `TTM ${mo(L.last)}`]; const al = ['l', ...head.slice(1).map(() => 'r')]; const wd = hp ? [0.52, 0.24, 0.24] : [0.66, 0.34];
-        b.push({ h: 'Reconciliation of net income to reported EBITDA' }, { table: { unit: curUnit('thousands'), head, align: al, widths: wd, totals: [4], sub: [5], notes: ledgerNote(), rows: [
-          ['Net income', ...col(x => x.NI)], ['Add: interest expense', ...col(x => x.Interest)], ['Add: income taxes', ...col(x => x.Tax)], ['Add: depreciation and amortization', ...col(x => x['D&A'])],
-          ['Reported EBITDA', ...col(x => x.EBITDA)], ['  EBITDA margin', ...(hp ? [mg(P0, P0.EBITDA)] : []), mg(T, T.EBITDA)]] } });
-        const mgA = L.adj.filter(a => a.basis === 'Management'), dgA = L.adj.filter(a => a.basis !== 'Management'); const ref = {};
-        mgA.forEach((a, i) => { ref[a.id] = 'M' + (i + 1); }); dgA.forEach((a, i) => { ref[a.id] = 'D' + (i + 1); });
-        const rows = [['Reported EBITDA', '', th(T.EBITDA), '']]; const emph = [], tot = [], sub = [];
-        if (mgA.length) { emph.push(rows.length); rows.push(["Management's adjustments, as measured in the ledger", '', '', '']); mgA.forEach(a => rows.push(['  ' + a.title, ref[a.id], a.accepted ? th(a.amount) : '–', st(a)])); }
-        if (dgA.length) { emph.push(rows.length); rows.push(['Diligence adjustments', '', '', '']); dgA.forEach(a => rows.push(['  ' + a.title, ref[a.id], a.accepted ? th(a.amount) : '–', st(a)])); }
-        tot.push(rows.length); rows.push(['Total adjustments', '', th(L.adjTotal), '']);
-        tot.push(rows.length); rows.push(['Diligence-adjusted EBITDA', '', th(L.adjEBITDA), '']);
-        sub.push(rows.length); rows.push(['  Adjusted EBITDA margin', '', T.Revenue ? pc(L.adjEBITDA / T.Revenue) : '', '']);
-        b.push({ h: `Summary of adjusted EBITDA, TTM ${mo(L.last)}` }, { table: { unit: curUnit('thousands'), head: ['', 'Ref', 'Amount', 'Status'], rows, align: ['l', 'l', 'r', 'l'], widths: [0.56, 0.08, 0.18, 0.18], emph, totals: tot, sub } });
-        b.push({ h: 'Notes to the adjustments' }, ...[...mgA, ...dgA].map(a => ({ p: `${ref[a.id]}. ${a.title}: ${a.amount < 0 ? 'reduces' : 'increases'} EBITDA by ${mn(Math.abs(a.amount))} (${st(a).toLowerCase()}). ${a.note || ''}`.trim(), notes: note((a.evidence || []).map(e => e && e.src).filter(Boolean).slice(0, 3)) })));
+      const b = []; const Q = qoeSchedule(R, m);
+      if (Q) {
+        const kinds = Q.rows.map(r => r.kind);
+        const rows = Q.rows.map(r => [r.ref || '', (r.kind === 'adj' ? '  ' : '') + r.label.replace(/^ {2}/, r.kind === 'pct' || r.kind === 'pct2' || r.kind === 'flag' ? '  ' : '') + (r.kind === 'adj' && r.status && r.status !== 'Accepted' && r.status !== 'Proposed' ? ` (${r.status.toLowerCase()})` : ''), ...r.vals.map(v => r.kind === 'head' ? '' : qoeK(v, r.kind === 'pct'))]);
+        const idx = k => kinds.map((x, i) => k.includes(x) ? i : -1).filter(i => i >= 0);
+        const w = Math.min(0.15, 0.5 / Q.cols.length);
+        b.push({ p: `[[qoe]] starts from reported EBITDA, adds management's adjustments as presented, and applies the diligence adjustments the evidence supports. Each adjustment is numbered and explained in the notes that follow, and [[qoechart]] compares the three EBITDA measures by period.` },
+          { h: 'Summary of adjusted EBITDA' }, { table: { xref: 'qoe', unit: curUnit('thousands'), head: ['Ref', '', ...Q.cols.map(c => c.label)], rows, align: ['l', 'l', ...Q.cols.map(() => 'r')], widths: [0.07, 0.93 - w * Q.cols.length, ...Q.cols.map(() => w)], emph: idx(['head', 'total']), totals: idx(['total', 'grand']), sub: idx(['pct', 'pct2', 'memo', 'sub']), compact: true, notes: note([M && M.statedSrc, M && M.reportedSrc].filter(Boolean)).concat(L ? ledgerNote() : []) } });
+        if (Q.naNote) b.push({ small: `n.a.: not applicable. ${Q.naNote}` });
+        { const pick = id => { const r = Q.rows.find(x => x.id === id); return r ? r.vals.map(v => v === 'na' || v == null ? null : v) : null; };
+          const ser = [['Reported EBITDA', pick('reported')], [M ? (Q.rows.some(x => x.id === 'pf') ? "Management's adjusted, before pro forma" : "Management's adjusted EBITDA") : null, M ? pick('mgmt') : null], ['Diligence-adjusted EBITDA', pick('diligence')]].filter(x => x[0] && x[1]).map(([name, values]) => ({ name, values }));
+          b.push({ chart: { xref: 'qoechart', kind: 'bar', title: 'EBITDA by period', sub: `${CUR.code === 'USD' ? '$' : CUR.code} in thousands`, labels: Q.cols.map(c => c.label), series: ser, h: 175 } }); }
+        b.push({ h: 'Notes to the adjustments' }, ...Q.notes.map(nt => ({ p: `${nt.ref}. ${nt.title}${nt.status && nt.status !== 'Computed' ? ` (${nt.status.toLowerCase()})` : ''}. ${nt.text}`, notes: note([nt.src, ...((nt.evidence || []).map(e => e && e.src).filter(Boolean).slice(0, 2))].filter(Boolean)) })));
       }
-      if (qo) { const i = qo.blocks.findIndex(x => x.h && /^Management's bridge/.test(x.h)); if (i >= 0) b.push(...qo.blocks.slice(i)); }
-      b.push(...findingBullets(area.filter(f => f.category === 'Earnings quality' || f.category === 'Controls & data integrity')).map(x => ({ ...x })));
-      if (area.some(f => f.category === 'Earnings quality' || f.category === 'Controls & data integrity')) b.splice(b.length - 1, 0, { h: 'Earnings quality and control findings' });
+      const qf = area.filter(f => f.category === 'Earnings quality' || f.category === 'Controls & data integrity');
+      if (qf.length) b.push({ h: 'Earnings quality and control findings' }, ...findingBullets(qf));
       addR('Quality of earnings', b);
       const hi = getS('Historical financial performance'); if (hi) addR('Historical financial performance', hi.blocks);
+      if (AN.quarterly) {
+        const Qc = AN.quarterly.cols, Qv = AN.quarterly.v; const pctOf = (a, b) => b ? a / b : null;
+        const qrow = (l, f, pct) => [l, ...Qv.map(o => qk(f(o), pct))];
+        const qrows = [qrow('Revenue', o => o.Revenue), qrow('Cost of revenue', o => -o.COGS), qrow('Gross profit', o => o.GP), qrow('  Gross margin', o => pctOf(o.GP, o.Revenue), true),
+          qrow('Operating expenses', o => -o.OpEx), qrow('Other income', o => o.OtherIncome), qrow('EBITDA', o => o.EBITDA), qrow('  EBITDA margin', o => pctOf(o.EBITDA, o.Revenue), true)];
+        const ttm = AN.hasPrior; const chg = (a, b) => b ? (a - b) / Math.abs(b) : null;
+        const accRows = list => list.map(x => [x.account, ...(ttm ? [qk(x.prior)] : []), qk(x.ttm), ...(ttm ? [qk(x.ttm - x.prior), chg(x.ttm, x.prior) == null ? '' : qk(chg(x.ttm, x.prior), true)] : []), AN.revTTM ? qk(x.ttm / AN.revTTM, true) : '']);
+        const accHead = first => [first, ...(ttm ? ['Prior TTM'] : []), `TTM ${monthLabel(L.last)}`, ...(ttm ? ['Change', '% change'] : []), '% of revenue'];
+        const accAlign = n => ['l', ...Array(n - 1).fill('r')]; const accW = ttm ? [0.38, 0.12, 0.12, 0.12, 0.12, 0.14] : [0.6, 0.2, 0.2];
+        const rv = AN.revenueByAccount, cs = AN.costByAccount; const tot = (list, f) => list.reduce((a, x) => a + f(x), 0);
+        const totRow = (lab, list) => [lab, ...(ttm ? [qk(tot(list, x => x.prior))] : []), qk(tot(list, x => x.ttm)), ...(ttm ? [qk(tot(list, x => x.ttm - x.prior)), qk(chg(tot(list, x => x.ttm), tot(list, x => x.prior)), true)] : []), AN.revTTM ? qk(tot(list, x => x.ttm) / AN.revTTM, true) : ''];
+        const b2 = [{ p: `[[qtr]] sets out quarterly results from the general ledger for the quarters it fully covers, with the trailing twelve months; [[rev]] and [[cost]] break revenue and costs down by account. Revenue ${AN.revPrior ? `grew ${pc(AN.revTTM / AN.revPrior - 1)} on the prior twelve months` : `was ${mn(AN.revTTM)} in the trailing twelve months`}.` },
+          { h: 'Quarterly income statement' }, { table: { xref: 'qtr', unit: curUnit('thousands'), head: ['', ...Qc.map(c => c.label)], rows: qrows, align: ['l', ...Qc.map(() => 'r')], widths: [0.2, ...Qc.map(() => 0.8 / Qc.length)], totals: [2, 6], sub: [3, 7], compact: true, notes: ledgerNote() } }];
+        { const qn = Qc.slice(0, -1), qv = Qv.slice(0, -1);
+          if (qn.length >= 2) b2.push({ chart: { kind: 'bar', title: 'Revenue by quarter', sub: `${CUR.code === 'USD' ? '$' : CUR.code} in thousands`, labels: qn.map(c => c.label), series: [{ name: 'Revenue', values: qv.map(o => o.Revenue) }], h: 160 } },
+            { chart: { kind: 'line', pct: true, title: 'Gross margin and EBITDA margin by quarter', labels: qn.map(c => c.label), series: [{ name: 'Gross margin', values: qv.map(o => o.Revenue ? o.GP / o.Revenue : null) }, { name: 'EBITDA margin', values: qv.map(o => o.Revenue ? o.EBITDA / o.Revenue : null) }], zero: true, h: 160 } });
+          if (L.prior.length === 12 && L.ttm.length === 12) b2.push({ chart: { kind: 'bar', title: 'Monthly revenue: trailing twelve months against the prior twelve', sub: `${CUR.code === 'USD' ? '$' : CUR.code} in thousands`, labels: L.ttm.map(x => monthLabel(x).slice(0, 3)), series: [{ name: `TTM ${monthLabel(L.last)}`, values: L.ttm.map(x => L.pl[x].Revenue) }, { name: 'Prior twelve months', values: L.prior.map(x => L.pl[x].Revenue) }], h: 170 } }); }
+        if (rv.length) b2.push({ h: 'Revenue by account' }, { table: { xref: 'rev', unit: curUnit('thousands'), head: accHead('Account'), rows: [...accRows(rv), totRow('Total revenue', rv)], align: accAlign(accHead('').length), widths: accW, totals: [rv.length] } });
+        if (cs.length) b2.push({ h: 'Cost of revenue and operating expenses by account' }, { table: { xref: 'cost', unit: curUnit('thousands'), head: accHead('Account'), rows: [...accRows(cs), totRow('Total cost of revenue and operating expenses', cs)], align: accAlign(accHead('').length), widths: accW, totals: [cs.length] } });
+        const gm = area.filter(f => f.id === 'R03' || f.id === 'C13'); if (gm.length) b2.push({ h: 'Margin findings' }, ...findingBullets(gm));
+        addR('Revenue, gross margin and operating expenses', b2);
+        if (AN.payroll.length) { const pr = AN.payroll; const ob = AN.officerBenchmark;
+          addR('Payroll and compensation', [{ p: `Payroll-related accounts total ${mn(tot(pr, x => x.ttm))} in the trailing twelve months, ${AN.revTTM ? pc(tot(pr, x => x.ttm) / AN.revTTM) : 'n/a'} of revenue.${ob ? ` The documents put the market cost of replacing the owner's role at ${mn(ob.value)} a year.` : ''}`, notes: ob ? note([ob.src]) : [] },
+            { table: { unit: curUnit('thousands'), head: accHead('Account'), rows: [...accRows(pr), totRow('Total payroll-related', pr)], align: accAlign(accHead('').length), widths: accW, totals: [pr.length] } },
+            { small: 'Headcount, pay rates and benefits are not in the documents provided; request a payroll register to analyze them.' }]); }
+      }
     }
 
     /* revenue */
-    if (has('revenue')) { const rq = getS('Revenue quality'); if (rq) addR('Revenue analysis', rq.blocks);
+    if (has('revenue')) { const rq = getS('Revenue quality'); const cl = L && L.customers ? L.customers.list.slice(0, 10) : [];
+      if (rq) addR('Revenue analysis', [...rq.blocks, ...(cl.length >= 3 ? [{ chart: { kind: 'hbar', pct: true, title: `Top ${cl.length} customers, share of revenue`, labels: cl.map(c => c.name), series: [{ name: 'Share of revenue', values: cl.map(c => c.share) }], h: 30 + cl.length * 15 } }] : [])]);
       else if (kind === 'revenue') addR('Revenue analysis', [{ p: 'Revenue by customer needs a general ledger with customer names. None was found in the documents provided.' }]); }
 
     /* net working capital */
@@ -4518,14 +4730,21 @@ function memoModel(R, m, opts) {
       /* every line that makes up the total, as the engine adds it: assets positive, liabilities negative */
       const lines = N.lines; const dlike = lines.filter(l => l.cls === 'Debt-like');
       const cell = v => v == null ? '' : th(v);
-      const rows = lines.map(l => [l.line + (l.cls === 'Debt-like' ? ' *' : ''), ...ms.map((_, j) => l.values[off + j] == null ? '' : cell(l.sign * l.values[off + j]))]);
-      rows.push(['Reported net working capital', ...ms.map((_, j) => cell(N.reported[off + j]))]);
-      const normed = (N.normalizations || []).length; if (normed) rows.push(['Normalized net working capital', ...ms.map((_, j) => cell(N.monthly[off + j]))]);
-      const tot = [lines.length].concat(normed ? [lines.length + 1] : []);
-      const b = [{ p: `Net working capital averaged ${mn(N.peg)} over the ${N.pegN} months to ${mo(L.last)}, which indicates a peg of that amount, and was ${mn(N.delivered)} at ${mo(L.last)}${normed ? ' after normalization' : ''}. ${N.defNote || ''}`.trim() },
+      /* lines, reported total, the diligence adjustments month by month, adjusted total, and the average of each row */
+      const avg = vs => { const xs = vs.filter(v => v != null); return xs.length ? xs.reduce((a, v) => a + v, 0) / xs.length : null; };
+      const rowOf = (label, vs) => [label, ...vs.map(cell), cell(avg(vs))];
+      const rows = lines.map(l => rowOf(l.line + (l.cls === 'Debt-like' ? ' *' : ''), ms.map((_, j) => l.values[off + j] == null ? null : l.sign * l.values[off + j])));
+      rows.push(rowOf('Reported net working capital', ms.map((_, j) => N.reported[off + j])));
+      const normed = (N.normalizations || []).length; const tot = [lines.length]; const emphN = [];
+      if (normed) { emphN.push(rows.length); rows.push(['Diligence adjustments', ...ms.map(() => ''), '']);
+        const groups = {}; N.normalizations.forEach(x => { const k = String(x.note || 'Normalization').split(':')[0]; (groups[k] = groups[k] || {})[x.month] = ((groups[k] || {})[x.month] || 0) + x.amount; });
+        Object.entries(groups).forEach(([k, byM]) => rows.push(rowOf('  ' + k, ms.map(mm => byM[mm] || 0))));
+        tot.push(rows.length); rows.push(rowOf('Adjusted net working capital', ms.map((_, j) => N.monthly[off + j]))); }
+      const b = [{ p: `[[nwc]] shows net working capital month by month and [[nwcchart]] plots it against the average. Net working capital averaged ${mn(N.peg)} over the ${N.pegN} months to ${mo(L.last)}, which indicates a peg of that amount, and was ${mn(N.delivered)} at ${mo(L.last)}${normed ? ' after normalization' : ''}. ${N.defNote || ''}`.trim() },
         { h: `Monthly net working capital, ${mo(ms[0])} to ${mo(ms[ms.length - 1])}` },
-        { table: { unit: `${curUnit('thousands')}; liabilities shown as negatives`, head: ['', ...ms.map(x => mo(x).replace(/ (\d{2})(\d{2})$/, " '$2"))], rows, align: ['l', ...ms.map(() => 'r')], widths: [0.22, ...ms.map(() => 0.78 / ms.length)], totals: tot, small: true } }];
-      if (normed) b.push({ h: 'Normalization adjustments' }, { bullets: N.normalizations.map(x => ({ t: `${mo(x.month)}: ${x.note} (${mn(x.amount)}).` })) });
+        { table: { xref: 'nwc', unit: `${curUnit('thousands')}; liabilities shown as negatives`, head: ['', ...ms.map(x => mo(x).replace(/ (\d{2})(\d{2})$/, " '$2")), 'Avg.'], rows, align: ['l', ...ms.map(() => 'r'), 'r'], widths: [0.2, ...ms.map(() => 0.72 / ms.length), 0.08], totals: tot, emph: emphN, compact: true } },
+        { small: `The average of adjusted net working capital over the ${ms.length} months, ${mn(avg(ms.map((_, j) => N.monthly[off + j])))}, is the indicative peg.` },
+        { chart: { xref: 'nwcchart', kind: 'bar', title: `Adjusted net working capital by month, ${mo(L.months[0])} to ${mo(L.last)}`, sub: `${CUR.code === 'USD' ? '$' : CUR.code} in thousands`, labels: L.months.map(x => monthLabel(x).slice(0, 3) + " '" + x.slice(2, 4)), series: [{ name: 'Adjusted net working capital', values: N.monthly.slice() }], ref: { value: avg(ms.map((_, j) => N.monthly[off + j])), label: `${ms.length}-month average (indicative peg)` }, h: 175 } }];
       if (dlike.length) { const inDebt = (Dt ? Dt.debtLike.filter(x => x.included).map(x => x.line) : []); const both = dlike.filter(l => inDebt.includes(l.line)).map(l => l.line);
         b.push({ small: `* Debt-like item, kept in net working capital on the ${N.def} definition used here.${both.length ? ` ${both.join(' and ')} ${both.length === 1 ? 'is' : 'are'} also deducted in net debt; the equity value bridge adds ${both.length === 1 ? 'it' : 'them'} back once so ${both.length === 1 ? 'it is' : 'they are'} not counted twice.` : ''}` }); }
       const d = (lab, y) => y ? [lab, y.then != null ? y.then.toFixed(1) : 'n/a', y.now.toFixed(1), y.delta != null ? (y.delta >= 0 ? '+' : '') + y.delta.toFixed(1) : ''] : null;
@@ -4541,11 +4760,11 @@ function memoModel(R, m, opts) {
       const rows = Dt.rows.map(r => [r.facility, r.lender || '', th(r.bs), r.conf != null ? th(r.conf) : '–', r.conf != null ? th(r.conf - r.bs) : '–', r.status]);
       rows.push(['Total funded debt', '', th(Dt.bsDebt), th(Dt.fundedDebt), th(Dt.fundedDebt - Dt.bsDebt), '']);
       const dl = Dt.debtLike;
-      const b = [{ h: `Debt tie-out at ${mo(L.last)}` }, { table: { unit: curUnit('thousands'), head: ['Facility', 'Lender', 'Balance sheet', 'Lender confirmation', 'Difference', 'Status'], rows, align: ['l', 'l', 'r', 'r', 'r', 'l'], widths: [0.24, 0.2, 0.13, 0.15, 0.13, 0.15], totals: [rows.length - 1], notes: note(Dt.rows.flatMap(r => [r.srcConf, r.srcBS])) } }];
+      const b = [{ p: '[[tieout]] compares each facility on the balance sheet with the lender\u2019s confirmation; [[netdebt]] builds net debt from the confirmed balances.' }, { h: `Debt tie-out at ${mo(L.last)}` }, { table: { xref: 'tieout', unit: curUnit('thousands'), head: ['Facility', 'Lender', 'Balance sheet', 'Lender confirmation', 'Difference', 'Status'], rows, align: ['l', 'l', 'r', 'r', 'r', 'l'], widths: [0.24, 0.2, 0.13, 0.15, 0.13, 0.15], totals: [rows.length - 1], notes: note(Dt.rows.flatMap(r => [r.srcConf, r.srcBS])) } }];
       const off = Dt.rows.filter(r => r.conf != null && Math.abs(r.conf - r.bs) > 0.5);
       b.push({ p: off.length ? `${off.length} of ${Dt.rows.length} facilities do not agree with the lender: ${off.map(r => `${r.facility} (${mn(r.conf)} confirmed vs ${mn(r.bs)} recorded)`).join('; ')}. Net debt uses the confirmed balances.` : `All ${Dt.rows.length} facilities agree with the lender confirmations.` });
       if (dl.length) b.push({ h: 'Debt-like items' }, { table: { unit: curUnit('thousands'), head: ['Item', 'Amount', 'Treatment'], rows: [...dl.map(x => [x.line, th(x.amount), x.included ? 'Included in net debt' : 'Not included (deal team decision)']), ['Total included', th(Dt.debtLikeTotal), '']], align: ['l', 'r', 'l'], widths: [0.46, 0.18, 0.36], totals: [dl.length], notes: note(dl.map(x => x.src)) } });
-      b.push({ h: 'Net debt' }, { table: { unit: curUnit('thousands'), head: ['', 'Amount'], rows: [['Funded debt, per lender confirmations', th(Dt.fundedDebt)], ['Less: cash', th(-Dt.cash)], ['Net debt', th(Dt.netDebt)], ['Add: debt-like items included', th(Dt.debtLikeTotal)], ['Net debt and debt-like items', th(Dt.netDebt + Dt.debtLikeTotal)]], align: ['l', 'r'], widths: [0.72, 0.28], totals: [2, 4] } },
+      b.push({ h: 'Net debt' }, { table: { xref: 'netdebt', unit: curUnit('thousands'), head: ['', 'Amount'], rows: [['Funded debt, per lender confirmations', th(Dt.fundedDebt)], ['Less: cash', th(-Dt.cash)], ['Net debt', th(Dt.netDebt)], ['Add: debt-like items included', th(Dt.debtLikeTotal)], ['Net debt and debt-like items', th(Dt.netDebt + Dt.debtLikeTotal)]], align: ['l', 'r'], widths: [0.72, 0.28], totals: [2, 4] } },
         ...(Dt.overlap ? [{ small: `${mn(Dt.overlap)} of the debt-like items is also inside net working capital; the equity value bridge adds it back once so it is not counted twice.` }] : []));
       const df = area.filter(f => f.category === 'Debt & liabilities' || f.id === 'B03'); if (df.length) b.push({ h: 'Debt findings' }, ...findingBullets(df));
       addR('Net debt and debt-like items', b);
@@ -4555,16 +4774,34 @@ function memoModel(R, m, opts) {
     if (has('cash')) {
       const b = [];
       if (PC) {
-        const rows = PC.rows.map(r => [mo(r.month), th(r.opIn), r.expected == null ? '–' : th(r.expected), r.gapIn == null ? '–' : th(r.gapIn), r.bankClose == null ? '–' : th(r.bankClose), r.bsCash == null ? '–' : th(r.bsCash), r.gapCash == null ? '–' : th(r.gapCash)]);
-        rows.push(['Total', th(PC.tot.opIn), th(PC.tot.expected), th(PC.tot.gap), '', '', '']);
-        b.push({ p: `Over the ${PC.covered} months with both bank statements and books, operating deposits were ${mn(PC.tot.opIn)} against revenue collected of ${mn(PC.tot.expected)}, a difference of ${mn(PC.tot.gap)}${PC.tot.gapPct != null ? ` (${pc(PC.tot.gapPct)})` : ''}.` },
-          { h: 'Proof of cash by month' }, { table: { notes: note([...PC.accounts.map(a => (PC.tx.find(t => t.account === a) || {}).src), ...(L && L.cls ? L.lines.filter(l => L.cls[l] === 'Cash').slice(0, 1).map(l => L.srcAt(l, L.last)) : [])].filter(Boolean)), unit: curUnit('thousands'), head: ['Month', 'Operating deposits', 'Revenue collected', 'Difference', 'Bank balance', 'Book cash', 'Difference'], rows, align: ['l', 'r', 'r', 'r', 'r', 'r', 'r'], widths: [0.13, 0.15, 0.15, 0.13, 0.15, 0.15, 0.14], totals: [rows.length - 1] } },
-          { small: 'Revenue collected is revenue less the increase in receivables. Operating deposits exclude transfers between accounts, loan proceeds, owner contributions and refunds, listed below.' });
+        const P4 = proofOfCash4(R); const T4 = P4.total; const pn = note([...PC.accounts.map(a => (PC.tx.find(t => t.account === a) || {}).src), ...(L && L.cls ? L.lines.filter(l => L.cls[l] === 'Cash').slice(0, 1).map(l => L.srcAt(l, L.last)) : [])].filter(Boolean));
+        const four = [['Per bank statements', th(T4.bankOpen), th(T4.bankIn), th(-T4.bankOut), th(T4.bankClose)], ['Per books', th(T4.bookOpen), T4.bookIn == null ? 'n.a.' : th(T4.bookIn), T4.bookOut == null ? 'n.a.' : th(-T4.bookOut), th(T4.bookClose)],
+          ['Difference', th((T4.bankOpen || 0) - (T4.bookOpen || 0)), T4.bookIn == null ? 'n.a.' : th(T4.bankIn - T4.bookIn), T4.bookOut == null ? 'n.a.' : th(-(T4.bankOut - T4.bookOut)), th((T4.bankClose || 0) - (T4.bookClose || 0))]];
+        b.push({ p: `[[poc]] reconciles opening balances, receipts, disbursements and closing balances per bank and per books. Over the ${PC.covered} months with both bank statements and books, operating deposits were ${mn(PC.tot.opIn)} against revenue collected of ${mn(PC.tot.expected)}, a difference of ${mn(PC.tot.gap)}${PC.tot.gapPct != null ? ` (${pc(PC.tot.gapPct)})` : ''}. ${P4.continuityBreaks.length ? `The bank statements do not carry forward cleanly in ${P4.continuityBreaks.map(mo).join(', ')}: a month does not open where the previous one closed, which suggests missing transactions.` : 'Each month of the bank statements opens where the previous month closed and adds up to its closing balance.'}` },
+          { h: `Proof of cash, ${mo(P4.rows[0].month)} to ${mo(P4.rows[P4.rows.length - 1].month)}` }, { table: { xref: 'poc', notes: pn, unit: curUnit('thousands'), head: ['', 'Opening balance', 'Receipts', 'Disbursements', 'Closing balance'], rows: four, align: ['l', 'r', 'r', 'r', 'r'], widths: [0.28, 0.18, 0.18, 0.18, 0.18], totals: [2] } },
+          { small: 'Receipts per books are revenue collected (revenue less the increase in receivables) plus the loan proceeds, owner contributions and other non-operating receipts on the bank statements. Disbursements per books are derived from the opening and closing book balances, so they are tested only in total; a cash account ledger would allow them to be tested item by item.' });
+        const mrows = P4.rows.map(r => [mo(r.month), th(r.bankOpen), th(r.bankIn), th(-r.bankOut), th(r.bankClose), r.bookIn == null ? 'n.a.' : th(r.diffIn), r.bookOut == null ? 'n.a.' : th(-r.diffOut), r.diffClose == null ? 'n.a.' : th(r.diffClose)]);
+        b.push({ h: 'By month' }, { table: { unit: curUnit('thousands'), head: ['Month', 'Bank opening', 'Receipts', 'Disbursed', 'Bank closing', 'Receipts diff.', 'Disb. diff.', 'Closing diff.'], rows: mrows, align: ['l', 'r', 'r', 'r', 'r', 'r', 'r', 'r'], widths: [0.11, 0.12, 0.12, 0.15, 0.12, 0.13, 0.12, 0.13], compact: true } });
+        const rows = PC.rows.map(r => [mo(r.month), th(r.opIn), r.expected == null ? '–' : th(r.expected), r.gapIn == null ? '–' : th(r.gapIn)]);
+        rows.push(['Total', th(PC.tot.opIn), th(PC.tot.expected), th(PC.tot.gap)]);
+        b.push({ chart: { kind: 'bar', title: 'Operating deposits against revenue collected, by month', sub: `${CUR.code === 'USD' ? '$' : CUR.code} in thousands`, labels: PC.rows.map(r => monthLabel(r.month).slice(0, 3)), series: [{ name: 'Operating deposits (bank)', values: PC.rows.map(r => r.opIn) }, { name: 'Revenue collected (books)', values: PC.rows.map(r => r.expected) }], h: 170 } });
+        b.push({ h: 'Operating deposits against revenue collected' }, { table: { unit: curUnit('thousands'), head: ['Month', 'Operating deposits', 'Revenue collected', 'Difference'], rows, align: ['l', 'r', 'r', 'r'], widths: [0.25, 0.25, 0.25, 0.25], totals: [rows.length - 1], compact: true } },
+          { small: 'Operating deposits exclude transfers between accounts, loan proceeds, owner contributions and refunds, listed below.' });
         if (PC.nonOp.length) b.push({ h: 'Non-operating bank activity' }, { table: { unit: curUnit('thousands'), head: ['Date', 'Description', 'Treated as', 'Amount'], rows: PC.nonOp.slice(0, 40).map(t => [t.date, t.desc, t.kind, th(t.amount)]), align: ['l', 'l', 'l', 'r'], widths: [0.14, 0.46, 0.24, 0.16] } });
       } else if (kind === 'cash') b.push({ p: 'A proof of cash needs bank statements alongside the ledger and monthly balance sheets. No bank statements were found in the documents provided.' });
       const cf = getS('Cash flow and conversion'); if (cf) b.push({ h: 'Cash flow and conversion' }, ...cf.blocks);
       const cfF = area.filter(f => /^B0/.test(f.id)); if (cfF.length) b.push({ h: 'Cash findings' }, ...findingBullets(cfF));
       addR('Proof of cash and cash flow', b);
+    }
+
+    /* income taxes, commitments and contingencies (full report) */
+    if (kind === 'fdd') {
+      if (AN.taxByPeriod && AN.taxByPeriod.length) { const tp = AN.taxByPeriod;
+        addR('Income taxes', [{ table: { unit: curUnit('thousands'), head: ['', ...tp.map(x => x.label)], rows: [['Net income', ...tp.map(x => qk(x.ni))], ['Income taxes', ...tp.map(x => qk(x.tax))], ['Income before taxes', ...tp.map(x => x.ni != null ? qk(x.ni + (x.tax || 0)) : '')], ['  Effective tax rate', ...tp.map(x => x.ni != null && x.ni + (x.tax || 0) ? qk((x.tax || 0) / (x.ni + (x.tax || 0)), true) : '')]], align: ['l', ...tp.map(() => 'r')], widths: [0.32, ...tp.map(() => 0.68 / tp.length)], totals: [2], sub: [3] } },
+          ...(AN.tax && AN.tax.payable != null ? [{ p: `Income taxes payable were ${mn(AN.tax.payable)} at ${monthLabel(L.last)}.`, notes: note([AN.tax.payableSrc]) }] : []),
+          { small: 'A low effective rate can reflect a pass-through entity, losses carried forward or unpaid taxes. This is not tax diligence; confirm the entity\u2019s tax status and filings with tax advisers.' }]); }
+      if (AN.contingencies.length) addR('Commitments and contingencies', [{ p: 'Obligations and exposures the documents disclose. Each needs confirmation before closing.' },
+        { table: { head: ['Item', 'Detail', 'Amount'], rows: AN.contingencies.map(x => [x.item, x.detail, x.amount != null ? qk(x.amount) : '']), align: ['l', 'l', 'r'], widths: [0.2, 0.66, 0.14], unit: curUnit('thousands'), notes: note(AN.contingencies.map(x => x.src).filter(Boolean)) } }]);
     }
 
     /* projections, valuation and returns */
@@ -4598,6 +4835,16 @@ function memoModel(R, m, opts) {
     /* sources */
     addRA('Sources and notes', [{ table: { head: ['ID', 'Document', 'Type'], rows: docsUsed.map(d => [d.id, d.name, d.type.toUpperCase()]), align: ['l', 'l', 'l'], widths: [0.08, 0.76, 0.16] } },
       { h: 'Notes' }, { notesList: true }, { small: `Bracketed numbers refer to these notes. Line, row and cell references for every figure are in the DealBasis record, run ${R.fingerprint}. No statistical or generative model was used.` }]);
+
+    /* number tables and figures by section (Table 5.1, Figure 5.1; appendices A.1) and resolve cross-references */
+    { const refs = {};
+      const num = (secs, pre) => secs.forEach((sx, si) => { let t = 0, f = 0; const tag = pre ? String.fromCharCode(65 + si) : String(si + 1); let last = null;
+        sx.blocks.forEach(b0 => { if (b0.h) last = b0.h;
+          if (b0.table && b0.table.head && b0.table.head.length > 1) { b0.table.num = `Table ${tag}.${++t}`; b0.table.caption = b0.table.caption || last; if (b0.table.xref) refs[b0.table.xref] = b0.table.num; }
+          if (b0.chart) { b0.chart.num = `Figure ${tag}.${++f}`; if (b0.chart.xref) refs[b0.chart.xref] = b0.chart.num; } }); });
+      num(RS, false); num(RA, true);
+      const fix = t0 => String(t0).replace(/\[\[(\w+)\]\]/g, (m0, k0) => refs[k0] || 'the schedule below');
+      [...RS, ...RA].forEach(sx => sx.blocks.forEach(b0 => { if (b0.p) b0.p = fix(b0.p); if (b0.small) b0.small = fix(b0.small); if (b0.bullets) b0.bullets.forEach(x => { x.t = fix(x.t); }); })); }
 
     /* number the notes in reading order */
     const map = {}; const order = []; const seenArr = new Set();
@@ -4808,18 +5055,19 @@ function memoDocx(M, X) {
   const NONE = { style: X.BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const TW = 9360;
   const cell = (t, o) => new X.TableCell({
-    width: { size: o.w, type: X.WidthType.DXA }, margins: { top: 50, bottom: 50, left: 90, right: 90 },
+    width: { size: o.w, type: X.WidthType.DXA }, margins: o.compact ? { top: 30, bottom: 30, left: 40, right: 40 } : { top: 50, bottom: 50, left: 90, right: 90 },
     shading: o.fill ? { fill: o.fill, type: X.ShadingType.CLEAR, color: 'auto' } : undefined,
     borders: { top: o.tot ? { style: X.BorderStyle.SINGLE, size: 10, color: INK } : NONE, bottom: { style: X.BorderStyle.SINGLE, size: o.head ? 6 : 4, color: o.head ? '999999' : RULE }, left: NONE, right: NONE },
-    children: [new X.Paragraph({ keepNext: !!o.keep, keepLines: true, alignment: o.align === 'r' ? X.AlignmentType.RIGHT : X.AlignmentType.LEFT, children: [run(String(t).replace(/^ {2}/, o.sub ? '    ' : ''), { size: o.head ? 15 : 17, bold: !!(o.head || o.tot || o.emph || o.sevBold), italics: !!o.sub, color: o.head ? '555555' : o.color || (o.sub ? GREY : INK), allCaps: !!o.head })] })]
+    children: [new X.Paragraph({ keepNext: !!o.keep, keepLines: true, alignment: o.align === 'r' ? X.AlignmentType.RIGHT : X.AlignmentType.LEFT, children: [run(String(t).replace(/^ {2}/, o.sub ? '    ' : ''), { size: o.compact ? (o.head ? 12 : 14) : o.head ? 15 : 17, bold: !!(o.head || o.tot || o.emph || o.sevBold), italics: !!o.sub, color: o.head ? '555555' : o.color || (o.sub ? GREY : INK), allCaps: !!o.head })] })]
   });
   const table = t => {
     const ws = (t.widths || t.head.map(() => 1 / t.head.length)).map(w => Math.round(TW * w));
     const out = [];
-    if (t.unit) out.push(P([run(t.unit, { size: 16, italics: true, color: GREY }), ...sup(t.notes)], { spacing: { before: 80, after: 40 }, keepNext: true }));
+    if (t.num) out.push(P([run(t.num + '   ', { size: 16, bold: true }), run(t.unit || '', { size: 16, italics: true, color: GREY }), ...sup(t.notes)], { spacing: { before: 80, after: 40 }, keepNext: true }));
+    else if (t.unit) out.push(P([run(t.unit, { size: 16, italics: true, color: GREY }), ...sup(t.notes)], { spacing: { before: 80, after: 40 }, keepNext: true }));
     out.push(new X.Table({ width: { size: TW, type: X.WidthType.DXA }, columnWidths: ws, rows: [
-      new X.TableRow({ tableHeader: true, cantSplit: true, children: t.head.map((h, j) => cell(h, { w: ws[j], align: t.align[j], head: true, fill: FILL, keep: true })) }),
-      ...t.rows.map((r, i) => new X.TableRow({ cantSplit: true, children: r.map((c, j) => cell(c, { w: ws[j], keep: t.rows.length <= 28 && i < t.rows.length - 1, align: t.align[j], tot: (t.totals || []).includes(i), emph: (t.emph || []).includes(i), sub: (t.sub || []).includes(i),
+      new X.TableRow({ tableHeader: true, cantSplit: true, children: t.head.map((h, j) => cell(h, { w: ws[j], align: t.align[j], head: true, fill: FILL, keep: true, compact: t.compact })) }),
+      ...t.rows.map((r, i) => new X.TableRow({ cantSplit: true, children: r.map((c, j) => cell(c, { compact: t.compact, w: ws[j], keep: t.rows.length <= 28 && i < t.rows.length - 1, align: t.align[j], tot: (t.totals || []).includes(i), emph: (t.emph || []).includes(i), sub: (t.sub || []).includes(i),
         fill: t.hi && t.hi.row === i && t.hi.col === j ? 'FFF1F1' : undefined, color: t.sev === j ? memoSeverityColor(c) : undefined, sevBold: t.sev === j })) }))] }));
     out.push(P([], { spacing: { after: 80 } }));
     return out;
@@ -4839,6 +5087,8 @@ function memoDocx(M, X) {
         new X.TableCell({ width: { size: ws[0], type: X.WidthType.DXA }, margins: { top: 50, bottom: 50, left: 90, right: 90 }, borders: { top: NONE, left: NONE, right: NONE, bottom: { style: X.BorderStyle.SINGLE, size: 4, color: RULE } }, children: [P([run(k, { size: 17, color: GREY, bold: true })], { spacing: { after: 0 } })] }),
         new X.TableCell({ width: { size: ws[1], type: X.WidthType.DXA }, margins: { top: 50, bottom: 50, left: 90, right: 90 }, borders: { top: NONE, left: NONE, right: NONE, bottom: { style: X.BorderStyle.SINGLE, size: 4, color: RULE } }, children: [P([run(v, { size: 18 }), ...sup(n)], { spacing: { after: 0 } })] })] })) }), P([], { spacing: { after: 80 } })]; }
     if (b.table) return table(b.table);
+    if (b.chart) { const wPt = 468, hPt = b.chart.h || 170; const png = chartPng(b.chart, wPt, hPt); if (!png) return [P([run(b.chart.title, { bold: true, size: 18 })])];
+      return [new X.Paragraph({ keepLines: true, spacing: { before: 80, after: 160 }, children: [new X.ImageRun({ data: png, transformation: { width: Math.round(wPt * 4 / 3), height: Math.round(hPt * 4 / 3) } })] })]; }
     if (b.signoff) { const ws = [2200, 2600, 2960, 1600]; return [new X.Table({ width: { size: TW, type: X.WidthType.DXA }, columnWidths: ws, rows: [
       new X.TableRow({ children: ['Role', 'Name', 'Signature', 'Date'].map((h, j) => cell(h, { w: ws[j], head: true, fill: FILL })) }),
       ...b.signoff.map(([r, n]) => new X.TableRow({ height: { value: 560, rule: X.HeightRule.ATLEAST }, children: [r, n, '', ''].map((c, j) => cell(c, { w: ws[j] })) }))] })]; }
@@ -4881,6 +5131,97 @@ function memoDocx(M, X) {
   });
 }
 
+/* ---------- report charts ----------
+   Static charts for the Word and PDF reports, drawn by one routine through a small painter, so the PDF gets vectors
+   and Word gets the same picture as an image. Print rules: one value axis, thin marks with a 2pt gap between bars,
+   a legend for two or more series, value labels where there are few marks, recessive grid. Series colors are the
+   validated categorical slots (blue, orange, aqua), assigned in fixed order; text stays in ink. */
+const CHART_SERIES = ['#2a78d6', '#eb6834', '#1baf7a'];
+const CHART_INK = '#111111', CHART_INK2 = '#52514e', CHART_GRID = '#e3e2de', CHART_AXIS = '#9a9893';
+function chartTicks(lo, hi, n) {
+  if (lo === hi) { hi = lo + 1; } const span = hi - lo; const raw = span / Math.max(1, n); const p = Math.pow(10, Math.floor(Math.log10(raw))); const step = [1, 2, 2.5, 5, 10].map(k => k * p).find(s => s >= raw) || 10 * p;
+  const a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step; const out = []; for (let v = a; v <= b + step / 1e6; v += step) out.push(Math.round(v / step) * step); return out;
+}
+/* values in thousands, as the schedules print them; percentages to one decimal (axis ticks to whole numbers) */
+function chartFmt(v, spec, tick) {
+  if (spec.pct) return (v * 100).toFixed(tick ? 0 : 1) + '%';
+  const a = Math.abs(v / 1000); const s = a >= 1 || a === 0 ? Math.round(a).toLocaleString('en-US') : a.toFixed(1);
+  return v < 0 ? '(' + s + ')' : s;
+}
+function drawChart(P, spec, X0, Y0, W, H) {
+  const ser = spec.series.filter(s => s.values.some(v => v != null && isFinite(v)));
+  if (!ser.length) return;
+  let y = Y0;
+  P.text((spec.num ? spec.num + '   ' : '') + spec.title, X0, y + 9, { size: 9, bold: true, color: CHART_INK }); y += 14;
+  if (spec.sub) { P.text(spec.sub, X0, y + 7, { size: 7, color: CHART_INK2 }); y += 11; }
+  if (ser.length > 1 || spec.ref) { let lx = X0; ser.forEach((s, i) => { P.rect(lx, y + 2, 8, 8, CHART_SERIES[i]); P.text(s.name, lx + 11, y + 9, { size: 7, color: CHART_INK2 }); lx += 11 + P.width(s.name, 7) + 14; });
+    if (spec.ref) { P.line(lx, y + 6, lx + 14, y + 6, CHART_INK, 1, [2, 2]); P.text(spec.ref.label, lx + 18, y + 9, { size: 7, color: CHART_INK2 }); } y += 15; }
+  const hbar = spec.kind === 'hbar';
+  const vals = ser.flatMap(s => s.values).filter(v => v != null && isFinite(v)).concat(spec.ref ? [spec.ref.value] : []);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (spec.kind !== 'line' || spec.zero) { lo = Math.min(0, lo); hi = Math.max(0, hi); } else { const pad = (hi - lo) * 0.15 || Math.abs(hi) * 0.1 || 1; lo -= pad; hi += pad; }
+  const ticks = chartTicks(lo, hi, 4); lo = ticks[0]; hi = ticks[ticks.length - 1];
+  const n = spec.labels.length;
+  if (hbar) {
+    const lw = Math.min(W * 0.38, Math.max(...spec.labels.map(l => P.width(l, 7))) + 8); const px = X0 + lw, pw = W - lw - 34; const rowH = Math.min(16, (Y0 + H - y) / n); const bh = Math.max(4, rowH - 5);
+    const sx = v => px + (v - 0) / (hi || 1) * pw;
+    spec.labels.forEach((l, i) => { const yy = y + i * rowH; const v = ser[0].values[i]; P.text(l, px - 6, yy + rowH / 2 + 2.5, { size: 7, color: CHART_INK, align: 'right' });
+      if (v != null) { P.bar(px, yy + (rowH - bh) / 2, Math.max(1, sx(v) - px), bh, CHART_SERIES[0], 'right'); P.text(chartFmt(v, spec), sx(v) + 4, yy + rowH / 2 + 2.5, { size: 7, color: CHART_INK }); } });
+    return;
+  }
+  const lw = Math.max(...ticks.map(t => P.width(chartFmt(t, spec, true), 7))) + 6; const px = X0 + lw, pw = W - lw, py = y + 4, ph = Y0 + H - 14 - py;
+  const sy = v => py + ph - (v - lo) / (hi - lo) * ph;
+  ticks.forEach(t => { const yy = sy(t); P.line(px, yy, px + pw, yy, t === 0 ? CHART_AXIS : CHART_GRID, t === 0 ? 0.8 : 0.5); P.text(chartFmt(t, spec, true), px - 4, yy + 2.5, { size: 7, color: CHART_INK2, align: 'right' }); });
+  const gw = pw / n; const every = Math.ceil(n / Math.max(1, Math.floor(pw / 34)));
+  spec.labels.forEach((l, i) => { if (i % every === 0 || i === n - 1 && n <= 14) P.text(l, px + gw * (i + 0.5), py + ph + 10, { size: 7, color: CHART_INK2, align: 'center' }); });
+  const few = n * ser.length <= 16;
+  if (spec.kind === 'line') {
+    ser.forEach((s, k) => { const pts = s.values.map((v, i) => v == null || !isFinite(v) ? null : [px + gw * (i + 0.5), sy(v)]);
+      for (let i = 1; i < pts.length; i++) if (pts[i] && pts[i - 1]) P.line(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], CHART_SERIES[k], 1.6);
+      pts.forEach((p, i) => { if (!p) return; P.circle(p[0], p[1], 2.4, CHART_SERIES[k], '#ffffff', 0.8); if (few || i === pts.length - 1) P.text(chartFmt(s.values[i], spec), p[0], p[1] - 5, { size: 6.5, color: CHART_INK, align: 'center' }); }); });
+  } else {
+    const gap = 2, inner = gw * 0.72, bw = Math.max(1.5, (inner - gap * (ser.length - 1)) / ser.length);
+    ser.forEach((s, k) => s.values.forEach((v, i) => { if (v == null || !isFinite(v)) return; const x = px + gw * i + (gw - inner) / 2 + k * (bw + gap); const y0 = sy(0), y1 = sy(v);
+      P.bar(x, Math.min(y0, y1), bw, Math.max(0.6, Math.abs(y1 - y0)), CHART_SERIES[k], v >= 0 ? 'up' : 'down');
+      if (few) P.text(chartFmt(v, spec), x + bw / 2, v >= 0 ? y1 - 3 : y1 + 8, { size: 6.5, color: CHART_INK, align: 'center' }); }));
+  }
+  if (spec.ref) { const yy = sy(spec.ref.value); P.line(px, yy, px + pw, yy, CHART_INK, 1, [3, 2]); P.text(chartFmt(spec.ref.value, spec), px + 2, yy - 3, { size: 6.5, color: CHART_INK }); }
+}
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+/* jsPDF painter: points, y down */
+function pdfPainter(doc) {
+  const fill = c => doc.setFillColor(...hexRgb(c)), stroke = c => doc.setDrawColor(...hexRgb(c));
+  return {
+    rect(x, y, w, h, c) { fill(c); doc.rect(x, y, w, h, 'F'); },
+    bar(x, y, w, h, c, dir) { fill(c); const r = Math.min(2, w / 2, h / 2); if (r < 0.5) { doc.rect(x, y, w, h, 'F'); return; } doc.roundedRect(x, y, w, h, r, r, 'F');
+      if (dir === 'up') doc.rect(x, y + h - r, w, r, 'F'); else if (dir === 'down') doc.rect(x, y, w, r, 'F'); else if (dir === 'right') doc.rect(x, y, r, h, 'F'); },
+    line(x1, y1, x2, y2, c, w, dash) { stroke(c); doc.setLineWidth(w || 0.5); if (dash && doc.setLineDashPattern) doc.setLineDashPattern(dash, 0); doc.line(x1, y1, x2, y2); if (dash && doc.setLineDashPattern) doc.setLineDashPattern([], 0); },
+    circle(x, y, r, c, ring, rw) { fill(c); stroke(ring || c); doc.setLineWidth(rw || 0); doc.circle(x, y, r, ring ? 'FD' : 'F'); },
+    text(t, x, y, o) { o = o || {}; doc.setFont('helvetica', o.bold ? 'bold' : 'normal'); doc.setFontSize(o.size || 8); doc.setTextColor(...hexRgb(o.color || CHART_INK)); doc.text(String(t).replace(/[^\x00-\xff]/g, ''), x, y, o.align ? { align: o.align } : undefined); },
+    width(t, size) { doc.setFont('helvetica', 'normal'); doc.setFontSize(size || 8); return doc.getTextWidth(String(t)); }
+  };
+}
+/* canvas painter for the Word report's chart images (s pixels per point) */
+function canvasPainter(ctx, s) {
+  const font = (sz, b) => { ctx.font = `${b ? '700 ' : ''}${sz * s}px Arial, Helvetica, sans-serif`; };
+  return {
+    rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x * s, y * s, w * s, h * s); },
+    bar(x, y, w, h, c, dir) { ctx.fillStyle = c; const r = Math.min(2, w / 2, h / 2) * s; const X = x * s, Y = y * s, Wd = w * s, Ht = h * s;
+      ctx.beginPath(); if (ctx.roundRect && r >= 0.5) ctx.roundRect(X, Y, Wd, Ht, dir === 'up' ? [r, r, 0, 0] : dir === 'down' ? [0, 0, r, r] : dir === 'right' ? [0, r, r, 0] : r); else ctx.rect(X, Y, Wd, Ht); ctx.fill(); },
+    line(x1, y1, x2, y2, c, w, dash) { ctx.strokeStyle = c; ctx.lineWidth = (w || 0.5) * s; ctx.setLineDash(dash ? dash.map(d => d * s) : []); ctx.beginPath(); ctx.moveTo(x1 * s, y1 * s); ctx.lineTo(x2 * s, y2 * s); ctx.stroke(); ctx.setLineDash([]); },
+    circle(x, y, r, c, ring, rw) { ctx.beginPath(); ctx.arc(x * s, y * s, r * s, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); if (ring) { ctx.strokeStyle = ring; ctx.lineWidth = (rw || 0.8) * s; ctx.stroke(); } },
+    text(t, x, y, o) { o = o || {}; font(o.size || 8, o.bold); ctx.fillStyle = o.color || CHART_INK; ctx.textAlign = o.align || 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(String(t), x * s, y * s); },
+    width(t, size) { font(size || 8); return ctx.measureText(String(t)).width / s; }
+  };
+}
+/* a chart as PNG bytes for Word, or null where there is no canvas */
+function chartPng(spec, wPt, hPt) {
+  if (typeof document === 'undefined' || !document.createElement) return null;
+  const s = 3; const cv = document.createElement('canvas'); cv.width = Math.round(wPt * s); cv.height = Math.round(hPt * s); const ctx = cv.getContext && cv.getContext('2d'); if (!ctx) return null;
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  drawChart(canvasPainter(ctx, s), spec, 0, 0, wPt, hPt);
+  const b64 = cv.toDataURL('image/png').split(',')[1]; const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u;
+}
 /* ---------- PDF ---------- */
 function memoPdf(M, jsPDF) {
   const W = 612, H = 792, ML = 60, MR = 60, CW = W - ML - MR, TOP = 74, BOT = 62;
@@ -4898,11 +5239,12 @@ function memoPdf(M, jsPDF) {
   const h2 = t => { ensure(48); y += 6; font('bold', 8.5, [51, 51, 51]); doc.text(clean(t).toUpperCase(), ML, y + 9, { charSpace: 0.6 }); y += 16; };
   const table = t => {
     const ws = (t.widths || t.head.map(() => 1 / t.head.length)).map(f => f * CW);
-    if (t.unit) { ensure(40); font('italic', 8, GREY); doc.text(clean(t.unit + refs(t.notes)), ML, y + 8); y += 13; }
+    if (t.num) { ensure(40); font('bold', 8, INK); doc.text(clean(t.num), ML, y + 8); const nw = doc.getTextWidth(clean(t.num)) + 8; font('italic', 8, GREY); doc.text(clean((t.unit || '') + refs(t.notes)), ML + nw, y + 8); y += 13; }
+    else if (t.unit) { ensure(40); font('italic', 8, GREY); doc.text(clean(t.unit + refs(t.notes)), ML, y + 8); y += 13; }
     const row = (cells, o) => {
-      const s = o.head ? 7.2 : 8.6; font(o.head || o.tot || o.emph ? 'bold' : o.sub ? 'italic' : 'normal', s);
+      const s = o.head ? 7.2 : t.compact ? 8 : 8.6; const pad = t.compact ? 5 : 8; font(o.head || o.tot || o.emph ? 'bold' : o.sub ? 'italic' : 'normal', s);
       const wrapped = cells.map((c, j) => doc.splitTextToSize(clean(o.head ? String(c).toUpperCase() : String(c).replace(/^ {2}/, o.sub ? '   ' : '')), ws[j] - 9));
-      const h = Math.max(...wrapped.map(w => w.length)) * s * 1.32 + 8;
+      const h = Math.max(...wrapped.map(w => w.length)) * s * 1.32 + pad;
       if (y + h > H - BOT) { newPage(); if (!o.head) drawHead(); }
       if (o.head) { doc.setFillColor(242, 242, 242); doc.rect(ML, y, CW, h, 'F'); }
       if (o.tot) { doc.setDrawColor(...INK); doc.setLineWidth(1); doc.line(ML, y, ML + CW, y); }
@@ -4911,7 +5253,7 @@ function memoPdf(M, jsPDF) {
         if (t.hi && o.i === t.hi.row && j === t.hi.col) { doc.setFillColor(255, 241, 241); doc.rect(x, y, ws[j], h, 'F'); }
         const sevC = t.sev === j && !o.head ? (cells[j] === 'High' ? RED : cells[j] === 'Medium' ? [176, 90, 0] : GREY) : null;
         font(o.head || o.tot || o.emph || sevC ? 'bold' : o.sub ? 'italic' : 'normal', s, o.head ? [85, 85, 85] : sevC || (o.sub ? GREY : INK));
-        ls.forEach((l, k) => { const ty = y + 5 + s + k * s * 1.32; if (t.align[j] === 'r') doc.text(l, x + ws[j] - 4.5, ty, { align: 'right' }); else doc.text(l, x + 4.5, ty); });
+        ls.forEach((l, k) => { const ty = y + pad / 2 + 1 + s + k * s * 1.32; if (t.align[j] === 'r') doc.text(l, x + ws[j] - 4.5, ty, { align: 'right' }); else doc.text(l, x + 4.5, ty); });
         x += ws[j];
       });
       y += h; doc.setDrawColor(...(o.head ? [153, 153, 153] : RULE)); doc.setLineWidth(o.head ? 0.8 : 0.5); doc.line(ML, y, ML + CW, y);
@@ -4926,22 +5268,24 @@ function memoPdf(M, jsPDF) {
   const linesOf = (t, w, size, style) => { font(style || 'normal', size); return doc.splitTextToSize(clean(t), w).length; };
   const paraH = (t, o) => { o = o || {}; const s = o.size || 10; return linesOf(t, o.w || CW, s, o.bold ? 'bold' : o.italic ? 'italic' : 'normal') * s * 1.42 + (o.after == null ? 6 : o.after); };
   const tableH = (t, maxRows) => { const ws = (t.widths || t.head.map(() => 1 / t.head.length)).map(f => f * CW);
-    const rh = (cells, head) => { const s = head ? 7.2 : 8.6; return Math.max(...cells.map((c, j) => linesOf(head ? String(c).toUpperCase() : String(c), ws[j] - 9, s, head ? 'bold' : 'normal'))) * s * 1.32 + 8; };
-    let h = t.unit ? 13 : 0; if (t.head.some(Boolean)) h += rh(t.head, true); t.rows.slice(0, maxRows == null ? t.rows.length : maxRows).forEach(r => { h += rh(r, false); }); return h + 12; };
+    const rh = (cells, head) => { const s = head ? 7.2 : t.compact ? 8 : 8.6; return Math.max(...cells.map((c, j) => linesOf(head ? String(c).toUpperCase() : String(c), ws[j] - 9, s, head ? 'bold' : 'normal'))) * s * 1.32 + (t.compact ? 5 : 8); };
+    let h = t.unit || t.num ? 13 : 0; if (t.head.some(Boolean)) h += rh(t.head, true); t.rows.slice(0, maxRows == null ? t.rows.length : maxRows).forEach(r => { h += rh(r, false); }); return h + 12; };
   const asTable = b => b.table || (b.kv ? { head: ['', ''], rows: b.kv.map(([k, v, n]) => [k, v + refs(n)]), widths: [0.34, 0.66] } : b.signoff ? { head: ['Role', 'Name', 'Signature', 'Date'], rows: b.signoff.map(([r, n]) => [r, n || ' ', '\n\n', '']), widths: [0.24, 0.28, 0.32, 0.16] } : null);
-  const keepFor = b => { if (!b) return 0; const t = asTable(b); if (t) { const full = tableH(t); return full <= AV * 0.92 ? full : tableH(t, 4); }
+  const keepFor = b => { if (!b) return 0; const t = asTable(b); if (t) { const full = tableH(t); return full <= AV * (t.compact ? 0.99 : 0.92) ? full : tableH(t, 4); }
     if (b.bullets) return b.bullets.length ? paraH(b.bullets[0].t + refs(b.bullets[0].notes), { w: CW - 16, size: 9.6, after: 3 }) : 0;
     if (b.p) return Math.min(paraH(b.p + refs(b.notes)), 10 * 1.42 * 3);
     if (b.small) return paraH(b.small, { size: 8.5, italic: true });
+    if (b.chart) return (b.chart.h || 170) + 10;
     return 0; };
   const blocks = bs => bs.forEach((b, bi) => {
-    if (b.h) { ensure(22 + keepFor(bs[bi + 1])); h2(b.h); }
-    else if (asTable(b)) { const need = keepFor(b); if (need <= AV * 0.92) ensure(need); }
+    if (b.h) { const nx = keepFor(bs[bi + 1]); ensure(22 + nx > AV ? AV : 22 + nx); h2(b.h); }
+    else if (asTable(b)) { const need = keepFor(b); if (need <= AV * (asTable(b).compact ? 0.99 : 0.92)) ensure(need); }
     if (b.p) para(b.p + refs(b.notes));
     if (b.small) para(b.small, { size: 8.5, italic: true, color: GREY });
     if (b.bullets) { b.bullets.forEach((x, i) => { ensure(Math.min(AV * 0.5, paraH(x.t + refs(x.notes), { w: CW - 16, size: 9.6, after: 3 }))); const yy = y; if (b.numbered) { font('bold', 9.5, BRAND); doc.text(`${i + 1}.`, ML, yy + 9.5); } else { doc.setFillColor(...BRAND); doc.rect(ML + 1, yy + 4.5, 3.5, 3.5, 'F'); } para(x.t + refs(x.notes), { x: ML + 16, w: CW - 16, size: 9.6, after: 3 }); }); y += 6; }
     if (b.kv) table({ head: ['', ''], rows: b.kv.map(([k, v, n]) => [k, v + refs(n)]), align: ['l', 'l'], widths: [0.34, 0.66] });
     if (b.table) table(b.table);
+    if (b.chart) { const ch = b.chart.h || 170; ensure(ch + 10); drawChart(pdfPainter(doc), b.chart, ML, y, CW, ch); y += ch + 10; }
     if (b.signoff) table({ head: ['Role', 'Name', 'Signature', 'Date'], rows: b.signoff.map(([r, n]) => [r, n || ' ', '\n\n', '']), align: ['l', 'l', 'l', 'l'], widths: [0.24, 0.28, 0.32, 0.16] });
     if (b.notesList) M.notes.forEach(n => { ensure(12); font('bold', 8, BRAND); doc.text(`${n.n}.`, ML, y + 8); const sv = y; para(n.label, { x: ML + 22, w: CW - 22, size: 8, color: [51, 51, 51], after: 1 }); if (y === sv) y += 10; });
   });
@@ -5709,15 +6053,164 @@ function workbookModel(R, m) {
   return { sheets };
 }
 /* write the model with SheetJS: numbers stay numbers with accounting formats, headers frozen */
+/* ---------- the databook ----------
+   The Excel file that accompanies a diligence report: one tab per schedule, figures as numbers in dollars, every
+   schedule matching the report, and a source for each figure where there is one. */
+function databookModel(R, m) {
+  m = m || {}; const docs = m.docs || R.docs || []; const L = R.L, M = R.M;
+  const docName = id => { const d = docs.find(x => x.id === id); return d ? d.name : id || ''; };
+  const where = a => !a ? '' : `${docName(a.d)} · ${typeof anchorLabel === 'function' ? anchorLabel(a) : ''}`.trim();
+  const sheets = []; const add = (name, head, rows, opt) => sheets.push({ name: name.slice(0, 31), head, rows, ...(opt || {}) });
+  const U = v => v == null || v === 'na' || !isFinite(v) ? (v === 'na' ? 'n.a.' : '') : { v, k: 'usd' }, P = v => v == null || !isFinite(v) ? '' : { v, k: 'pct' };
+  const title = t => `${m.name || 'Deal'}${m.target ? ' · ' + m.target : ''} · ${t}`;
+  const tabs = [];
+  /* live formulas: @{row,col} (or @{'sheet'!row,col}) names a cell by its place in the schedule; the writer turns it into an Excel address */
+  const A = (i, j, sh) => `@{${sh ? "'" + sh + "'!" : ''}${i},${j}}`, RG = (i1, j1, i2, j2) => `${A(i1, j1)}:${A(i2, j2)}`;
+  const isNum = c => c && typeof c === 'object' && c.v != null && isFinite(c.v);
+  const setF = (rows, i, j, f) => { const c = rows[i] && rows[i][j]; if (isNum(c)) rows[i][j] = { ...c, f }; };
+  /* 1 QoE */
+  const Q = qoeSchedule(R, m);
+  if (Q) { const qrows = Q.rows.map(r => [r.ref || '', r.label.replace(/^ {2}/, '   '), ...r.vals.map(v => r.kind === 'head' ? '' : r.kind === 'pct' ? P(v) : U(v))]);
+    { const ix = id => Q.rows.findIndex(r => r.id === id); const rep0 = ix('reported'), mg = ix('mgmt'), dl = ix('diligence'), pt = ix('pfTotal'), pf = ix('pf'), pr = ix('presented'), st = ix('stated'), sd = ix('statedDiff'), rv = Q.rows.length - 1;
+      const kinds = Q.rows.map(r => r.kind); const between = (a, b, k) => { const out = []; for (let i = a + 1; i < b; i++) if (k.includes(kinds[i])) out.push(i); return out; };
+      const subIn = (a, b) => { for (let i = b - 1; i > a; i--) if (kinds[i] === 'sub') return i; return -1; };
+      Q.cols.forEach((c, k) => { const j = k + 2;
+        const recon = between(-1, rep0, ['line', 'sub']); if (recon.length && recon.every(i => isNum(qrows[i][j]))) setF(qrows, rep0, j, `SUM(${RG(recon[0], j, recon[recon.length - 1], j)})`);
+        let base = rep0;
+        if (mg >= 0) { const t = subIn(rep0, mg), adj = between(rep0, t, ['adj']); if (t >= 0 && adj.length && adj.every(i => isNum(qrows[i][j]))) setF(qrows, t, j, `SUM(${RG(adj[0], j, adj[adj.length - 1], j)})`); if (t >= 0) setF(qrows, mg, j, `${A(rep0, j)}+${A(t, j)}`); base = mg; }
+        const dt = subIn(base, dl), dadj = between(base, dt, ['adj']); if (dt >= 0 && dadj.length && dadj.every(i => isNum(qrows[i][j]))) setF(qrows, dt, j, dadj.map(i => A(i, j)).join('+'));
+        if (dt >= 0) setF(qrows, dl, j, `${A(base, j)}+${A(dt, j)}`);
+        if (pt >= 0) { const padj = between(dl, pt, ['adj']); if (padj.length && padj.every(i => isNum(qrows[i][j]))) setF(qrows, pt, j, `SUM(${RG(padj[0], j, padj[padj.length - 1], j)})`); if (pf >= 0) setF(qrows, pf, j, `${A(dl, j)}+${A(pt, j)}`); }
+        if (pr >= 0 && mg >= 0) setF(qrows, pr, j, pt >= 0 ? `${A(mg, j)}+${A(pt, j)}` : A(mg, j));
+        if (sd >= 0 && st >= 0 && pr >= 0) setF(qrows, sd, j, `${A(st, j)}-${A(pr, j)}`);
+        Q.rows.forEach((r, i) => { if (r.kind === 'pct') { let t0 = i - 1; while (t0 >= 0 && !['total', 'grand'].includes(kinds[t0])) t0--; if (t0 >= 0 && isNum(qrows[rv][j])) setF(qrows, i, j, `IF(${A(rv, j)}=0,"",${A(t0, j)}/${A(rv, j)})`); } }); }); }
+    add('1 QoE summary', ['Ref', 'Line', ...Q.cols.map(c => c.label)], qrows, { kinds: Q.rows.map(r => r.kind), title: title('Summary of adjusted EBITDA'), sub: `${CUR.code}. ${Q.naNote || ''}`.trim(), widths: [6, 58, ...Q.cols.map(() => 14)] });
+    add('2 Adjustment notes', ['Ref', 'Adjustment', 'Status', 'Note', 'Source'], Q.notes.map(nt => [nt.ref, nt.title, nt.status || '', nt.text, nt.src ? where(nt.src) : (nt.evidence && nt.evidence.length ? `${nt.evidence.length} ledger lines` : '')]), { title: title('Notes to the adjustments'), widths: [6, 42, 12, 90, 40] });
+    tabs.push(['1 QoE summary', 'Reported EBITDA, management and diligence adjustments, adjusted EBITDA by period'], ['2 Adjustment notes', 'Each adjustment explained, with its source']); }
+  const AN = fddAnalysis(R);
+  if (AN.monthly) { const LBL = { Revenue: 'Revenue', COGS: 'Cost of revenue', GP: 'Gross profit', OpEx: 'Operating expenses', OtherIncome: 'Other income', EBITDA: 'EBITDA', 'D&A': 'Depreciation and amortization', Interest: 'Interest expense', Tax: 'Income taxes', NI: 'Net income' };
+    const ttm = L.T;
+    /* gross profit, EBITDA, net income and margins as formulas; the TTM column adds up the last twelve months */
+    const plF = (rows, ncol, ttmCol) => { const li = l => AN.monthly.lines.indexOf(l); const [rv, cg, gp, ox, oi, eb, da, it, tx, ni] = ['Revenue', 'COGS', 'GP', 'OpEx', 'OtherIncome', 'EBITDA', 'D&A', 'Interest', 'Tax', 'NI'].map(li);
+      for (let j = 1; j <= ncol; j++) { if (ttmCol && j === ttmCol) { const a = Math.max(1, ttmCol - 12); AN.monthly.lines.forEach((l, i) => { if (![gp, eb, ni].includes(i)) setF(rows, i, j, `SUM(${RG(i, a, i, ttmCol - 1)})`); }); }
+        setF(rows, gp, j, `${A(rv, j)}-${A(cg, j)}`); setF(rows, eb, j, `${A(gp, j)}-${A(ox, j)}+${A(oi, j)}`); setF(rows, ni, j, `${A(eb, j)}-${A(da, j)}-${A(it, j)}-${A(tx, j)}`);
+        setF(rows, AN.monthly.lines.length, j, `IF(${A(rv, j)}=0,"",${A(gp, j)}/${A(rv, j)})`); setF(rows, AN.monthly.lines.length + 1, j, `IF(${A(rv, j)}=0,"",${A(eb, j)}/${A(rv, j)})`); } return rows; };
+    const nM = AN.monthly.months.length;
+    add('3 Monthly P&L', ['Line', ...AN.monthly.months.map(monthLabel), `TTM ${monthLabel(L.last)}`], plF([...AN.monthly.lines.map(l => [LBL[l] || l, ...AN.monthly.v.map(o => U(o[l])), U(ttm[l])]), ['Gross margin', ...AN.monthly.v.map(o => P(o.Revenue ? o.GP / o.Revenue : null)), P(ttm.Revenue ? ttm.GP / ttm.Revenue : null)], ['EBITDA margin', ...AN.monthly.v.map(o => P(o.Revenue ? o.EBITDA / o.Revenue : null)), P(ttm.Revenue ? ttm.EBITDA / ttm.Revenue : null)]], nM + 1, nM >= 12 ? nM + 1 : 0),
+      { title: title('Monthly income statement from the general ledger'), widths: [30, ...AN.monthly.months.map(() => 12), 14] });
+    add('4 Quarterly P&L', ['Line', ...AN.quarterly.cols.map(c => c.label)], plF([...AN.monthly.lines.map(l => [LBL[l] || l, ...AN.quarterly.v.map(o => U(o[l]))]), ['Gross margin', ...AN.quarterly.v.map(o => P(o.Revenue ? o.GP / o.Revenue : null))], ['EBITDA margin', ...AN.quarterly.v.map(o => P(o.Revenue ? o.EBITDA / o.Revenue : null))]], AN.quarterly.cols.length, 0), { title: title('Quarterly income statement (full quarters) and trailing twelve months'), widths: [30, ...AN.quarterly.cols.map(() => 14)] });
+    const REVT = '5 Revenue by account', revTot = AN.revenueByAccount.length;
+    const acct = (list, totLabel) => { const rows = list.map(x => [x.account, x.category, U(x.prior), U(x.ttm), U(x.ttm - x.prior), P(x.prior ? (x.ttm - x.prior) / Math.abs(x.prior) : null), P(AN.revTTM ? x.ttm / AN.revTTM : null)]);
+      const tp = list.reduce((a, x) => a + x.prior, 0), tt = list.reduce((a, x) => a + x.ttm, 0); rows.push([totLabel, '', U(tp), U(tt), U(tt - tp), P(tp ? (tt - tp) / Math.abs(tp) : null), P(AN.revTTM ? tt / AN.revTTM : null)]);
+      const n = list.length; if (n) { setF(rows, n, 2, `SUM(${RG(0, 2, n - 1, 2)})`); setF(rows, n, 3, `SUM(${RG(0, 3, n - 1, 3)})`); }
+      rows.forEach((r, i) => { setF(rows, i, 4, `${A(i, 3)}-${A(i, 2)}`); setF(rows, i, 5, `IF(${A(i, 2)}=0,"",${A(i, 4)}/ABS(${A(i, 2)}))`); setF(rows, i, 6, `IF(${A(revTot, 3, REVT)}=0,"",${A(i, 3)}/${A(revTot, 3, REVT)})`); });
+      return rows; };
+    add(REVT, ['Account', 'Category', 'Prior TTM', 'TTM', 'Change', '% change', '% of revenue'], acct(AN.revenueByAccount, 'Total revenue'), { title: title('Revenue by account'), widths: [40, 12, 14, 14, 14, 10, 12] });
+    add('6 Costs by account', ['Account', 'Category', 'Prior TTM', 'TTM', 'Change', '% change', '% of revenue'], acct(AN.costByAccount, 'Total cost of revenue and operating expenses'), { title: title('Cost of revenue and operating expenses by account'), widths: [40, 12, 14, 14, 14, 10, 12] });
+    tabs.push(['3 Monthly P&L', 'Income statement by month from the general ledger'], ['4 Quarterly P&L', 'Full quarters and the trailing twelve months'], ['5 Revenue by account', 'Trailing twelve months against the prior twelve'], ['6 Costs by account', 'Cost of revenue and operating expenses, with % of revenue']);
+    const Cu = L.customers; if (Cu && Cu.list.length) { add('7 Customers', ['Customer', 'TTM revenue', 'Prior TTM', 'Share', 'Cumulative', 'Growth'], Cu.list.map(c => [c.name, U(c.ttm), U(c.prior), P(c.share), P(c.cum), c.growth == null ? 'New' : P(c.growth)]), { title: title('Revenue by customer'), widths: [40, 14, 14, 10, 12, 10] }); tabs.push(['7 Customers', 'Revenue by customer, concentration and growth']); }
+  }
+  /* 8 NWC */
+  if (L && L.nwc && L.nwc.lines.length) { const N = L.nwc; const ms = L.months; const last12 = ms.slice(-Math.min(12, ms.length)); const off = ms.length - last12.length;
+    const avg = vs => { const xs = vs.filter(v => v != null); return xs.length ? xs.reduce((a, v) => a + v, 0) / xs.length : null; };
+    const rows = N.lines.map(l => [l.line, l.cls, ...ms.map((_, j) => U(l.values[j] == null ? null : l.sign * l.values[j])), U(avg(last12.map((_, j) => l.values[off + j] == null ? null : l.sign * l.values[off + j])))]);
+    rows.push(['Reported net working capital', '', ...ms.map((_, j) => U(N.reported[j])), U(avg(last12.map((_, j) => N.reported[off + j])))]);
+    const groups = {}; (N.normalizations || []).forEach(x => { const k = String(x.note || 'Normalization').split(':')[0]; (groups[k] = groups[k] || {})[x.month] = ((groups[k] || {})[x.month] || 0) + x.amount; });
+    Object.entries(groups).forEach(([k, byM]) => rows.push([k, 'Diligence adjustment', ...ms.map(mm => U(byM[mm] || 0)), U(avg(last12.map(mm => byM[mm] || 0)))]));
+    rows.push(['Adjusted net working capital', '', ...ms.map((_, j) => U(N.monthly[j])), U(avg(last12.map((_, j) => N.monthly[off + j])))]);
+    { const nL = N.lines.length, ri = nL, ai = rows.length - 1, avgC = 2 + ms.length;
+      ms.forEach((_, k) => { const j = 2 + k; if (N.lines.every((l, i) => isNum(rows[i][j]))) setF(rows, ri, j, `SUM(${RG(0, j, nL - 1, j)})`); setF(rows, ai, j, ai - ri > 1 ? `${A(ri, j)}+SUM(${RG(ri + 1, j, ai - 1, j)})` : A(ri, j)); });
+      rows.forEach((r, i) => setF(rows, i, avgC, `AVERAGE(${RG(i, 2 + off, i, 2 + ms.length - 1)})`)); }
+    add('8 Net working capital', ['Line', 'Class', ...ms.map(monthLabel), `${last12.length}-month average`], rows, { title: title(`Net working capital by month (${N.def} definition); liabilities negative`), sub: `Indicative peg: ${fmtUSD(N.peg)}, the ${N.pegN}-month average of adjusted net working capital.`, widths: [34, 14, ...ms.map(() => 12), 16] });
+    tabs.push(['8 Net working capital', 'Monthly balances, diligence adjustments, adjusted NWC and the average']); }
+  /* 9 Net debt */
+  if (L && L.debt && L.debt.rows.length) { const D = L.debt;
+    const rows = D.rows.map(r => [r.facility, r.lender || '', U(r.bs), U(r.conf), U(r.conf != null ? r.conf - r.bs : null), r.status, where(r.srcConf)]);
+    rows.push(['Total funded debt', '', U(D.bsDebt), U(D.fundedDebt), U(D.fundedDebt - D.bsDebt), '', ''], [], ['Debt-like items', '', '', '', '', '', '']);
+    D.debtLike.forEach(x => rows.push([x.line, x.included ? 'Included' : 'Not included', U(x.amount), '', '', '', where(x.src)]));
+    rows.push([], ['Funded debt, per lender confirmations', '', U(D.fundedDebt), '', '', '', ''], ['Less: cash', '', U(-D.cash), '', '', '', ''], ['Net debt', '', U(D.netDebt), '', '', '', ''], ['Add: debt-like items included', '', U(D.debtLikeTotal), '', '', '', ''], ['Net debt and debt-like items', '', U(D.netDebt + D.debtLikeTotal), '', '', '', '']);
+    { const nF = D.rows.length, tot = nF; D.rows.forEach((r0, i) => setF(rows, i, 4, `${A(i, 3)}-${A(i, 2)}`));
+      [2, 3].forEach(j => setF(rows, tot, j, `SUM(${RG(0, j, nF - 1, j)})`)); setF(rows, tot, 4, `${A(tot, 3)}-${A(tot, 2)}`);
+      const dl0 = tot + 3; const inc = D.debtLike.map((x, k) => x.included ? dl0 + k : -1).filter(i => i >= 0); const fd = rows.length - 5;
+      setF(rows, fd, 2, A(tot, 3)); setF(rows, fd + 2, 2, `${A(fd, 2)}+${A(fd + 1, 2)}`); if (inc.length) setF(rows, fd + 3, 2, inc.map(i => A(i, 2)).join('+')); setF(rows, fd + 4, 2, `${A(fd + 2, 2)}+${A(fd + 3, 2)}`); }
+    add('9 Net debt', ['Facility or item', 'Lender or treatment', 'Balance sheet', 'Lender confirmation', 'Difference', 'Status', 'Source'], rows, { title: title(`Debt tie-out and net debt at ${monthLabel(L.last)}`), widths: [38, 24, 14, 16, 12, 12, 40] });
+    tabs.push(['9 Net debt', 'Debt tie-out, debt-like items and net debt']); }
+  /* 10 Proof of cash */
+  const P4 = proofOfCash4(R);
+  if (P4) { add('10 Proof of cash', ['Month', 'Bank opening', 'Bank receipts', 'Bank disbursements', 'Bank closing', 'Bank continuity check', 'Book opening', 'Book receipts', 'Book disbursements', 'Book closing', 'Receipts difference', 'Disbursements difference', 'Closing difference'],
+      [...P4.rows.map(r => [monthLabel(r.month), U(r.bankOpen), U(r.bankIn), U(r.bankOut), U(r.bankClose), U(r.bankCheck), U(r.bookOpen), U(r.bookIn), U(r.bookOut), U(r.bookClose), U(r.diffIn), U(r.diffOut), U(r.diffClose)]),
+        ['Total', U(P4.total.bankOpen), U(P4.total.bankIn), U(P4.total.bankOut), U(P4.total.bankClose), '', U(P4.total.bookOpen), U(P4.total.bookIn), U(P4.total.bookOut), U(P4.total.bookClose), '', '', '']].map((r0, i, all) => { const n = all.length - 1;
+        if (i < n) { if (i > 0) setF(all, i, 1, A(i - 1, 4)); setF(all, i, 5, `${A(i, 1)}+${A(i, 2)}-${A(i, 3)}-${A(i, 4)}`); setF(all, i, 8, `${A(i, 6)}+${A(i, 7)}-${A(i, 9)}`); setF(all, i, 10, `${A(i, 2)}-${A(i, 7)}`); setF(all, i, 11, `${A(i, 3)}-${A(i, 8)}`); setF(all, i, 12, `${A(i, 4)}-${A(i, 9)}`); }
+        else { setF(all, i, 1, A(0, 1)); [2, 3, 7, 8].forEach(j => setF(all, i, j, `SUM(${RG(0, j, n - 1, j)})`)); setF(all, i, 4, A(n - 1, 4)); setF(all, i, 6, A(0, 6)); setF(all, i, 9, A(n - 1, 9)); }
+        return all[i]; }),
+      { title: title('Proof of cash: per bank and per books'), sub: 'Book receipts are revenue collected plus non-operating receipts on the bank statements; book disbursements follow from the book balances.', widths: [12, 14, 14, 16, 14, 14, 14, 14, 16, 14, 14, 16, 14] });
+    add('11 Bank non-operating', ['Date', 'Description', 'Treated as', 'Amount', 'Account'], (R.poc.nonOp || []).map(t => [t.date, t.desc, t.kind, U(t.amount), t.account]), { title: title('Non-operating bank activity'), widths: [12, 44, 20, 14, 40] });
+    tabs.push(['10 Proof of cash', 'Opening, receipts, disbursements and closing, per bank and per books'], ['11 Bank non-operating', 'Transfers, loans, owner money and refunds set aside']); }
+  /* findings, requests, sources */
+  add('12 Findings', ['#', 'Rule', 'Area', 'Finding', 'Severity', 'Detail', 'Status', 'Source'], R.issues.map((x, i) => { const f = x.finding; return [i + 1, f.id, f.category, f.title, f.severity, f.text, x.status, (f.cites[0] || (f.evidence[0] || {}).src) ? where(f.cites[0] || f.evidence[0].src) : '']; }), { title: title('Findings register'), widths: [5, 8, 22, 36, 10, 90, 12, 40] });
+  const sq = (m.rv && m.rv.sq) || [];
+  add('13 Information requests', ['#', 'Type', 'Request or question', 'Status', 'Due', 'Response'], [...sq.map((q, i) => ['Q' + (i + 1), 'Seller question', q.text, q.status || 'Draft', q.due || '', q.answer || '']), ...(R.actions || []).filter(a => a.type === 'Send request').map((a, i) => ['R' + (i + 1), 'Document request', a.text, 'Open', '', ''])], { title: title('Information requests'), widths: [6, 16, 80, 12, 12, 60] });
+  add('14 Sources', ['ID', 'Document', 'Type'], docs.filter(d => d.type).map(d => [d.id, d.name, d.type.toUpperCase()]), { title: title('Documents analyzed'), sub: `DealBasis record, run ${R.fingerprint}`, widths: [6, 70, 10] });
+  tabs.push(['12 Findings', 'Every finding with its severity, status and source'], ['13 Information requests', 'Seller questions and document requests'], ['14 Sources', 'Documents analyzed']);
+  sheets.unshift({ name: 'Index', head: ['Tab', 'Contents'], rows: tabs, title: title('Financial due diligence databook'), sub: `Prepared with DealBasis from the documents provided; ${R.periodLabel || ''}. Diligence analysis, not an audit or attestation, and not a quality of earnings report issued by an independent accounting firm. For the deal team's internal use; no other party may rely on it.`, widths: [26, 90] });
+  return { sheets };
+}
+/* the databook as a formatted workbook (ExcelJS): title and subtitle, a dark header row, totals in bold with rules,
+   margins and notes in grey italics, section rows shaded, numbers right-aligned in thousands separators, panes frozen,
+   landscape print setup, and an index that links to every tab */
+async function databookExcel(DB, ExcelJS) {
+  const wb = new ExcelJS.Workbook(); wb.creator = 'DealBasis'; wb.created = new Date();
+  const FMT = { usd: '#,##0;(#,##0);"–"', pct: '0.0%;(0.0%);"–"', x: '0.0"x"', n: '0' };
+  const INK = 'FF111111', GREY = 'FF6B6B6B', HEAD = 'FF1F2329', SHADE = 'FFF2F2F2', RULE = 'FFBFBFBF', BRAND = 'FFD63222';
+  const TOTAL = /^(total|reported ebitda|gross profit$|ebitda$|net income$|reported net working|adjusted net working|net debt|diligence-adjusted|management's adjusted|pro forma adjusted|before pro forma)/i;
+  const GRAND = /^(diligence-adjusted ebitda|adjusted net working capital|net debt and debt-like|net debt$)/i;
+  const SUB = /margin|^\s{2,}|as stated by management|difference|growth|% change/i;
+  const colL = j => { let s0 = ''; j += 1; while (j > 0) { const m0 = (j - 1) % 26; s0 = String.fromCharCode(65 + m0) + s0; j = Math.floor((j - 1) / 26); } return s0; };
+  const start = {}; DB.sheets.forEach(sh => { start[sh.name] = 1 + (sh.title ? 1 : 0) + (sh.sub ? 1 : 0) + 1 + 1; });
+  const resolve = (f, own) => f.replace(/@\{(?:'([^']+)'!)?(\d+),(\d+)\}/g, (m0, sh, i, j) => `${sh ? "'" + sh + "'!" : ''}${colL(+j)}${start[sh || own] + +i}`);
+  DB.sheets.forEach((sh, si) => {
+    const ws = wb.addWorksheet(sh.name, { properties: { tabColor: { argb: si === 0 ? BRAND : sh.name.startsWith('1') || sh.name.startsWith('2') ? BRAND : HEAD } }, pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 1 } });
+    let r = 1;
+    if (sh.title) { const c = ws.getCell(r, 1); c.value = sh.title; c.font = { name: 'Arial', size: 13, bold: true, color: { argb: INK } }; r++; }
+    if (sh.sub) { const c = ws.getCell(r, 1); c.value = sh.sub; c.font = { name: 'Arial', size: 9, italic: true, color: { argb: GREY } }; r++; }
+    r++;
+    const hr = r; sh.head.forEach((h, j) => { const c = ws.getCell(r, j + 1); c.value = h; c.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEAD } }; c.alignment = { vertical: 'middle', horizontal: j === 0 || typeof (sh.rows[0] || [])[j] === 'string' ? 'left' : 'right', wrapText: true }; });
+    ws.getRow(r).height = 28; r++;
+    const labelCol = sh.head[0] === 'Ref' ? 1 : 0; const plain = /^(Index|2 |7 |11 |12 |13 |14 )/.test(sh.name);
+    sh.rows.forEach((row, i) => {
+      const label = String((row || [])[labelCol] == null ? '' : row[labelCol]);
+      const kind = sh.kinds ? sh.kinds[i] : null;
+      const nums = (row || []).filter(c => c && typeof c === 'object' && c.v != null);
+      const isHead = plain ? false : kind ? kind === 'head' : (label && !nums.length && (row || []).filter(x => x !== '' && x != null).length === 1 && sh.name !== 'Index');
+      const isGrand = !plain && (kind ? kind === 'grand' : GRAND.test(label.trim()));
+      const isTotal = !plain && (kind ? ['total', 'grand'].includes(kind) : TOTAL.test(label.trim()));
+      const isSub = !plain && (kind ? ['pct', 'pct2', 'sub', 'memo', 'flag'].includes(kind) : SUB.test(label));
+      (row || []).forEach((cell, j) => { const c = ws.getCell(r, j + 1);
+        if (cell && typeof cell === 'object') { const v0 = cell.v == null || !isFinite(cell.v) ? null : cell.v; c.value = cell.f ? { formula: resolve(cell.f, sh.name), result: v0 } : v0; c.numFmt = FMT[cell.k] || FMT.usd; c.alignment = { horizontal: 'right' }; }
+        else { c.value = cell == null ? '' : cell; if (cell === 'n.a.') c.alignment = { horizontal: 'right' }; else c.alignment = { horizontal: 'left', vertical: 'top', wrapText: String(cell || '').length > 60 }; }
+        c.font = { name: 'Arial', size: 9, bold: isHead || isTotal, italic: isSub && !isTotal, color: { argb: kind === 'flag' ? BRAND : isSub && !isTotal ? GREY : INK } };
+        if (isHead) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SHADE } };
+        if (isTotal) c.border = { top: { style: 'thin', color: { argb: INK } }, ...(isGrand ? { bottom: { style: 'double', color: { argb: INK } } } : {}) };
+        else c.border = { bottom: { style: 'hair', color: { argb: RULE } } }; });
+      r++;
+    });
+    (sh.widths || []).forEach((w, j) => { ws.getColumn(j + 1).width = Math.max(6, Math.min(90, w)); });
+    ws.views = [{ state: 'frozen', xSplit: labelCol + 1, ySplit: hr, showGridLines: false }];
+    if (sh.name === 'Index') sh.rows.forEach((row, i) => { const c = ws.getCell(hr + 1 + i, 1); c.value = { text: row[0], hyperlink: `#'${row[0]}'!A1` }; c.font = { name: 'Arial', size: 9, color: { argb: 'FF2A78D6' }, underline: true }; });
+  });
+  return wb.xlsx.writeBuffer();
+}
 function workbookXlsx(WB, XLSX) {
   const wb = XLSX.utils.book_new();
+  const start = {}; WB.sheets.forEach(sh => { start[sh.name] = (sh.title ? 1 : 0) + (sh.sub ? 1 : 0) + (sh.note ? 1 : 0) + ((sh.title || sh.sub || sh.note) ? 1 : 0) + 1 + 1; });
+  const resolve = (f, own) => f.replace(/@\{(?:'([^']+)'!)?(\d+),(\d+)\}/g, (m0, sh, i, j) => `${sh ? "'" + sh + "'!" : ''}${XLSX.utils.encode_col(+j)}${start[sh || own] + +i}`);
   const FMT = { usd: '#,##0;(#,##0);"–"', pct: '0.0%', x: '0.0"x"', n: '0' };
   WB.sheets.forEach(sh => {
     const top = [];
     if (sh.title) top.push([sh.title]); if (sh.sub) top.push([sh.sub]); if (sh.note) top.push([sh.note]); if (top.length) top.push([]);
     const aoa = [...top, sh.head, ...sh.rows.map(r => r.map(c => c && typeof c === 'object' ? (c.v == null || !isFinite(c.v) ? '' : c.v) : c))];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    sh.rows.forEach((r, ri) => r.forEach((c, ci) => { if (c && typeof c === 'object' && c.v != null && isFinite(c.v)) { const ref = XLSX.utils.encode_cell({ r: top.length + 1 + ri, c: ci }); if (ws[ref]) { ws[ref].t = 'n'; ws[ref].z = FMT[c.k] || FMT.usd; } } }));
+    sh.rows.forEach((r, ri) => r.forEach((c, ci) => { if (c && typeof c === 'object' && c.v != null && isFinite(c.v)) { const ref = XLSX.utils.encode_cell({ r: top.length + 1 + ri, c: ci }); if (ws[ref]) { ws[ref].t = 'n'; ws[ref].z = FMT[c.k] || FMT.usd; if (c.f) ws[ref].f = resolve(c.f, sh.name); } } }));
     ws['!cols'] = (sh.widths || []).map(w => ({ wch: w }));
     ws['!freeze'] = { xSplit: 0, ySplit: top.length + 1 };
     ws['!views'] = [{ state: 'frozen', ySplit: top.length + 1 }];
@@ -5823,7 +6316,7 @@ const REPORTS = { qoe: 'Quality of Earnings Report', revenue: 'Revenue Quality R
 const PAGE_REPORTS = { 'QoE & Revenue Quality': ['qoe', 'revenue'], 'Working Capital': ['nwc'], 'Debt Tie-outs': ['debt'], 'Cash Flow Review': ['cash'], 'Deal Economics': ['economics'], 'Risk Scoring': ['findings'], 'Issues': ['findings'], 'Seller Questions': ['questions'] };
 const reportBtns = k => `<span class="rpt"><b>${REPORTS[k]}</b><button class="btn sm ghost" data-report="${k}:docx">Word</button><button class="btn sm ghost" data-report="${k}:pdf">PDF</button></span>`;
 const reportBar = title => { const ks = PAGE_REPORTS[title]; if (!ks || !hasData()) return '';
-  return `<div class="rptbar"><span class="muted">Download report</span>${ks.map(reportBtns).join('')}</div>${msgs.report && ks.includes(msgs.report.kind) ? `<div class="msg ${msgs.report.err ? 'err' : 'ok'}" role="status">${esc(msgs.report.text)}</div>` : ''}`; };
+  return `<div class="rptbar"><span class="muted">Download report</span>${ks.map(reportBtns).join('')}<span class="rpt"><b>Databook</b><button class="btn sm ghost" data-xlsx="databook">Excel</button></span></div>${msgs.report && ks.includes(msgs.report.kind) ? `<div class="msg ${msgs.report.err ? 'err' : 'ok'}" role="status">${esc(msgs.report.text)}</div>` : ''}`; };
 const head = (eyebrow, title, extra) => `<header class="vh"><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>
   <div class="sub"><span>${esc(MD().target || 'No target set')}</span>${R.periodLabel ? `<span>${esc(R.periodLabel)}</span>` : ''}<span class="mono">Run ${R.fingerprint}</span>${extra || ''}</div>${reportBar(title)}</header>`;
 const evTable = rows => `<div class="tbl"><table><thead><tr><th>Source</th><th>Date</th><th>Description</th><th>Counterparty</th><th class="n">Amount</th></tr></thead><tbody>
@@ -6137,20 +6630,28 @@ function vQoE() {
     const fmtS = (k, o) => ['nrr', 'grr', 'churn', 'ruleOf40'].includes(k) ? pc(o.value) : ['arr', 'mrr'].includes(k) ? $(o.value) : k === 'ltvCac' ? o.value.toFixed(1) + 'x' : String(Math.round(o.value * 10) / 10);
     html += `<section class="sec"><div class="sechead"><h2>SaaS metrics</h2><span class="aside">Read from the documents; tested against Firm Settings</span></div><div class="tbl"><table><tbody>${Object.keys(NM).filter(k => S2[k]).map(k => { const o = S2[k]; const f = R.findings.find(x => ({ nrr: 'SA1', grr: 'SA2', churn: 'SA2', ruleOf40: 'SA3', arr: 'SA4' })[k] === x.id);
       return `<tr><td>${NM[k]}</td><td class="n">${fmtS(k, o)}</td><td>${f ? sev(f.severity) : ''}</td><td style="font-size:12.5px">${k === 'ruleOf40' ? `Growth ${pc(o.growth)} + EBITDA margin ${pc(o.margin)}` : esc(o.note || o.text || '')} ${o.src ? cite(o.src) : ''}</td></tr>`; }).join('')}</tbody></table></div></section>`; }
-  if (L) {
-    const items = L.adj.map(a => { const st = m.dec['adj:' + a.id] === undefined ? 'Proposed' : m.dec['adj:' + a.id] ? 'Approved' : 'Rejected'; const ok = can('manager');
-      return { ...a, chips: `<span class="chip id">${a.id}</span>${statusChip(st)}`, sub: esc(a.note),
-        ctl: `<button class="btn sm" data-adj="${a.id}" data-v="1" ${ok ? '' : 'disabled'}>Approve</button><button class="btn sm ghost" data-adj="${a.id}" data-v="0" ${ok ? '' : 'disabled'}>Reject</button>${st !== 'Proposed' ? `<button class="btn sm ghost" data-adj="${a.id}" data-v="">Reset</button>` : ''}${ok ? '' : `<span class="muted" style="font-size:12px">Needs manager approval</span><button class="btn sm ghost" data-asrole="manager">Act as manager</button>`}
-          <textarea class="why" data-why="${a.id}" placeholder="Rationale for the record">${esc(m.rv['why:' + a.id] || '')}</textarea>`,
-        ev: evDetails(a.evidence, `Source schedule: ${a.evidence.length} ledger line${a.evidence.length > 1 ? 's' : ''}`) }; });
-    html += `<section class="sec"><div class="sechead"><h2>Diligence EBITDA bridge</h2><span class="aside">From the general ledger, ${L.adj.filter(a => a.accepted).length} of ${L.adj.length} included</span></div>
-      <p class="lede">Each adjustment is tagged by a written rule. Proposed adjustments count until a manager rejects them. Every source schedule links to its ledger rows.</p>
-      ${bridgeHTML(items, L.T.EBITDA, L.adjEBITDA, 'Reported EBITDA (ledger)', 'Diligence-adjusted EBITDA', pc(L.adjEBITDA / L.T.Revenue) + ' margin')}</section>`;
+  /* the quality of earnings schedule, laid out as QoE reports are: periods across, adjustments numbered, notes below */
+  const Q = qoeSchedule(R, m);
+  if (Q) {
+    const okM = can('manager');
+    const cls = { total: 'total', grand: 'total grand', head: 'qhead', sub: 'qsub', pct: 'qpct', pct2: 'qpct', flag: 'qflag', memo: 'qmemo', adj: 'qadj' };
+    const td = (v, r) => `<td class="n${typeof v === 'number' && v <= -500 && r.kind !== 'pct' ? ' neg' : ''}">${r.kind === 'head' ? '' : qoeK(v, r.kind === 'pct')}</td>`;
+    html += `<section class="sec"><div class="sechead"><h2>Summary of adjusted EBITDA</h2><span class="aside">${esc(CUR.code === 'USD' ? '$' : CUR.code)} in thousands</span></div>
+      <p class="lede">Reported EBITDA, management\u2019s adjustments as presented, and the diligence adjustments the evidence supports. Each adjustment is numbered; its note is below the schedule.</p>
+      <div class="tbl qoe"><table><thead><tr><th>Ref</th><th></th>${Q.cols.map(c => `<th class="n">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
+      ${Q.rows.map(r => `<tr class="${cls[r.kind] || ''}${r.status === 'Excluded' || r.status === 'Rejected' ? ' dim' : ''}"><td class="ref">${r.ref ? `<a href="#note-${r.ref}" class="chip id">${r.ref}</a>` : ''}</td><td>${esc(r.label.replace(/^ {2}/, ''))}${r.status && r.kind === 'adj' ? ` <span class="muted" style="font-size:11.5px">${esc(r.status)}</span>` : ''}</td>${r.vals.map(v => td(v, r)).join('')}</tr>`).join('')}
+      </tbody></table></div>
+      ${Q.naNote ? `<p class="muted" style="font-size:12px;margin-top:8px">n.a.: not applicable. ${esc(Q.naNote)}</p>` : ''}</section>
+      <section class="sec"><div class="sechead"><h2>Notes to the adjustments</h2><span class="aside">${Q.notes.length} adjustments</span></div><div class="qnotes">
+      ${Q.notes.map(nt => { const a = nt.adj && L ? L.adj.find(x => x.id === nt.adj) : null;
+        const ctl = a ? `<div class="row" style="gap:6px;margin-top:6px"><button class="btn sm" data-adj="${a.id}" data-v="1" ${okM ? '' : 'disabled'}>Approve</button><button class="btn sm ghost" data-adj="${a.id}" data-v="0" ${okM ? '' : 'disabled'}>Reject</button>${nt.status !== 'Proposed' ? `<button class="btn sm ghost" data-adj="${a.id}" data-v="">Reset</button>` : ''}${okM ? '' : '<span class="muted" style="font-size:12px">Needs manager approval</span><button class="btn sm ghost" data-asrole="manager">Act as manager</button>'}</div><textarea class="why" data-why="${a.id}" placeholder="Rationale for the record">${esc(m.rv['why:' + a.id] || '')}</textarea>` : '';
+        return `<div class="qnote" id="note-${nt.ref}"><div class="top"><span class="chip id">${nt.ref}</span><b>${esc(nt.title)}</b>${nt.status === 'Computed' ? '<span class="chip dim">Computed</span>' : nt.status === 'Accepted' ? '<span class="chip ok">Accepted</span>' : nt.status === 'Excluded' ? '<span class="chip bad">Excluded</span>' : statusChip(nt.status)}${nt.src ? cite(nt.src) : ''}</div><p>${esc(nt.text)}</p>${ctl}${nt.evidence && nt.evidence.length ? evDetails(nt.evidence, `Source schedule: ${nt.evidence.length} ledger line${nt.evidence.length > 1 ? 's' : ''}`) : ''}</div>`; }).join('')}
+      </div></section>`;
   }
-  if (M && M.addbacks.length) {
+  if (M && M.addbacks.length && !L) {
     const stmtOnly = !L;
-    html += `<section class="sec"><div class="sechead"><h2>Management's bridge</h2><span class="aside">${esc(M.basisLabel)}, as stated in ${esc((R.srcDoc || {}).the || 'the documents')}</span></div>
-      ${stmtOnly ? '<p class="lede">No ledger in the record, so the diligence figure is built from this bridge. Rule defaults are shown; tick or untick to override.</p>' : '<p class="lede">Each add-back is classified by rule and traced to the ledger. The diligence figure above comes from the ledger; this table shows where management\'s number departs from it.</p>'}
+    html += `<section class="sec"><div class="sechead"><h2>Management's add-backs tested</h2><span class="aside">${esc(M.basisLabel)}, as stated in ${esc((R.srcDoc || {}).the || 'the documents')}</span></div>
+      ${stmtOnly ? '<p class="lede">No ledger in the record, so the diligence figure is built from this bridge. Rule defaults are shown; tick or untick to override.</p>' : '<p class="lede">Each add-back is classified by rule and traced to the ledger, with the reason it is accepted or excluded.</p>'}
       <div class="tbl"><table><thead><tr>${stmtOnly ? '<th></th>' : ''}<th>Add-back</th><th>Class</th><th class="n">Claimed</th>${L ? '<th>Ledger support</th><th class="n">Ledger</th>' : ''}<th>Rule view</th><th>Source</th></tr></thead><tbody>
       <tr class="sub"><td ${stmtOnly ? 'colspan="2"' : ''}>Reported EBITDA</td><td></td><td class="n">${$(M.reported)}</td>${L ? '<td></td><td></td>' : ''}<td></td><td>${cite(M.reportedSrc)}</td></tr>
       ${M.addbacks.map(a => `<tr class="${a.accepted ? '' : 'dim'}">${stmtOnly ? `<td><input type="checkbox" data-ab="${a.key}" ${a.accepted ? 'checked' : ''} aria-label="Accept ${esc(a.label)}"></td>` : ''}<td>${esc(a.label)}</td><td><span class="chip id">${a.rule}</span> ${esc(a.cls)}</td><td class="n">${$(a.amount)}</td>
@@ -6163,11 +6664,15 @@ function vQoE() {
       </tbody></table></div></section>`;
   }
   if (R.SM) {
-    const NAMES = [['revenue', 'Revenue'], ['gp', 'Gross profit'], ['ebitda', 'EBITDA'], ['adjEbitda', 'Adjusted EBITDA']];
-    html += `<section class="sec"><div class="sechead"><h2>Historical and projected performance</h2><span class="aside">From the statements</span></div>
-      <div class="tbl sticky compact"><table><thead><tr><th></th>${R.SM.periods.map(p => `<th class="n">${esc(p.label)}${p.type === 'P' ? '<br><span class="muted" style="font-size:9px">Projected</span>' : ''}</th>`).join('')}</tr></thead><tbody>
-      ${NAMES.filter(([k]) => R.SM.pl[k]).map(([k, l]) => `<tr><td>${l}</td>${R.SM.periods.map(p => { const o = R.SM.pl[k][p.key]; return `<td class="n">${o ? K(o.v) : ''}</td>`; }).join('')}</tr>`).join('')}
-      <tr class="sub"><td>Revenue growth</td>${R.SM.periods.map((p, i) => { const a = R.SM.pl.revenue && R.SM.pl.revenue[p.key], b = i > 0 && R.SM.pl.revenue && R.SM.pl.revenue[R.SM.periods[i - 1].key]; return `<td class="n">${a && b && p.key !== 'LTM' ? pc(a.v / b.v - 1) : ''}</td>`; }).join('')}</tr>
+    const P = R.SM.periods; const v = (k, p) => R.SM.pl[k] && R.SM.pl[k][p.key] ? R.SM.pl[k][p.key].v : null;
+    const rowsH = [['Revenue', p => v('revenue', p)], ['  Growth', (p, i) => { const a = v('revenue', p), b = i > 0 ? v('revenue', P[i - 1]) : null; return a && b && p.key !== 'LTM' && P[i - 1].key !== 'LTM' ? a / b - 1 : null; }, 1],
+      ['Gross profit', p => v('gp', p)], ['  Gross margin', p => v('gp', p) != null && v('revenue', p) ? v('gp', p) / v('revenue', p) : null, 1],
+      ['EBITDA', p => v('ebitda', p)], ['  EBITDA margin', p => v('ebitda', p) != null && v('revenue', p) ? v('ebitda', p) / v('revenue', p) : null, 1],
+      ["Management's adjusted EBITDA", p => v('adjEbitda', p)], ['  Adjusted EBITDA margin', p => v('adjEbitda', p) != null && v('revenue', p) ? v('adjEbitda', p) / v('revenue', p) : null, 1],
+      ['Net income', p => v('netIncome', p)]].filter(([, f]) => P.some((p, i) => f(p, i) != null));
+    html += `<section class="sec"><div class="sechead"><h2>Historical and projected performance</h2><span class="aside">From the statements; ${esc(CUR.code === 'USD' ? '$' : CUR.code)} in thousands</span></div>
+      <div class="tbl qoe sticky compact"><table><thead><tr><th></th>${P.map(p => `<th class="n">${esc(p.label)}${p.type === 'P' ? '<br><span class="muted" style="font-size:9px">Projected</span>' : ''}</th>`).join('')}</tr></thead><tbody>
+      ${rowsH.map(([l, f, pct]) => `<tr class="${pct ? 'qpct' : l === 'EBITDA' ? 'total' : ''}"><td>${esc(l.trim())}</td>${P.map((p, i) => { const x = f(p, i); return `<td class="n">${x == null ? '' : qoeK(x, !!pct)}</td>`; }).join('')}</tr>`).join('')}
       </tbody></table></div></section>`;
   }
   if (L) {
@@ -6469,7 +6974,7 @@ function vReadout() {
   <p class="lede">Built from the live record. Partners read the same evidence chain the analysts used; nothing is retyped.</p>
   <section class="sec"><div class="sechead"><h2>Financial due diligence report</h2><span class="aside">Word or PDF, every figure footnoted</span></div>
     <p class="lede" style="font-size:13px">The full report in the layout diligence providers use: important notice, scope and basis of preparation, executive summary, quality of earnings with each adjustment numbered and explained, historical performance, revenue, net working capital by month, the debt tie-out and net debt, proof of cash and cash flow, then the findings register, information requests and sources.</p>
-    <div class="row"><button class="btn red" data-report="fdd:docx">Download Word</button><button class="btn ghost" data-report="fdd:pdf">Download PDF</button></div>
+    <div class="row"><button class="btn red" data-report="fdd:docx">Download Word</button><button class="btn ghost" data-report="fdd:pdf">Download PDF</button><button class="btn ghost" data-xlsx="databook">Download databook (Excel)</button></div>
     <div class="rptbar" style="margin-top:12px"><span class="muted">Or one area</span>${['qoe', 'revenue', 'nwc', 'debt', 'cash', 'economics', 'findings', 'questions'].map(reportBtns).join('')}</div>
     ${msgs.report ? `<div class="msg ${msgs.report.err ? 'err' : 'ok'}" role="status">${esc(msgs.report.text)}</div>` : ''}</section>
   ${(() => { const DK = getDeck(); return `<section class="sec"><div class="sechead"><h2>Investment committee presentation</h2><span class="aside">${DK.slides.length} slides with speaker notes</span></div>
@@ -6768,7 +7273,7 @@ function vHelp() {
   <section class="sec"><div class="sechead"><h2>Questions</h2></div>
     ${qa('Do documents need a set format?', 'No. Exports from QuickBooks, Xero, Sage, NetSuite and spreadsheets are read as they come: any column names, Debit and Credit or one Amount column, accounts with or without numbers, and ledgers grouped under each account. Lines are recognized under the names accounting systems, tax returns and CIMs use (Total Income, Turnover, Gross receipts, Net Operating Income, Normalised EBITDA, Accts. rec.), periods under any heading (FY25, YE Dec-25, Jan - Dec 2025, 31 December 2025), tables with the years across the top or down the side, statements by month (added up into full years and LTM), and figures written in sentences or on the line below their name. The Sources page shows what was read from each file, and nothing is guessed: a figure that can\u2019t be placed is left out.')}
     ${qa('Does DealBasis use AI?', 'No. Documents are parsed and analysed by fixed rules in your browser. The same documents always give the same result, and the run fingerprint shows it.')}
-    ${qa('What reports can I download?', 'Each analysis page has its report, as Word or PDF, laid out the way diligence reports are: an important notice, scope and basis of preparation, an executive summary, then the schedules. Quality of Earnings (net income to EBITDA, adjusted EBITDA with each adjustment numbered and explained, and the reconciliation to management\u2019s figure), Revenue Quality, Net Working Capital (monthly schedule and peg), Net Debt and Debt Tie-Out, Proof of Cash and Cash Flow, Valuation and Returns, Risk and Findings, and the Information Request List. Committee Readout has the full Financial Due Diligence Report with all of them. Every figure is footnoted to its source.')}
+    ${qa('What reports can I download?', 'Each analysis page has its report, as Word or PDF, laid out the way diligence reports are: an important notice, scope and basis of preparation, an executive summary, then the schedules. Quality of Earnings (net income to EBITDA, adjusted EBITDA with each adjustment numbered and explained, and the reconciliation to management\u2019s figure), Revenue Quality, Net Working Capital (monthly schedule and peg), Net Debt and Debt Tie-Out, Proof of Cash and Cash Flow, Valuation and Returns, Risk and Findings, and the Information Request List. Committee Readout has the full Financial Due Diligence Report with all of them, plus matters for the purchase agreement, the quarterly income statement, revenue and costs by account, payroll, income taxes, and commitments and contingencies. Reports include charts of EBITDA by period, revenue and margins by quarter, monthly revenue, net working capital against the peg, customer concentration and the proof of cash. Tables and figures are numbered by section (Table 5.1, Figure 5.1) and referred to in the text. The Excel databook is formatted like a diligence databook, with every schedule on its own tab and totals, margins, net debt and the proof of cash as live formulas, so they recalculate if a figure is changed. Every figure is footnoted to its source.')}
     ${qa('Can I take the figures into Excel?', 'Committee Readout has Download Excel: a workbook with the summary and equity bridge, income statement, EBITDA bridge, balance sheet, working capital on every definition, debt and cash, findings, questions and data checks. Every number is a number, and every row names its source.')}
     ${qa('Can I check where a figure came from?', 'Click any citation. The source opens at the page, cell, row, paragraph or XBRL tag, with the figure highlighted.')}
     ${qa('Why can’t I approve something?', 'Approvals follow your role: managers approve adjustments, partners approve escalations. Your role is shown at the bottom of the menu and set by a workspace admin in Team & Access.')}
@@ -6864,11 +7369,12 @@ const LIBS = {
   docx: ['https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js'],
   jszip: ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'],
   jspdf: ['https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'],
+  exceljs: ['https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'],
   mammoth: ['https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js']
 };
 const loaded = {};
 function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; const t = setTimeout(() => rej(new Error('A library took too long to load. Check the connection and try again.')), 30000); s.onload = () => { clearTimeout(t); res(); }; s.onerror = () => { clearTimeout(t); s.remove(); rej(new Error('Could not load a library this needs. Check the connection and try again.')); }; document.head.appendChild(s); }); }
-const LIB_GLOBAL = { pdf: 'pdfjsLib', pptx: 'PptxGenJS', xlsx: 'XLSX', docx: 'docx', jspdf: 'jspdf', mammoth: 'mammoth', jszip: 'JSZip' };
+const LIB_GLOBAL = { pdf: 'pdfjsLib', pptx: 'PptxGenJS', xlsx: 'XLSX', docx: 'docx', jspdf: 'jspdf', mammoth: 'mammoth', jszip: 'JSZip', exceljs: 'ExcelJS' };
 async function lib(k) {
   if (LIB_GLOBAL[k] && window[LIB_GLOBAL[k]] && k !== 'pdf') return;
   if (!loaded[k]) loaded[k] = (async () => { for (const s of LIBS[k]) await loadScript(s); if (k === 'pdf' && window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdf[1]; })().catch(e => { delete loaded[k]; throw e; });
@@ -7416,15 +7922,15 @@ function sellerQuestionFor(f) {
   return Q[f.id] || `Please explain: ${f.title.toLowerCase()}. ${f.text}`.slice(0, 400);
 }
 async function downloadXlsx(btn) {
-  if (!hasData()) return; const m = MD(); const date = new Date().toISOString().slice(0, 10);
-  const base = `${m.name} - Figures - ${date}`.replace(/[\\/:*?"<>|]+/g, '-');
+  if (!hasData()) return; const m = MD(); const date = new Date().toISOString().slice(0, 10); const book = btn.dataset.xlsx === 'databook';
+  const base = `${m.name} - ${book ? 'Databook' : 'Figures'} - ${date}`.replace(/[\\/:*?"<>|]+/g, '-');
   const old = btn.textContent; btn.textContent = 'Preparing\u2026'; btn.disabled = true;
   try {
     const dl = store.downloads === undefined ? (window.claude && claude.use ? await claude.use('downloads') : null) : store.downloads; store.downloads = dl;
-    await lib('xlsx'); const bytes = workbookXlsx(workbookModel(R, m), XLSX);
+    let bytes; if (book) { try { await lib('exceljs'); bytes = await databookExcel(databookModel(R, m), ExcelJS); } catch (e) { await lib('xlsx'); bytes = workbookXlsx(databookModel(R, m), XLSX); } } else { await lib('xlsx'); bytes = workbookXlsx(workbookModel(R, m), XLSX); }
     const data = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     if (!dl) msgs.xlsx = { err: true, text: 'Downloads are not available in this view. Open the page in Claude to save the workbook.' };
-    else { await dl.save({ filename: `${base}.xlsx`, data }); msgs.xlsx = { err: false, text: `Saved ${base}.xlsx` }; log('Exported the figures to Excel'); scheduleSave(); }
+    else { await dl.save({ filename: `${base}.xlsx`, data }); msgs.xlsx = { err: false, text: `Saved ${base}.xlsx` }; log(book ? 'Exported the databook to Excel' : 'Exported the figures to Excel'); scheduleSave(); }
   } catch (e) { const c = e && e.code; msgs.xlsx = c === 'declined' ? null : { err: true, text: c === 'rate_limited' ? 'A save prompt is already open.' : (e && e.message) || 'The workbook could not be built.' }; }
   btn.textContent = old; btn.disabled = false; render();
 }
