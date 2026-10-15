@@ -1028,7 +1028,30 @@ function pdfColumns(lines, depth) {
   flush(i, lines.length - 1);
   return out;
 }
+/* Some PDFs (fonts with alternate glyphs for punctuation next to figures, as browsers export them) carry "(", ")" and
+   "–" as private-use characters with no text meaning: "(1,130)" arrives as "\uE0811,130\uE082". Which code stands for
+   what is learned from the document itself: the pair that opens and closes around figures and phrases is the parenthesis
+   pair; the code printed between two figures or years ("2–6", "FY2023–FY2025") is the dash. Any other private-use
+   character is dropped so it cannot break the reading of a line. */
+function pdfPrivateUse(pagesItems) {
+  const PUA = /[\uE000-\uF8FF]/; const lines = [];
+  pagesItems.forEach(pg => { const items = (Array.isArray(pg) ? pg : (pg.items || [])).filter(i => i.str && PUA.test(i.str)); if (!items.length) return;
+    const all = (Array.isArray(pg) ? pg : pg.items).slice().sort((a, b) => b.y - a.y || a.x - b.x); let cur = null;
+    all.forEach(i => { if (!cur || Math.abs(cur.y - i.y) > 2) { cur = { y: i.y, t: '' }; lines.push(cur); } cur.t += i.str; }); });
+  if (!lines.length) return null;
+  const pair = {}, mid = {};
+  lines.forEach(({ t }) => {
+    for (const m of t.matchAll(/([\uE000-\uF8FF])([^\uE000-\uF8FF]{1,60}?)([\uE000-\uF8FF])/g)) if (m[1] !== m[3] && /[\w$%]/.test(m[2])) { const k = m[1] + m[3]; pair[k] = (pair[k] || 0) + 1; }
+    for (const m of t.matchAll(/[\dA-Za-z]([\uE000-\uF8FF])(?=\$?\d|FY|CY|Q[1-4])/g)) mid[m[1]] = (mid[m[1]] || 0) + 1; });
+  const map = {};
+  const bp = Object.entries(pair).sort((a, b) => b[1] - a[1])[0]; if (bp && bp[1] >= 2) { map[bp[0][0]] = '('; map[bp[0][1]] = ')'; }
+  const bd = Object.entries(mid).filter(([c]) => !map[c]).sort((a, b) => b[1] - a[1])[0]; if (bd && bd[1] >= 2) map[bd[0]] = '–';
+  return map;
+}
 function docFromPdfItems(name, pagesItems) {
+  { const map = pdfPrivateUse(pagesItems);
+    if (map) pagesItems = pagesItems.map(pg => { const fix = i => i.str && /[\uE000-\uF8FF]/.test(i.str) ? { ...i, str: i.str.replace(/[\uE000-\uF8FF]/g, c => map[c] || '') } : i;
+      return Array.isArray(pg) ? pg.map(fix) : { ...pg, items: (pg.items || []).map(fix) }; }); }
   const pages = pagesItems.map((pg, pi) => {
     const items = Array.isArray(pg) ? pg : (pg.items || []); const pw = Array.isArray(pg) ? null : pg.w, ph = Array.isArray(pg) ? null : pg.h;
     const its = items.filter(i => i.str && i.str.trim()).slice().sort((a, b) => b.y - a.y || a.x - b.x);
@@ -1586,6 +1609,10 @@ function notOwnFigure(s, at, len) {
   if (/\d\s*[–—-]\s*$/.test(before) || /^\s*[–—-]\s*\$?\s?\d/.test(after) || /\d\s*[–—-]\s*\$?\s?\d/.test(s.slice(at, at + len))) return true;
   if (/\b(below|above|under|over|less than|more than|greater than|fewer than|up to|at least|at most|exceed\w*|in excess of|between|ranging from|from|to)\s+(?:approximately\s+|about\s+)?$/i.test(before.replace(/\$\s?$/, ''))) return true;
   if (/^[^.]{0,40}\b(each|apiece|per (?:branch|location|site|store|customer|unit|employee|technician|year|month))\b/i.test(after) || /\bfor every\b|\bper \$|\bfor each\b/i.test(win)) return true;
+  /* a range whose dash did not survive ("$10 50 million"), and figures that describe other businesses ("operators with
+     $10–50 million of revenue", "competitors generating $20 million", "targets with revenue of $3 million") */
+  if (/\$?\d[\d,.]*\s+$/.test(before) && !/\b(19|20)\d{2}\s+$/.test(before)) return true;
+  if (/\b(competitors?|operators|providers|players|peers|rivals|independents|consolidators|contractors|businesses|companies|firms|targets|acquisitions?|branch(?:es)?|locations?|stores|sites|customers?|clients?)\b(?:[\s,-]+[\w-]+){0,5}[\s,]+(?:with|having|generating|averaging|of|that (?:have|generate|average)|each with)\s+(?:revenues?\s+(?:of|below|above|under|over)\s+)?(?:approximately\s+|about\s+|roughly\s+)?\$?\s?$/i.test(before)) return true;
   if (/\b(pro forma|run[- ]rate|contribut\w*|includes?|including|of which|acquir\w*|target\w*|goal|plan(?:s|ned)?|would|could)\b/i.test(before) || /\bby (?:fy\s?)?'?(?:19|20)?\d{2}\b/i.test(after.slice(0, 30))) return true;
   return false;
 }
@@ -2642,6 +2669,15 @@ const pctDiff = (a, b) => b ? Math.abs(a - b) / Math.abs(b) : (a ? 1 : 0);
 /* ---------- statements: pick values, bridge, checks ---------- */
 function statementModel(X) {
   const periods = {}; const occ = {};
+  /* a table read at the wrong scale shows up against the income statement: its revenue some thousand times larger or
+     smaller than the other tables' revenue for the same company. Such a table is rescaled, and the change reported */
+  const unitFixes = [];
+  { const revOf = b => { const r = b.rows.find(x => x.metric === 'revenue' && !x.pct); if (!r) return null; const vs = r.values.filter(v => v != null && isFinite(v) && v > 0).map(v => v * b.units).sort((a, c) => a - c); return vs.length ? vs[Math.floor(vs.length / 2)] : null; };
+    const cand = X.blocks.filter(b => !b.bsOnly && !b.xbrl && revOf(b) != null);
+    const ref = cand.filter(b => b.periods.some(p => p.type === 'H')).sort((a, c) => c.rows.filter(r => r.metric).length - a.rows.filter(r => r.metric).length)[0];
+    if (ref) { const R0 = revOf(ref); cand.forEach(b => { if (b === ref) return; const k = revOf(b) / R0;
+      const f = k >= 300 && k <= 3000 ? 1 / 1000 : k >= 1 / 3000 && k <= 1 / 300 ? 1000 : null;
+      if (f) { b.units = b.units * f; unitFixes.push({ src: b.src, factor: f }); } }); } }
   X.blocks.forEach(b => {
     if (b.bsOnly) return;
     /* a period is one the documents give figures for: a timeline's years or a chart's axis carry none */
@@ -2722,7 +2758,7 @@ function statementModel(X) {
       addbacks: ab.map(({ r, at }) => ({ label: r.label.replace(/\s*\((?:\d{1,2}|[a-z])\)\s*$/i, '').replace(/\s*[¹²³⁴⁵⁶⁷⁸⁹⁰]+$/, ''), values: Object.fromEntries(b.periods.map((p, k) => [p.key, r.values[k] * b.units])), src: r.src, pf: subs.some(k => at > k) }))
     };
   });
-  return { periods: order, pl, basis, recon };
+  return { periods: order, pl, basis, recon, unitFixes };
 }
 
 function classifyAddback(label, value) {
@@ -3200,6 +3236,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   { const f = factsOf('arAged')[0]; if (f) { const arL = L && L.lines && L.lines.find(l => L.cls[l] === 'NWC asset' && /receivable/i.test(l)); const ar = arL && L.bsv[arL] ? L.bsv[arL][L.last] : null;
     dataChecks.push({ status: 'info', text: `Receivables over ${f.days} days are stated as ${fmtUSD(f.value)}${ar ? `, ${(f.value / ar * 100).toFixed(1)}% of receivables of ${fmtUSD(ar)} at the latest month-end` : ''}. Ask for the aging report to support the reserve.`, src: f.src }); } }
   let SM = X.blocks.length ? statementModel(X) : null;
+  if (SM && SM.unitFixes && SM.unitFixes.length) SM.unitFixes.forEach(u => dataChecks.push({ status: 'fixed', text: `The table at ${anchorLabel(u.src)} reads ${u.factor < 1 ? 'a thousand times larger' : 'a thousand times smaller'} than the income statement at the units stated nearby, so it was read ${u.factor < 1 ? 'in thousands rather than millions' : 'in millions rather than thousands'} to agree with it. If that is wrong, set the units for this document.`, src: u.src, doc: u.src && u.src.d }));
   if (SM && SM.basis && SM.pl.revenue && SM.pl.revenue[SM.basis]) {
     const rv = SM.pl.revenue[SM.basis]; const did = rv.src && rv.src.d;
     const men = factsOf('revenueMention').filter(f => f.amount > 0);
@@ -7863,7 +7900,7 @@ function mandateToRecord(m) {
   while (json.length > 240000 && rec.rv.activity.length > 20) { rec.rv.activity = rec.rv.activity.slice(Math.floor(rec.rv.activity.length / 2)); json = JSON.stringify(rec); }
   return JSON.parse(json);
 }
-const PARSE_V = 8; /* raise when the readers change: stored documents are read again from their originals */
+const PARSE_V = 9; /* raise when the readers change: stored documents are read again from their originals */
 async function persistDoc(d, file) {
   d.parseV = PARSE_V;
   const up = await store.assets.upload(new Blob([JSON.stringify(d)], { type: 'application/json' }), { type: 'application/json' });
