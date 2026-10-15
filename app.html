@@ -984,16 +984,62 @@ const decodeEnt = s => String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').re
 const stripTags = s => decodeEnt(String(s).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
 
 /* ---------- normalizers ---------- */
+/* pages laid out in columns: a gutter is a vertical line that no text crosses, with text in the column to its right
+   starting at the same x on several lines (prose, a table's labels). Inside the stretch of the page where the gutter
+   holds, the left column is read before the right, so sentences and table rows never mix columns. A page with one
+   column, or a table whose figures sit in right-aligned columns, has no such gutter and reads as before. */
+function pdfColumns(lines, depth) {
+  if (depth > 3 || lines.length < 3) return lines;
+  /* fragments joined into words and phrases, as the line builder joins them */
+  const cellsOf = l => { if (l.cells0) return l.cells0; const out = []; let c = null;
+    for (const it of l.items) { const h = it.h || 10, gap = c ? it.x - c.x2 : 1e9;
+      if (c && gap < Math.max(3, h * 0.9)) { c.str += (gap > h * 0.18 ? ' ' : '') + it.str; c.x2 = Math.max(c.x2, it.x + (it.w || 0)); c.items.push(it); }
+      else { c = { x: it.x, x2: it.x + (it.w || 0), str: it.str, items: [it] }; out.push(c); } }
+    return (l.cells0 = out); };
+  const starts = []; const minX = Math.min(...lines.map(l => cellsOf(l)[0] ? cellsOf(l)[0].x : 1e9));
+  lines.forEach((l, li) => { let end = -1e9; cellsOf(l).forEach((c, k) => {
+    if ((k ? c.x - end >= 14 : c.x - minX >= 60) && /[A-Za-z]{3}/.test(c.str) && !/^[\s$€£(–—-]*\d/.test(c.str)) starts.push({ x: c.x, li });
+    end = Math.max(end, c.x2); }); });
+  starts.sort((a, b) => a.x - b.x);
+  const groups = []; starts.forEach(s0 => { const g = groups[groups.length - 1]; if (g && s0.x - g.x1 <= 2.5) { g.x1 = s0.x; g.lis.add(s0.li); } else groups.push({ x0: s0.x, x1: s0.x, lis: new Set([s0.li]) }); });
+  let best = null;
+  groups.filter(g => g.lis.size >= 3).forEach(g => {
+    /* the column's left edge is the leftmost text starting just before the aligned group (a heading above an indented table) */
+    const near = starts.filter(s0 => s0.x >= g.x0 - 24 && s0.x <= g.x1); const lo = Math.min(...near.map(s0 => s0.x)); const X = lo - 3;
+    const lis = new Set(near.map(s0 => s0.li));
+    const blocks = l => cellsOf(l).some(c => c.x < X && c.x2 > X + 1);
+    const runs = []; let r = null;
+    lines.forEach((l, li) => { if (blocks(l)) { r = null; return; } if (!r) { r = { a: li, b: li }; runs.push(r); } else r.b = li; });
+    /* a real column on the left fills out to the gutter on some lines (wrapped prose, right-aligned figures); a table's
+       label column does not, and is left joined to the rest of its row */
+    /* or two headings sit side by side over columns that are not a table of words (charts on the left, a table on the right) */
+    const alpha = c => c && /[A-Za-z]{3}/.test(c.str) && !/^[\s$€£(–—-]*\d/.test(c.str);
+    const ok = runs.filter(rn => { let sup = 0, reach = 0, twin = 0, n = 0; for (let i = rn.a; i <= rn.b; i++) { n++; if (lis.has(i)) sup++; const cs = cellsOf(lines[i]); const lc = cs.filter(c => c.x < X), rc = cs.filter(c => c.x >= X);
+        if (lc.length && Math.max(...lc.map(c => c.x2)) >= X - 40) reach++; if (lc.length && rc.length && alpha(lc[0]) && Math.abs(lc[0].x - minX) <= 3 && alpha(rc[0])) twin++; }
+      rn.sup = sup; return sup >= 3 && (reach >= 2 || (twin >= 1 && twin / n < 0.4)); });
+    const score = ok.reduce((t, rn) => t + rn.sup, 0);
+    if (ok.length && (!best || score > best.score)) best = { X, runs: ok, score }; });
+  if (!best) return lines;
+  const out = []; let i = 0; const X = best.X;
+  const flush = (a, b) => { if (b >= a) out.push(...pdfColumns(lines.slice(a, b + 1), depth + 1)); };
+  best.runs.forEach(rn => { flush(i, rn.a - 1);
+    const part = side => lines.slice(rn.a, rn.b + 1).map(l => { const cs = cellsOf(l).filter(c => side ? c.x >= X : c.x < X); const items = cs.flatMap(c => c.items); return items.length ? { y: l.y, h: Math.max(...items.map(it => it.h || 10)), items, cells0: cs } : null; }).filter(Boolean);
+    out.push(...pdfColumns(part(false), depth + 1), ...pdfColumns(part(true), depth + 1)); i = rn.b + 1; });
+  flush(i, lines.length - 1);
+  return out;
+}
 function docFromPdfItems(name, pagesItems) {
   const pages = pagesItems.map((pg, pi) => {
     const items = Array.isArray(pg) ? pg : (pg.items || []); const pw = Array.isArray(pg) ? null : pg.w, ph = Array.isArray(pg) ? null : pg.h;
     const its = items.filter(i => i.str && i.str.trim()).slice().sort((a, b) => b.y - a.y || a.x - b.x);
-    const raw = []; let cur = null;
+    const raw0 = []; let cur = null;
     for (const it of its) {
       const h = it.h || 10, tol = Math.max(2, h * 0.45);
-      if (cur && Math.abs(cur.y - it.y) <= tol) cur.items.push(it); else { cur = { y: it.y, h, items: [it] }; raw.push(cur); }
+      if (cur && Math.abs(cur.y - it.y) <= tol) cur.items.push(it); else { cur = { y: it.y, h, items: [it] }; raw0.push(cur); }
       cur.h = Math.max(cur.h, h);
     }
+    raw0.forEach(l => l.items.sort((a, b) => a.x - b.x));
+    const raw = pdfColumns(raw0, 0);
     const lines = raw.map((l, li) => {
       l.items.sort((a, b) => a.x - b.x);
       const cells = []; let c = null;
@@ -1002,13 +1048,30 @@ function docFromPdfItems(name, pagesItems) {
         if (c && gap < Math.max(3, h * 0.9)) { c.text += (gap > h * 0.18 ? ' ' : '') + it.str; c.x2 = Math.max(c.x2, it.x + (it.w || 0)); }
         else { c = { x: it.x, x2: it.x + (it.w || 0), text: it.str }; cells.push(c); }
       }
-      const cl = cells.map(x => x.text.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      const cp = cells.map(x => ({ ...x, text: x.text.replace(/\s+/g, ' ').trim() })).filter(x => x.text);
       const r1 = v => Math.round(v * 10) / 10;
-      return { n: li + 1, text: cl.join('  '), cells: cl, h: r1(l.h), box: [r1(Math.min(...l.items.map(i => i.x))), r1(l.y), r1(Math.max(...l.items.map(i => i.x + (i.w || 0)))), r1(l.h)] };
-    }).filter(l => l.text);
+      return { n: li + 1, cp, h: r1(l.h), box: [r1(Math.min(...l.items.map(i => i.x))), r1(l.y), r1(Math.max(...l.items.map(i => i.x + (i.w || 0)))), r1(l.h)] };
+    }).filter(l => l.cp.length);
+    /* a column heading wrapped inside its cell ("LTM Jun-" over "26", printed above and below the other headings, or
+       its second half on the next line) is one heading on the heading line */
+    const ov = (a, b) => Math.min(a.x2, b.x2) - Math.max(a.x, b.x) > -2;
+    for (let k = 0; k < lines.length; k++) { const A = lines[k], B = lines[k + 1], C = lines[k + 2];
+      const frag = l => l && l.cp.length === 1 && l.cp[0].text.length <= 14;
+      if (frag(A) && B && B.cp.length >= 2 && frag(C) && ov(A.cp[0], C.cp[0]) && A.cp[0].x >= B.cp[B.cp.length - 1].x2 - 2 && /[-–]$|^[A-Za-z]/.test(A.cp[0].text)) {
+        const t = A.cp[0].text + (/-$/.test(A.cp[0].text) ? '' : ' ') + C.cp[0].text; B.cp.push({ x: Math.min(A.cp[0].x, C.cp[0].x), x2: Math.max(A.cp[0].x2, C.cp[0].x2), text: t }); A.cp = []; C.cp = []; k += 2; continue; }
+      if (A.cp.length >= 2 && /[-–]$/.test(A.cp[A.cp.length - 1].text) && frag(B) && ov(A.cp[A.cp.length - 1], B.cp[0])) { const c = A.cp[A.cp.length - 1]; c.text += B.cp[0].text; c.x2 = Math.max(c.x2, B.cp[0].x2); B.cp = []; k++; } }
+    lines.forEach(l => { l.cells = l.cp.map(c => c.text); l.text = l.cells.join('  '); });
+    for (let k = lines.length - 1; k >= 0; k--) if (!lines[k].cp.length) lines.splice(k, 1);
+    lines.forEach(l => delete l.cp);
     lines.forEach((l, i) => l.n = i + 1);
     return { n: pi + 1, lines, ...(pw ? { w: Math.round(pw), h: Math.round(ph) } : {}) };
   });
+  /* the running header or footer printed on most pages ("Strictly Private and Confidential   Project Lantern   36") is page
+     furniture, not content: dropped wherever it repeats at the same height on at least three pages and a third of them */
+  if (pages.length >= 3) { const key = l => l.text.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().toLowerCase(); const cnt = {};
+    pages.forEach(pg => { const seen = new Set(); pg.lines.forEach(l => { const k = key(l) + '@' + Math.round(l.box[1] / 4); if (!seen.has(k)) { seen.add(k); cnt[k] = (cnt[k] || 0) + 1; } }); });
+    const need = Math.max(3, Math.ceil(pages.length / 3));
+    pages.forEach(pg => { const ph = pg.h || 792; pg.lines = pg.lines.filter(l => { const edge = l.box[1] < ph * 0.1 || l.box[1] > ph * 0.9; return !(edge && cnt[key(l) + '@' + Math.round(l.box[1] / 4)] >= need && /[a-z]/i.test(l.text)); }); pg.lines.forEach((l, i) => l.n = i + 1); }); }
   return { type: 'pdf', name, pages };
 }
 function cellStr(v) {
@@ -1113,7 +1176,7 @@ function normDate(v) {
 const CUR_PAT = [['EUR', /€|\beur\b|\beuros?\b/i], ['GBP', /£|\bgbp\b|pounds? sterling|\bsterling\b/i], ['CAD', /\bc\$|\bcad\b|canadian dollars?/i], ['AUD', /\ba\$|\baud\b|australian dollars?/i], ['NZD', /\bnz\$|\bnzd\b/i], ['JPY', /¥|\bjpy\b|\byen\b/i], ['CHF', /\bchf\b|swiss francs?/i], ['INR', /₹|\binr\b|\brupees?\b|\blakhs?\b|\bcrores?\b/i], ['CNY', /\bcny\b|\brmb\b|\byuan\b|\brenminbi\b/i], ['HKD', /\bhk\$|\bhkd\b/i], ['SGD', /\bs\$|\bsgd\b/i], ['MXN', /\bmx\$|\bmxn\b|mexican pesos?/i], ['BRL', /\br\$|\bbrl\b|\breais\b/i], ['SEK', /\bsek\b|swedish kron/i], ['NOK', /\bnok\b|norwegian kron/i], ['DKK', /\bdkk\b|danish kron/i], ['ZAR', /\bzar\b|\brand\b/i], ['PLN', /\bpln\b|z\u0142oty|zloty/i], ['USD', /\busd\b|us\$|u\.s\. dollars?|\$/i]];
 const currencyOf = text => { const t = String(text || ''); for (const [c, re] of CUR_PAT) if (re.test(t)) return c; return null; };
 const unitsOf = text => /in billions|\(\$\s?bn?\)|\$\s?billions/i.test(text) ? 1e9 : /in millions|\(\$\s?mm\)|\$\s?mm\b|\$\s?millions|\(\$m\)|\$\s?m\b(?!\w)|usd\s?m(illion)?s?\b|dollars in millions/i.test(text) ? 1e6 : /in thousands|\(\$\s?0{3}'?s?\)|\$\s?0{3}'?s?\b|\(\$k\)|\$ thousands|in 0{3}'?s\b|0{3}'?s omitted|\(0{3}'?s\)|dollars in thousands|usd\s?(k|thousands?)\b|(usd|eur|gbp|cad)\s?'?0{3}'?s?\b|[€£]\s?'?0{3}'?s?\b|\(0{3}\)|\$k\b|in \$?0{3}'?s?\b|\bthousands of (us )?dollars\b/i.test(text) ? 1000 : null;
-const normLabel = s => String(s).toLowerCase().replace(/\(\d{1,2}\)|\*+|†|‡|[¹²³⁴⁵⁶⁷⁸⁹⁰]+|\[\d{1,2}\]/g, '').replace(/[:$]/g, '').replace(/\s+/g, ' ').trim();
+const normLabel = s => String(s).replace(/\s\([a-z]\)\s*$/, '').toLowerCase().replace(/\(\d{1,2}\)|\*+|†|‡|[¹²³⁴⁵⁶⁷⁸⁹⁰]+|\[\d{1,2}\]/g, '').replace(/[:$]/g, '').replace(/\s+/g, ' ').trim();
 
 /* ---------- terms: the other names documents use for the same item ----------
    DealBasis looks for these names everywhere in a document: table rows (whatever the table is called), lines that
@@ -1201,7 +1264,7 @@ function bsClass(label) {
   if (/prepaid|other current assets|deposits paid/.test(l)) return 'NWC asset';
   if (/accounts payable|trade payable|trade creditors/.test(l)) return 'NWC liability';
   if (/accrued (bonus|bonuses|compensation)|deferred comp|income tax(es)? payable|accrued income tax|accrued interest|interest payable|deferred rent|deferred tax|dividends? payable|distributions? payable|declared distributions/.test(l)) return 'Debt-like';
-  if (/line of credit|revolv|term loan|long[- ]term debt|current portion|notes? payable|equipment (notes|loans)|capital lease|finance lease|\bloan\b|borrowing|shareholder note|related[- ]party note|debt|credit card/.test(l)) return 'Debt';
+  if (/line of credit|revolv|term loan|long[- ]term debt|current portion|notes? payable|equipment (notes|loans)|(equipment|vehicle|fleet|seller|vendor) (financing|notes?|loans?)|financing obligations?|capital lease|finance lease|\bloan\b|borrowing|shareholder note|related[- ]party note|debt|credit card/.test(l) && !/deferred financing/.test(l)) return 'Debt';
   if (/accrued|other current liabilities|payroll|wages|salaries|sales tax|use tax|payable/.test(l)) return 'NWC liability';
   if (/deferred revenue|unearned|customer deposits|billings in excess|contract liabilit/.test(l)) return 'NWC liability';
   if (/property|equipment|fixed assets|pp&e|intangible|goodwill|right[- ]of[- ]use|operating lease/.test(l)) return 'Other';
@@ -1353,6 +1416,8 @@ function rowValues(cells) {
 function parseRow(cells, n) {
   const { label, vals } = rowValues(cells);
   if (!label || !vals.length || !/[a-z]/i.test(label)) return null;
+  /* "Debt and net debt, June 30, 2026": the year of a date, not a figure */
+  if (vals.length === 1 && /^(19|20)\d{2}$/.test(String(vals[0].raw).trim()) && /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?$|\b(as of|at|ended|ending|through|since|in|fy|fiscal|year)\s*$/i.test(label)) return null;
   let v = vals.slice(); let lab = label;
   if (v.length === n + 1 && /^\(\d{1,2}\)$/.test(v[0].raw)) { lab += ' ' + v[0].raw; v.shift(); }
   /* a "Note" column between the name and the figures ("Revenue   4   18,600   16,200") */
@@ -1361,7 +1426,7 @@ function parseRow(cells, n) {
   if (v.length === n - 1) { const mm = lab.match(/^(.*[A-Za-z)])\s+(\(?-?\$?[\d,]+(?:\.\d+)?\)?-?)$/); if (mm && parseNum(mm[2])) { lab = mm[1]; v = [parseNum(mm[2]), ...v]; } }
   if (v.length !== n) { const np = v.filter(x => !x.pct); if (np.length === n) v = np; else return null; }
   lab = lab.replace(/^\(?(?:\d{1,2}|[a-h]|[ivx]{1,4})[.)]\s+(?=[A-Za-z])/i, '');
-  return { label: lab, values: v.map(x => x.v), scales: v.map(x => x.scale || null), pct: v.some(x => x.pct) && v.every(x => x.pct || x.dash) };
+  return { label: lab, values: v.map(x => x.v), scales: v.map(x => x.scale || null), dash: v.map(x => !!x.dash), pct: v.some(x => x.pct) && v.every(x => x.pct || x.dash) };
 }
 
 function mergeCells(cells) {
@@ -1416,27 +1481,40 @@ function tablesFromLines(lines, ctx, out) {
       const row = { label: name, values: vs.map(v => v.scale ? v.v * v.scale / (units || 1) : v.v), scales: vs.map(() => null), pct: vs.every(v => v.pct || v.dash) && vs.some(v => v.pct), src: t.rows[0].src, srcs: t.rows.map(r => r.src), text: t.head };
       row.metric = metricOf(name, row.pct) || (row.pct ? null : null); b.rows.push(row); });
     out.blocks.push(b); };
+  let lastRow = null, prevCells = null;
   lines.forEach(ln => {
     const cells = mergeCells(ln.cells);
     if (!cells.length) return;
     const near = recent.join(' ');
+    const pc0 = prevCells; prevCells = cells; const txt = cells.join(' ').trim();
+    /* a footnote marker printed on its own ("(a)", a superscript one line up or down from its row) */
+    if (/^\(?(?:[a-z]|\d{1,2})\)$/i.test(txt)) { prevCells = pc0; return; }
+    /* the second line of a wrapped row name ("Summit Alarm pre-acquisition" / "EBITDA (g)") */
+    if (block && lastRow && cells.length === 1 && txt.length <= 45 && !/\d/.test(txt.replace(/\s*\((?:[a-z]|\d{1,2})\)\s*$/i, '')) && (/^[a-z]/.test(txt) || /\s\((?:[a-z]|\d{1,2})\)\s*$/i.test(txt))) {
+      lastRow.label += ' ' + txt; lastRow.text = (lastRow.text || '') + ' ' + txt; return; }
     if (side) { const pr = periodTok(cells[0], side.proj); const vs = pr && cells.length === side.names.length + 1 ? cells.slice(1).map(c => parseNum(String(c).replace(/\$\s+/, '$'))) : null;
       if (vs && vs.every(Boolean)) { side.rows.push({ p: pr, vals: vs, src: ln.src }); return; }
       flushSide(); }
     { const sh = sidewaysHeader(cells); if (sh) { side = { ...sh, rows: [], near: near + ' ' + (ctx.title || ''), head: cells.join(' '), src: ln.src, proj: ctx.proj || PROJ_CTX.test(near) }; block = null; return; } }
-    const hp = monthlyPeriods(cells) || headerPeriods(cells, ctx.proj || PROJ_CTX.test(near)) || columnPeriods(cells, ctx.proj || PROJ_CTX.test(near), near + ' ' + (ctx.title || '')) || singlePeriod(cells);
-    if (hp) { block = { periods: hp, rows: [], cur: (unitsOf(near) || /\b(000s?|thousands|millions|currency)\b/i.test(near + ' ' + cells.join(' ')) ? currencyOf(near + ' ' + cells.join(' ')) : null) || ctx.cur || null, units: unitsOf(near + ' ' + cells.join(' ')) || ctx.units, src: ln.src, doc: ctx.doc, isBS: BS_HINT.test(near + ' ' + (ctx.bsHint || '')) }; out.blocks.push(block); recent.length = 0; return; }
+    let hp = monthlyPeriods(cells) || headerPeriods(cells, ctx.proj || PROJ_CTX.test(near)) || columnPeriods(cells, ctx.proj || PROJ_CTX.test(near), near + ' ' + (ctx.title || '')) || singlePeriod(cells);
+    /* a chart: its figures printed in a row with no name, its period labels on the axis below them */
+    if (hp && pc0 && pc0.length >= 2 && pc0.every(c => { const v = parseNum(c); return v && !v.dash; })) hp = null;
+    if (hp) { lastRow = null; block = { periods: hp, rows: [], cur: (unitsOf(near) || /\b(000s?|thousands|millions|currency)\b/i.test(near + ' ' + cells.join(' ')) ? currencyOf(near + ' ' + cells.join(' ')) : null) || ctx.cur || null, units: unitsOf(near + ' ' + cells.join(' ')) || ctx.units, unitsNear: !!unitsOf(near + ' ' + cells.join(' ')), src: ln.src, doc: ctx.doc, isBS: BS_HINT.test(near + ' ' + (ctx.bsHint || '')),
+      debtSchedule: /\b(net debt|funded debt|capitali[sz]ation table|capitali[sz]ation|debt summary|debt schedule|indebtedness)\b/i.test(near) && !BS_HINT.test(near) }; out.blocks.push(block); recent.length = 0; return; }
     let row = block ? parseRow(cells, block.periods.cols ? block.periods.cols.length : block.periods.length) : null;
     /* in a spreadsheet each figure cites its own cell (or, for a year added up from months, the cells it adds) */
     let cellCols = null;
     if (row && ln.cols && ln.src && ln.src.t === 'xlsx' && cells.length === ln.cells.length) { const n0 = row.values.length; const tail = cells.slice(-n0);
       if (tail.length === n0 && tail.every(c => { const v = parseNum(c); return v && !v.pct; })) cellCols = ln.cols.slice(-n0); }
-    if (row && block.periods.cols) { const ix = block.periods.cols.map((k, i) => k ? i : -1).filter(i => i >= 0); row.values = ix.map(i => row.values[i]); row.scales = ix.map(i => row.scales[i]); if (cellCols) cellCols = ix.map(i => cellCols[i]); }
+    if (row && block.periods.cols) { const ix = block.periods.cols.map((k, i) => k ? i : -1).filter(i => i >= 0); row.values = ix.map(i => row.values[i]); row.scales = ix.map(i => row.scales[i]); if (row.dash) row.dash = ix.map(i => row.dash[i]); if (cellCols) cellCols = ix.map(i => cellCols[i]); }
     if (row && cellCols) row.srcs = block.periods.groups ? block.periods.groups.map(g => ({ ...ln.src, c1: cellCols[g[0]], c2: cellCols[g[g.length - 1]], x: 'sum' })) : cellCols.map(c => ({ ...ln.src, c1: c, c2: c }));
-    if (row && block.periods.groups) { if (row.pct) row = null; else { const sc = row.scales; row.values = block.periods.groups.map(g => g.reduce((a, k) => a + (sc[k] ? row.values[k] * sc[k] / (block.units || 1) : row.values[k]), 0)); row.scales = row.values.map(() => null); } }
+    if (row && block.periods.groups) { if (row.pct) row = null; else { row.dash = null; const sc = row.scales; row.values = block.periods.groups.map(g => g.reduce((a, k) => a + (sc[k] ? row.values[k] * sc[k] / (block.units || 1) : row.values[k]), 0)); row.scales = row.values.map(() => null); } }
     if (row && row.scales && row.scales.some(Boolean)) row.values = row.values.map((x, k) => row.scales[k] ? x * row.scales[k] / (block.units || 1) : x);
-    if (row) { row.metric = metricOf(row.label, row.pct); row.src = ln.src; row.text = ln.text; block.rows.push(row); }
+    if (row) { row.metric = metricOf(row.label, row.pct); row.src = ln.src; row.text = ln.text; block.rows.push(row); lastRow = row; }
     else {
+      lastRow = null;
+      /* the table's own units, stated in a note printed under it ("($ in thousands)"), over a chart title elsewhere on the page */
+      if (block && !block.unitsNear && block.rows.length && /^[(\s]*(?:\$|€|£|figures|amounts|all (?:figures|amounts)|dollars|note|source|in )/i.test(txt) && unitsOf(txt)) { block.units = unitsOf(txt); block.unitsNear = true; }
       /* a line that stands on its own ("Cash at bank   1,412,000"), outside any table: kept so its figure can be read */
       const lv = rowValues(cells); const v0 = lv.vals[0];
       if (lv.label && lv.vals.length === 1 && !v0.pct && !v0.dash && /[a-z]/i.test(lv.label) && lv.label.length <= 60)
@@ -1453,7 +1531,7 @@ const amt = (s, suffix) => { let v = parseFloat(String(s).replace(/[$,]/g, ''));
 function sentences(text) {
   const prot = text.replace(/(\d)\.(?=\d)/g, '$1․').replace(/\b(Mr|Mrs|Ms|Dr|Inc|Co|Corp|Ltd|St|vs|No|approx|Jr|Sr|U\.S|e\.g|i\.e)\./g, '$1․').replace(/(\s[A-Z])\.(?=\s[A-Z][a-z])/g, '$1․').replace(/(\w)\.(?=(com|org|net|gov|io)\b)/g, '$1․');
   const out = []; const re = /[^.!?]+(?:[.!?]+|$)/g; let m;
-  while ((m = re.exec(prot))) { const s = m[0].replace(/․/g, '.').trim(); if (s) out.push({ s, i: m.index }); }
+  while ((m = re.exec(prot))) { const s = m[0].replace(/․/g, '.').trim(); if (s) out.push({ s, i: m.index + (m[0].length - m[0].replace(/^\s+/, '').length) }); }
   return out;
 }
 /* figures stated in sentences: balance sheet items ("cash of $1.4 million", "$3.2 million outstanding on its term loan")
@@ -1499,6 +1577,17 @@ function yearNear(s, at, len) {
   const before = ys.filter(o => o.end <= at && !CMP.test(s.slice(Math.max(0, o.at - 30), o.at))).pop();
   if (before) return before.y;
   return ys.length === 1 ? ys[0].y : null;
+}
+/* a money figure in a sentence that is not the company's own result for a period: a range ("$10–50 million"), a limit
+   ("below $10 million", "more than $5 million"), a figure for each of something ("$1.5 million of revenue each", "for every
+   $1.00"), a part or an addition ("contributed", "includes", "pro forma", "run-rate"), or a target "by FY2030" */
+function notOwnFigure(s, at, len) {
+  const before = s.slice(Math.max(0, at - 40), at), after = s.slice(at + len, at + len + 50), win = s.slice(Math.max(0, at - 60), at + len + 50);
+  if (/\d\s*[–—-]\s*$/.test(before) || /^\s*[–—-]\s*\$?\s?\d/.test(after) || /\d\s*[–—-]\s*\$?\s?\d/.test(s.slice(at, at + len))) return true;
+  if (/\b(below|above|under|over|less than|more than|greater than|fewer than|up to|at least|at most|exceed\w*|in excess of|between|ranging from|from|to)\s+(?:approximately\s+|about\s+)?$/i.test(before.replace(/\$\s?$/, ''))) return true;
+  if (/^[^.]{0,40}\b(each|apiece|per (?:branch|location|site|store|customer|unit|employee|technician|year|month))\b/i.test(after) || /\bfor every\b|\bper \$|\bfor each\b/i.test(win)) return true;
+  if (/\b(pro forma|run[- ]rate|contribut\w*|includes?|including|of which|acquir\w*|target\w*|goal|plan(?:s|ned)?|would|could)\b/i.test(before) || /\bby (?:fy\s?)?'?(?:19|20)?\d{2}\b/i.test(after.slice(0, 30))) return true;
+  return false;
 }
 const scaleOfU = u => { const x = String(u || '').toLowerCase(); return /^(b|bn|billion)/.test(x) ? 1e9 : /^(m|mm|million)/.test(x) ? 1e6 : /^(k|thousand)/.test(x) ? 1e3 : 1; };
 const precOf = (n, u, phrase) => { const dec = String(n).includes('.') ? String(n).split('.')[1].length : 0; const step = Math.pow(10, -dec) * scaleOfU(u);
@@ -1564,6 +1653,7 @@ function figuresFromText(s, src, out, dated, at) {
       /* a slice of it: revenue recognized from deferred revenue, attributable to a customer, related to a contract */
       if (/\b(that|which) (was|were|is|are) (included|recognized|attributable|related|recorded)|\bincluded in\b|\battributable to\b|\brelated to\b|\bassociated with\b|\bfrom (?:the |our )?(?:prior|deferred|backlog|remaining|existing)|deferred revenue|performance obligations?/i.test(s.slice(m.index + m[0].length, m.index + m[0].length + 110)) || /^\s*(per|a) (share|unit|customer|employee|user|seat)\b/i.test(s.slice(m.index + m[0].length, m.index + m[0].length + 20))) continue; }
     const nameAt = m.index + m[0].toLowerCase().indexOf(name.toLowerCase()); const pre = s.slice(Math.max(0, nameAt - 14), nameAt);
+    { const nAt = m.index + m[0].indexOf(n); if (notOwnFigure(s, nAt, n.length + (u ? u.length + 1 : 0))) continue; }
     if (metric === 'ebitda' && /\b(adjusted|adj\.?|normali[sz]ed|recast|pro forma)\s*$/i.test(pre)) metric = 'adjEbitda';
     if (/\b(increase|decrease|growth|change|grew|declin|improvement|reduction)\w*\s+(by|of|in)\s*$/i.test(pre)) continue;
     const w = when(m, m[0].length); if (!w || !keep(m.index, m.index + m[0].length)) continue;
@@ -1601,13 +1691,18 @@ function factsFromText(text, srcAt, out) {
       if (mrr) out.facts.push({ kind: 'saas', kpi: 'mrr', value: mrr, text: s, src });
       const cac = s.match(/\bcac payback(?: period)?\b[^.]{0,30}?(\d{1,3}(?:\.\d+)?)\s*months?/i); if (cac) out.facts.push({ kind: 'saas', kpi: 'cacPayback', value: +cac[1], text: s, src });
       const ltv = s.match(/\bltv\s*(?:\/|to)\s*cac\b[^.]{0,20}?(\d{1,2}(?:\.\d+)?)\s*x?/i); if (ltv) out.facts.push({ kind: 'saas', kpi: 'ltvCac', value: +ltv[1], text: s, src }); }
-    if ((m = s.match(/\b(?:founded|established|formed)\s+in\s+(19\d{2}|20\d{2})/i))) out.facts.push({ kind: 'founded', value: +m[1], text: s, src });
-    if ((m = s.match(/\b(?:employs|employing|employ)\s+(\d[\d,]*)\s+(?:full-time\s+)?(?:people|employees|staff)/i)) || (m = s.match(/\b(\d[\d,]*)\s+(?:full-time\s+)?employees\b/i)))
-      out.facts.push({ kind: 'employees', value: +m[1].replace(/,/g, ''), text: s, src });
+    if ((m = s.match(/\b(?:founded|established|formed)\s+in\s+(19\d{2}|20\d{2})/i))) out.facts.push({ kind: 'founded', value: +m[1], text: s, src: srcAt(i + m.index + m[0].length - 1) });
+    /* a headcount: "employs 312 people", or "312 employees" printed together on one line (a figure in one box and the
+       word in the next, or a year in a heading above a column titled Employees, is not a headcount) */
+    { const sameLine = mm => { const a = srcAt(i + mm.index), b = srcAt(i + mm.index + mm[0].length - 1); return !a || !b || (a.l === b.l && a.p === b.p); };
+      const m1 = s.match(/\b(?:employs|employing|employ)\s+(?:approximately\s+|about\s+|over\s+|more than\s+)?(\d[\d,]*)\s+(?:full-time\s+)?(?:people|employees|staff)/i);
+      const m2 = m1 ? null : s.match(/\b(\d[\d,]*)\s(?:full-time\s+)?employees\b/i);
+      const mm = m1 || (m2 && sameLine(m2) && !/^(19|20)\d{2}$/.test(m2[1]) ? m2 : null);
+      if (mm) out.facts.push({ kind: 'employees', value: +mm[1].replace(/,/g, ''), text: s, src: srcAt(i + mm.index + mm[0].length - 1) }); }
     // stated revenue magnitude in prose, used to check table units
     if (!/increase|decrease|grew|growth|declin|change|segment|backlog|pipeline|target|goal|by 20\d\d|per (customer|employee|unit)/i.test(s)) {
       const rm = s.match(/\b(?:total |annual |net )?(?:revenues?|net sales|sales)\b[^.$]{0,50}?\$\s?([\d,]+(?:\.\d+)?)\s*(billion|million|thousand|bn|mm|m|k)\b/i) || s.match(/\$\s?([\d,]+(?:\.\d+)?)\s*(billion|million|bn|mm)\s+(?:in|of)\s+(?:total |annual |net )?(?:revenues?|net sales|sales)\b/i);
-      if (rm) out.facts.push({ kind: 'revenueMention', amount: amt(rm[1], rm[2]), text: s, src: srcAt(i + (rm.index || 0) + rm[0].length - 1) });
+      if (rm && !notOwnFigure(s, (rm.index || 0) + rm[0].indexOf(rm[1]), rm[1].length + (rm[2] ? rm[2].length + 1 : 0))) out.facts.push({ kind: 'revenueMention', amount: amt(rm[1], rm[2]), text: s, src: srcAt(i + (rm.index || 0) + rm[0].length - 1) });
     }
     if ((m = s.match(/headquartered in ([A-Z][A-Za-z.]+(?:\s[A-Z][A-Za-z.]+)*,\s?[A-Z][A-Za-z]+)/))) out.facts.push({ kind: 'hq', value: m[1], text: s, src });
     if ((m = s.match(/(recurring|maintenance agreements?|contracted|subscription)[^.%]{0,60}?(\d{1,3}(?:\.\d+)?)%\s+of\s+(?:total\s+)?(?:revenue|sales)/i))) out.facts.push({ kind: 'recurring', pct: +m[2] / 100, text: s, src });
@@ -1619,9 +1714,9 @@ function factsFromText(text, srcAt, out) {
       money.forEach(mm => out.facts.push({ kind: 'debtMention', amount: amt(mm[1], mm[2]), notRecorded: /not (recorded|reflected|included|on)|off[- ]balance|unrecorded/i.test(s + ' ' + (text.slice(i + s.length, i + s.length + 200).split(/[.!?]/)[0] || '')), text: s, src: srcAt(i + mm.index + mm[0].length - 1) }));
     }
     if (allMoney.length && /\b(market|comparable|replacement)\b/i.test(s)) {
-      const mm = allMoney[0]; let v = amt(mm[1], mm[2]); const monthly = /per month|monthly|\/mo\b|a month/i.test(s); if (monthly) v *= 12;
-      if (/\b(manager|salary|compensation|executive|ceo|president)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'officer', value: v, text: s, src });
-      else if (/\b(lease|rent|space|facility|premises)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'rent', value: v, text: s, src });
+      const mm = allMoney[0]; let v = amt(mm[1], mm[2]); const monthly = /per month|monthly|\/mo\b|a month/i.test(s); if (monthly) v *= 12; const bsrc = srcAt(i + mm.index + mm[0].length - 1);
+      if (/\b(manager|salary|compensation|executive|ceo|president)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'officer', value: v, text: s, src: bsrc });
+      else if (/\b(lease|rent|space|facility|premises)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'rent', value: v, text: s, src: bsrc });
     }
     /* related parties named in the text: the owner, entities the owner holds, shareholder lenders */
     { const ORG = "([A-Z][\\w&'.-]*(?:\\s+(?:[A-Z][\\w&'.-]*|of|and|&))*)", PER = "((?:Mr\\.|Ms\\.|Mrs\\.|Dr\\.)?\\s*[A-Z][a-z]+(?:\\s+[A-Z]\\.)?\\s+[A-Z][a-z'-]+)";
@@ -2039,6 +2134,8 @@ function saasFromBlocks(blocks, out) {
 function blocksToBS(blocks, out) {
   blocks.forEach(b => {
     if (b.xbrl) return;
+    /* a debt schedule or net debt table repeats balance sheet lines (and adds net debt): it is not a balance sheet */
+    if (b.debtSchedule || b.rows.some(r => /^(net debt|total (funded )?debt|total indebtedness|less:? cash)\b/.test(normLabel(r.label || '')))) { b.isBS = false; return; }
     if (!b.isBS) {
       /* a table that isn't headed "balance sheet" but is made of balance sheet lines (a working capital summary, a debt
          schedule, a key-figures table) is read the same way; its lines are marked so a labeled balance sheet comes first */
@@ -2175,7 +2272,10 @@ function extractAll(docs) {
       d.sheets.forEach(s => { const r = tabular(s.rows, (i, c1, c2) => ({ d: d.id, t: 'xlsx', s: s.name, r: i + 1, c1, c2 }), out, s.name, d.id);
         if (r) { log.roles.push(`${r.role} (${s.name})`); if (r.skipped) log.notes.push(`${s.name}: ${r.skipped} rows skipped`); } });
     } else if (d.pages) {
-      const docUnits = d.pages.map(p => unitsOf(p.lines.map(l => l.text).join(' '))).find(Boolean) || 1;
+      /* the document's units: the one its unit notes state most often; a page's own only when the page states one */
+      const unitCount = {}; d.pages.forEach(p => p.lines.forEach(l => { const u = unitsOf(l.text); if (u) unitCount[u] = (unitCount[u] || 0) + 1; }));
+      const docUnits = +(Object.entries(unitCount).sort((a, b) => b[1] - a[1])[0] || [1])[0] || 1;
+      const pageUnitsOf = p => { const us = new Set(p.lines.map(l => unitsOf(l.text)).filter(Boolean)); return us.size === 1 ? [...us][0] : null; };
       d.pages.forEach(p => {
         const pageText = p.lines.map(l => l.text).join(' ');
         const lines = p.lines.map(l => ({ cells: l.cells, text: l.text, src: { d: d.id, t: 'pdf', p: p.n, l: l.n } }));
@@ -2186,13 +2286,20 @@ function extractAll(docs) {
           const first = (l.cells && l.cells[0]) || ''; const hasNum = c => (c || []).slice(1).some(x => /\d/.test(x));
           if (prev && prev.labelOnly && /^[a-z(]/.test(first) && hasNum(l.cells)) { joined[joined.length - 1] = { cells: [prev.cells[0] + ' ' + first, ...l.cells.slice(1)], text: prev.text + ' ' + l.text, src: prev.src }; return; }
           joined.push({ ...l, labelOnly: (l.cells || []).length === 1 && /^[A-Z]/.test(first) && !/\d/.test(first) && first.length > 25 && !/:$/.test(first) }); });
-        if (!xn) tablesFromLines(joined, { units: unitsOf(pageText) || docUnits, pageUnits: unitsOf(pageText), proj: PROJ_CTX.test(pageText), doc: d.id, asOf: asOfIn(pageText) }, out);
+        if (!xn) tablesFromLines(joined, { units: pageUnitsOf(p) || docUnits, pageUnits: pageUnitsOf(p), proj: PROJ_CTX.test(pageText), doc: d.id, asOf: asOfIn(pageText) }, out);
         const pageBS = out.blocks.slice(pb).some(b => b.isBS);
         if (!xn && !pageBS && /balance sheet/i.test(pageText) && /total (current )?assets[^a-z]{0,40}\d/i.test(pageText) && /total (current )?liabilities[^a-z]{0,40}\d/i.test(pageText)) {
           const dm = pageText.match(/as of ([A-Z][a-z]+)\.? (\d{1,2}), (\d{4})/);
           const asOf = dm ? dm[3] + '-' + String(MON.indexOf(dm[1].slice(0, 3).toLowerCase()) + 1).padStart(2, '0') : null;
           const units = unitsOf(pageText) || docUnits;
-          lines.forEach(l => { const { label, vals } = rowValues(mergeCells(l.cells)); if (!label || !vals.length || !/^[A-Za-z]/.test(label) || vals.some(v => v.pct) || /confidential|in thousands|in millions|as of|page \d/i.test(label)) return;
+          let inDebt = false;
+          lines.forEach(l => { const { label, vals } = rowValues(mergeCells(l.cells));
+            /* a net debt or capitalization table printed beside the balance sheet repeats its debt lines */
+            if (!inDebt && !/^net debt\s*\//i.test(label || l.text) && /\b(net debt|funded debt|capitali[sz]ation|debt summary|debt schedule|indebtedness)\b/i.test(label || l.text) && (!vals.length || /^(19|20)\d{2}$/.test(String((vals[0] || {}).raw || '').trim()))) { inDebt = true; return; }
+            if (inDebt === true) { if (/^net debt\b/i.test(label || '')) inDebt = 'end'; return; }
+            if (inDebt === 'end') { if (/^net debt\b/i.test(label || l.text)) return; inDebt = false; }
+            if (vals.length === 1 && /^(19|20)\d{2}$/.test(String(vals[0].raw).trim()) && /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?$/i.test(label || '')) return;
+            if (!label || !vals.length || !/^[A-Za-z]/.test(label) || vals.some(v => v.pct) || /confidential|in thousands|in millions|as of|page \d/i.test(label)) return;
             const cls = bsClass(label); if (cls === 'Skip') { if (/^total (current )?(assets|liabilities)|equity/i.test(normLabel(label))) out.bsTotals.push({ label: normLabel(label), value: vals[vals.length - 1].v * units, asOf, src: l.src, doc: d.id }); return; }
             out.bsItems.push({ label, cls, value: vals[vals.length - 1].v * units, asOf, src: l.src, doc: d.id }); });
         }
@@ -2537,14 +2644,16 @@ function statementModel(X) {
   const periods = {}; const occ = {};
   X.blocks.forEach(b => {
     if (b.bsOnly) return;
-    b.periods.forEach(p => { if (!periods[p.key]) periods[p.key] = { ...p }; });
+    /* a period is one the documents give figures for: a timeline's years or a chart's axis carry none */
     const seenM = {}; b.rows.forEach(r => { if (r.metric) seenM[r.metric] = (seenM[r.metric] || 0) + 1; });
     const core = Object.keys(seenM).length;
     b.rows.forEach(r => {
       if (!r.metric || seenM[r.metric] > 1) return;
       r.values.forEach((v, i) => {
         if (r.srcs && !r.srcs[i]) return;
-        const key = b.periods[i].key; const val = r.pct ? v / 100 : v * b.units;
+        /* a dash under a margin or a headline line means the figure is not presented, not that it is zero */
+        if (r.dash && r.dash[i] && (r.pct || /^(revenue|gp|ebitda|adjEbitda|netIncome|operatingIncome)$/.test(r.metric))) return;
+        const key = b.periods[i].key; const val = r.pct ? v / 100 : v * b.units; if (v != null && isFinite(v) && !periods[key]) periods[key] = { ...b.periods[i] };
         ((occ[r.metric] = occ[r.metric] || {})[key] = occ[r.metric][key] || []).push({ v: val, src: r.srcs ? r.srcs[i] : r.src, size: b.xbrl ? 1000 : core * 100 + b.rows.length, label: r.label });
       });
     });
@@ -2558,7 +2667,7 @@ function statementModel(X) {
     (pl[m] = pl[m] || {})[k] = { v: groups[0].v, src: best.src, all: list, conflict: groups.length > 1 ? groups : null };
   }));
   /* costs are held as positive amounts whether a statement prints them as 7,470 or (7,470) */
-  ['cogs', 'opex'].forEach(m => Object.values(pl[m] || {}).forEach(o => { o.v = Math.abs(o.v); }));
+  ['cogs', 'opex', 'da', 'interest', 'tax', 'capex'].forEach(m => Object.values(pl[m] || {}).forEach(o => { o.v = Math.abs(o.v); }));
   // 10-K style statements report operating income, not EBITDA: EBITDA = operating income + D&A
   Object.keys(periods).forEach(k => {
     if (pl.ebitda && pl.ebitda[k]) return;
@@ -2578,7 +2687,7 @@ function statementModel(X) {
     const ni = b.rows.findIndex(r => r.metric === 'netIncome'); const parts = b.rows.slice(ni >= 0 && ni < ci ? ni + 1 : 0, ci).filter(r => !r.pct && !r.metric && WC_ROW.test(r.label || '') && !NOT_WC.test(r.label || ''));
     if (!parts.length) return;
     b.periods.forEach((p, i) => { if (pl.nwcChange && pl.nwcChange[p.key]) return; const vs = parts.map(r => r.values[i]); if (vs.some(v => v == null || !isFinite(v))) return;
-      (pl.nwcChange = pl.nwcChange || {})[p.key] = { v: vs.reduce((a, v) => a + v, 0) * b.units, src: parts[0].srcs ? parts[0].srcs[i] : parts[0].src, all: [], conflict: null, computed: true, from: parts.map(r => r.srcs ? r.srcs[i] : r.src), parts: parts.map(r => r.label) }; });
+      if (!periods[p.key]) periods[p.key] = { ...p }; (pl.nwcChange = pl.nwcChange || {})[p.key] = { v: vs.reduce((a, v) => a + v, 0) * b.units, src: parts[0].srcs ? parts[0].srcs[i] : parts[0].src, all: [], conflict: null, computed: true, from: parts.map(r => r.srcs ? r.srcs[i] : r.src), parts: parts.map(r => r.label) }; });
   });
   /* self-correction: where a line was read with different values in different places, keep the reading that makes the
      statement's own arithmetic work (gross profit = revenue − cost of revenue; EBITDA = operating income + D&A) */
@@ -2598,14 +2707,19 @@ function statementModel(X) {
   // management bridge: block with EBITDA row followed by Adjusted EBITDA row
   let recon = null;
   X.blocks.forEach(b => {
-    const i = b.rows.findIndex(r => r.metric === 'ebitda'); const j = b.rows.findIndex((r, k) => k > i && r.metric === 'adjEbitda');
-    if (i < 0 || j < 0) return;
+    const i = b.rows.findIndex(r => r.metric === 'ebitda'); if (i < 0) return;
+    /* the bridge runs to its last adjusted line: "Adjusted EBITDA" then, below it, pro forma items to "Pro Forma Adjusted
+       EBITDA". Items after an Adjusted EBITDA subtotal are pro forma; the last line is management's figure */
+    let j = -1; for (let k = i + 1; k < b.rows.length; k++) { const r = b.rows[k]; if (r.metric === 'adjEbitda' && !r.pct) j = k; else if (r.metric && !r.pct && r.metric !== 'adjEbitda' && j >= 0) break; }
+    if (j < 0) return;
+    const subs = b.rows.slice(i + 1, j).map((r, k) => r.metric === 'adjEbitda' && !r.pct ? i + 1 + k : -1).filter(k => k >= 0);
     const mid = b.rows.slice(i + 1, j).filter(r => !r.pct);
-    const totalRow = mid.find(r => /^total/i.test(normLabel(r.label)) && /adjust|add-?back|normaliz/i.test(r.label));
-    const ab = mid.filter(r => !/^total/i.test(normLabel(r.label)) && !r.metric);
+    const totals = mid.filter(r => /^total/i.test(normLabel(r.label)) && /adjust|add-?back|normaliz/i.test(r.label));
+    const totalRow = subs.length ? null : totals[0] || null;
+    const ab = b.rows.slice(i + 1, j).map((r, k) => ({ r, at: i + 1 + k })).filter(({ r }) => !r.pct && !/^total/i.test(normLabel(r.label)) && !r.metric);
     if (!recon || ab.length > recon.addbacks.length) recon = {
-      periods: b.periods, units: b.units, src: b.src, ebitdaRow: b.rows[i], adjRow: b.rows[j], totalRow,
-      addbacks: ab.map(r => ({ label: r.label.replace(/\s*\(\d{1,2}\)\s*$/, ''), values: Object.fromEntries(b.periods.map((p, k) => [p.key, r.values[k] * b.units])), src: r.src }))
+      periods: b.periods, units: b.units, src: b.src, ebitdaRow: b.rows[i], adjRow: b.rows[j], totalRow, subtotal: subs.length ? b.rows[subs[subs.length - 1]] : null,
+      addbacks: ab.map(({ r, at }) => ({ label: r.label.replace(/\s*\((?:\d{1,2}|[a-z])\)\s*$/i, '').replace(/\s*[¹²³⁴⁵⁶⁷⁸⁹⁰]+$/, ''), values: Object.fromEntries(b.periods.map((p, k) => [p.key, r.values[k] * b.units])), src: r.src, pf: subs.some(k => at > k) }))
     };
   });
   return { periods: order, pl, basis, recon };
@@ -2615,11 +2729,11 @@ function classifyAddback(label, value) {
   const l = normLabel(label);
   if (/employee retention|\berc\b|\bppp\b|grant|forgiveness|gain on|insurance proceeds|interest income/.test(l))
     return { cls: 'Income item', rule: 'K5', accept: value <= 0, note: value > 0 ? 'Income already inside EBITDA cannot be added back. It should be deducted.' : 'Deduction of non-operating income.' };
-  if (/pro ?forma|run[- ]rate|annuali[sz]|full[- ]year|synerg|savings|projected|anticipated|expected|planned|price increase|new (customer|contract)|budget/.test(l))
+  if (/pro ?forma|run[- ]rate|annuali[sz]|full[- ]year|full[- ]period|synerg|savings|projected|anticipated|expected|planned|price increase|new (customer|contract)|budget|pre-?acquisition|acquired (company|business)|prior to (the )?acquisition/.test(l))
     return { cls: 'Pro forma', rule: 'K4', accept: false, note: 'Forward-looking. Historical results do not include it.' };
   if (/owner|officer|shareholder|member|family|related[- ]party|personal/.test(l)) return { cls: 'Owner normalization', rule: 'K1', accept: true, note: 'Normalizes owner-related costs.' };
   if (/legal|litigation|lawsuit|settlement|dispute|transaction|sale process|\bdeal\b|banker|quality of earnings/.test(l)) return { cls: 'Litigation & transaction', rule: 'K2', accept: true, note: 'Tied to a dispute or the sale process.' };
-  if (/severance|write-?off|impairment|relocation|one[- ]time|non[- ]recurring|recruit|consult/.test(l)) return { cls: 'Non-recurring', rule: 'K3', accept: true, note: 'Described as non-recurring.' };
+  if (/severance|write-?off|impairment|relocation|one[- ]time|non[- ]recurring|recruit|consult|implementation|\berp\b|system conversion|integration/.test(l)) return { cls: 'Non-recurring', rule: 'K3', accept: true, note: 'Described as non-recurring.' };
   return { cls: 'Unclassified', rule: 'K0', accept: true, note: 'No rule matched. Verify the support.' };
 }
 
@@ -3184,7 +3298,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     const bcol = rec ? (rec.periods.find(p => p.key === b) || rec.periods[rec.periods.length - 1]).key : null;
     const recurIn = ab => rec.periods.filter(p => Math.abs(ab.values[p.key]) > 0).length;
     const addbacks = rec ? rec.addbacks.map((ab, i) => {
-      const amount = ab.values[bcol] || 0; const c = classifyAddback(ab.label, amount);
+      const amount = ab.values[bcol] || 0; const c = ab.pf ? { cls: 'Pro forma', rule: 'K4', accept: false, note: 'Shown below Adjusted EBITDA as a pro forma item. Historical results do not include it.' } : classifyAddback(ab.label, amount);
       let accept = c.accept, note = c.note;
       const recurring = c.cls === 'Non-recurring' && rec.periods.length >= 3 && recurIn(ab) === rec.periods.length;
       if (recurring) { accept = false; note = 'Called one-time, but it appears in every period of the bridge.'; }
@@ -3195,7 +3309,8 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       return o;
     }).filter(a => a.amount !== 0 || Object.values(a.values).some(v => v)) : [];
     const listed = addbacks.reduce((s, a) => s + a.amount, 0);
-    const stated = val('adjEbitda', b) != null ? val('adjEbitda', b) : (rec && rec.adjRow ? rec.adjRow.values[rec.periods.findIndex(p => p.key === bcol)] * rec.units : null);
+    const recStated = rec && rec.adjRow ? rec.adjRow.values[rec.periods.findIndex(p => p.key === bcol)] * rec.units : null;
+    const stated = rec && rec.subtotal && recStated != null ? recStated : val('adjEbitda', b) != null ? val('adjEbitda', b) : recStated;
     /* non-operating income comes out of EBITDA only when it is actually inside it: EBITDA built from operating
        income excludes it already; a stated EBITDA includes it only if the statement adds it above that line */
     const otherInEbitda = (() => { const oi = val('otherIncome', b); if (!oi) return false; const eb = SM.pl.ebitda && SM.pl.ebitda[b];
@@ -3203,9 +3318,11 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       const opI = val('operatingIncome', b), da = val('da', b);
       if (opI != null && da != null) return Math.abs(eb.v - (opI + Math.abs(da) + oi)) < Math.abs(eb.v - (opI + Math.abs(da)));
       const o1 = bsOrd(src('otherIncome', b)), o2 = bsOrd(eb.src); return !!(o1 && o2 && o1[0] === o2[0] && o1[1] < o2[1]); })();
-    const s1 = !L && otherInEbitda && (val('otherIncome', b) || 0) > 0 ? { id: 'S1', title: 'Non-operating income', amount: -val('otherIncome', b), src: src('otherIncome', b), accepted: dec['adj:S1'] !== undefined ? !!dec['adj:S1'] : true } : null;
+    /* management's bridge may already take the non-operating income out ("Gain on sale of vehicles (210)"): then it is not taken out twice */
+    const mgmtDeducts = addbacks.some(a => a.cls === 'Income item' && a.amount < 0 && Math.abs(a.amount + (val('otherIncome', b) || 0)) <= Math.max(1, Math.abs(val('otherIncome', b) || 0) * 0.02));
+    const s1 = !L && otherInEbitda && !mgmtDeducts && (val('otherIncome', b) || 0) > 0 ? { id: 'S1', title: 'Non-operating income', amount: -val('otherIncome', b), src: src('otherIncome', b), accepted: dec['adj:S1'] !== undefined ? !!dec['adj:S1'] : true } : null;
     const diligence = reported == null ? null : reported + addbacks.filter(a => a.accepted).reduce((s, a) => s + a.amount, 0) + (s1 && s1.accepted ? s1.amount : 0);
-    M = { basis: b, basisLabel: (SM.periods.find(p => p.key === b) || {}).label || b, reported, reportedSrc: src('ebitda', b), stated, statedSrc: src('adjEbitda', b) || (rec && rec.adjRow ? rec.adjRow.src : null),
+    M = { basis: b, basisLabel: (SM.periods.find(p => p.key === b) || {}).label || b, reported, reportedSrc: src('ebitda', b), stated, statedSrc: rec && rec.subtotal && rec.adjRow ? rec.adjRow.src : src('adjEbitda', b) || (rec && rec.adjRow ? rec.adjRow.src : null),
       computed: reported != null ? reported + listed : null, listed, addbacks, s1, diligence, bridgeCol: bcol, recon: rec, revenue: val('revenue', b), revenueSrc: src('revenue', b) };
   }
 
@@ -4253,7 +4370,9 @@ function qoeSchedule(R, m) {
       add('Pro forma adjusted EBITDA, for reference', sum(dil, pfTot), 'total', { id: 'pf' }); }
     /* management's own figure, as presented and as stated, so the schedule reconciles to it */
     const presented = sum(mgAdj, pfTot);
-    const stated = col(c => c.ledger ? NA : g('adjEbitda', c.key) != null ? g('adjEbitda', c.key) : (c.key === M.basis ? M.stated : null));
+    /* a bridge that runs past an Adjusted EBITDA subtotal to Pro Forma Adjusted EBITDA is compared with its own last line */
+    const rc = M.recon, recAt = k => { if (!rc || !rc.subtotal || !rc.adjRow) return null; const i = rc.periods.findIndex(p => p.key === k); const v = i >= 0 ? rc.adjRow.values[i] : null; return v != null && isFinite(v) ? v * rc.units : null; };
+    const stated = col(c => c.ledger ? NA : recAt(c.key) != null ? recAt(c.key) : g('adjEbitda', c.key) != null ? g('adjEbitda', c.key) : (c.key === M.basis ? M.stated : null));
     const diff = col((c, i) => stated[i] == null || stated[i] === NA || presented[i] === NA ? null : stated[i] - presented[i]);
     add("Management's adjusted EBITDA, as presented", col(() => null), 'head');
     add(pfs.length ? 'Before pro forma, plus pro forma adjustments' : "Management's adjusted EBITDA, computed", presented, 'line', { id: 'presented' });
@@ -7744,7 +7863,7 @@ function mandateToRecord(m) {
   while (json.length > 240000 && rec.rv.activity.length > 20) { rec.rv.activity = rec.rv.activity.slice(Math.floor(rec.rv.activity.length / 2)); json = JSON.stringify(rec); }
   return JSON.parse(json);
 }
-const PARSE_V = 7; /* raise when the readers change: stored documents are read again from their originals */
+const PARSE_V = 8; /* raise when the readers change: stored documents are read again from their originals */
 async function persistDoc(d, file) {
   d.parseV = PARSE_V;
   const up = await store.assets.upload(new Blob([JSON.stringify(d)], { type: 'application/json' }), { type: 'application/json' });
