@@ -1817,7 +1817,7 @@ function mktSizeOf(c, at, len) {
   return between.length <= 140 && !MKT_ACC.test(between);
 }
 function marketFromText(s, at, out, opts) {
-  const M = out.market = out.market || { size: [], growth: [], concentration: [], share: [], competitors: [], drivers: [], strengths: [] };
+  const M = out.market = out.market || { size: [], growth: [], concentration: [], share: [], competitors: [], drivers: [], strengths: [], served: [] };
   const title = (opts && opts.title) || ''; const isMkt = /\b(market|industry|sector|tam|addressable|footprint|demand)\b/i.test(s);
   /* the company's own growth is not the market's ("Revenue grew 13.8%", "the Company's revenue") */
   const companyGrowth = /\b(our|its|the company'?s?|company'?s)\s+(revenue|sales|ebitda|business)\b|\brevenue (grew|increased|rose)\b/i;
@@ -1841,9 +1841,46 @@ function marketFromText(s, at, out, opts) {
     /* a market share the documents state for the company */
     const sh = c.match(/\bmarket share of\s+(?:approximately\s+|about\s+|roughly\s+)?(\d{1,2}(?:\.\d)?)\s?%|(\d{1,2}(?:\.\d)?)\s?%\s+(?:market\s+)?share\b/i);
     if (sh && /\b(company|we|our|its)\b/i.test(c)) M.share.push({ pct: +(sh[1] || sh[2]) / 100, scope: where, text: s, src: at(a0 + sh.index + sh[0].indexOf(sh[1] || sh[2])) }); });
-  /* competitors named in prose: "competitors include A, B and C" */
-  { const cm = s.match(/\b(?:competitors|competition)\s+(?:include|includes|including|are|such as)\s+([^.]{4,200})/i);
-    if (cm) cm[1].split(/,\s*|\s+and\s+/).map(x => x.trim().replace(/^(?:and|or)\s+/, '')).filter(x => /^[A-Z]/.test(x) && x.length <= 60).forEach(n => M.competitors.push({ name: n, text: s, src: at(s.indexOf(n) + n.length - 1) })); }
+  /* competitors named in prose: "competitors include A, B and C", or by kind, as annual reports list them: "Our current
+     competitors include: suppliers of GPUs ..., such as Advanced Micro Devices, Inc., or AMD, Huawei, and Intel; large cloud
+     services companies ..., such as Alibaba Group, ..." */
+  /* a list introduced on its own line ("Our current competitors include:") and set out as bullets: the bullets that follow
+     are read as its items */
+  let lead = false; if (/\b(?:competitors|competition)\s+(?:include|includes|are|such as)\s*:\s*$/i.test(s)) { out._compLead = 8; return; }
+  if (out._compLead) { if (/\bsuch as\b/i.test(s)) { lead = true; out._compLead--; } else out._compLead = 0; }
+  { const cm = lead ? Object.assign([s, s], { index: 0 }) : s.match(/\b(?:competitors|competition)\s+(?:include|includes|including|are|such as)\s*:?\s+([^]{4,4000})/i);
+    if (cm) { const body = cm[1], base = cm.index + cm[0].length - body.length; const found = [];
+      const LEGAL = /^(?:inc\.?|incorporated|corp\.?|corporation|co\.?(?:\s+ltd\.?)?|ltd\.?|limited|llc|l\.l\.c\.|plc|n\.v\.|s\.a\.|ag|se|lp|l\.p\.)$/i;
+      const clean = n => n.replace(/^(?:and|or)\s+/i, '').replace(/,?\s+(?:Inc\.?|Incorporated|Corp\.?|Corporation|Company|Co\.?\s*Ltd\.?|Ltd\.?|Limited|LLC|plc|N\.V\.|S\.A\.|AG|SE)$/,'').replace(/[.;,]+$/, '').trim();
+      /* read names from position k: comma-separated capitalized names (a legal form or ", or AMD" belongs to the name before it), up to the first words that are not a name */
+      const names = (str, off) => { const out2 = []; const re = /\s*(?:,\s*)?(?:and\s+)?((?:(?!\s+and\s)[^,;])+)/g; let mm, last = null;
+        while ((mm = re.exec(str))) { if (!mm[0].trim()) break; const tok = mm[1].trim(); const at0 = off + mm.index + mm[0].indexOf(mm[1]);
+          if (LEGAL.test(tok.replace(/[.;]+$/, '') ) || /^(?:inc|co|ltd)\b/i.test(tok)) { if (last) last.end = at0 + tok.length; continue; }
+          const alias = tok.match(/^or\s+([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,3})$/); if (alias && last) { last.name = alias[1]; last.start = at0 + tok.indexOf(alias[1]); last.end = at0 + tok.length; continue; }
+          const t2 = tok.replace(/^and\s+/i, ''); if (!/^[A-Z0-9]/.test(t2) || t2.split(/\s+/).length > 6 || /\b(?:that|which|who|with|for|of|as well as)\b/.test(t2) && !/^[A-Z][\w&'-]*(?:\s+(?:of|for)\s+[A-Z][\w&'-]*)+$/.test(t2)) break;
+          last = { name: t2, start: at0 + tok.indexOf(t2), end: at0 + tok.length }; out2.push(last); if (/[;]/.test(str.slice(mm.index, re.lastIndex + 1))) break; }
+        return out2; };
+      if (/\bsuch as\b/i.test(body)) {
+        /* a list by kind: each "such as" names the competitors of the kind described before it */
+        const segs = body.split(/;/); let pos = 0;
+        segs.forEach(seg => { const segAt = pos; pos += seg.length + 1; let kind = '';
+          const parts = [...seg.matchAll(/,?\s*(?:include\s+)?such as\s+/gi)]; let prevEnd = 0;
+          parts.forEach((pm, k) => { kind = seg.slice(prevEnd, pm.index).replace(/^[\s,]*(?:(?:and|or)\s+)?/i, '').trim();
+            kind = kind.split(/,\s|\s(?:that|which|consisting of|including|used in|such as)\s/)[0].replace(/^(?:or|and)\s+/i, '').replace(/\s+and companies$/i, '').trim();
+            const after = seg.slice(pm.index + pm[0].length, k + 1 < parts.length ? parts[k + 1].index : seg.length);
+            const ns = names(after, base + segAt + pm.index + pm[0].length);
+            ns.forEach(n => found.push({ ...n, kind }));
+            const lastN = ns[ns.length - 1]; prevEnd = lastN ? lastN.end - (base + segAt) : pm.index + pm[0].length; }); });
+      } else if (!/^\s*:/.test(s.slice(cm.index + cm[0].length - body.length - 2))) names(body.split(/[.]\s/)[0].slice(0, 200), base).forEach(n => found.push({ ...n, kind: '' }));
+      found.forEach(f => { const nm = clean(f.name); if (!nm || nm.length > 60 || /^(?:Our|The|We|Its)\b/.test(nm)) return;
+        const ex = M.competitors.find(c => c.name.toLowerCase() === nm.toLowerCase());
+        if (ex) { if (f.kind) { const fl = (ex.fields = ex.fields || []).find(x => x.label === 'Competes in'); if (fl) { if (!fl.text.split('; ').includes(f.kind)) fl.text += '; ' + f.kind; } else ex.fields.push({ label: 'Competes in', text: f.kind }); } return; }
+        M.competitors.push({ name: nm, ...(f.kind ? { fields: [{ label: 'Competes in', text: f.kind }] } : {}), text: s, src: at(f.start != null ? f.start : Math.max(0, f.end - 1)) }); }); } }
+  /* the markets the company says it serves: "Our platforms address four large markets: Data Center, Gaming, ..." */
+  { const sm = s.match(/\b(?:we|our [a-z]+(?: [a-z]+)?|the company|the business)\s+(?:serves?|address(?:es)?|operates? in|sells? into|targets?)\s+(?:(?:two|three|four|five|six|seven|eight|\d)\s+)?(?:large\s+|key\s+|primary\s+|principal\s+|core\s+|end\s+)*(?:markets|end markets|verticals|industries)\b[^:.]{0,80}:\s*([^.]{3,300})/i);
+    if (sm) { const list = sm[1], at0 = sm.index + sm[0].length - list.length;
+      list.split(/,\s*(?:and\s+)?|\s+and\s+/).forEach(x => { const n = x.trim().replace(/[;.]+$/, ''); if (!/^[A-Z]/.test(n) || n.split(/\s+/).length > 5 || M.served.some(y => y.name.toLowerCase() === n.toLowerCase())) return;
+        M.served.push({ name: n, text: s, src: at(at0 + list.indexOf(n)) }); }); } }
   /* growth drivers and claimed strengths, on pages headed that way */
   if (opts && opts.para) {
     if (/\b(growth drivers?|industry drivers?|market drivers?|key trends?|industry trends?|tailwinds)\b/i.test(title) && s.length > 40 && !M.drivers.some(x => x.text === s)) M.drivers.push({ title: opts.lastHead || '', text: s, src: at(0) });
@@ -1851,7 +1888,7 @@ function marketFromText(s, at, out, opts) {
 }
 /* a row of a table of words about competitors ("National consolidators | Private equity-backed platforms ... | Competes on ...") */
 function marketFromRow(head, cells, srcs, out, title) {
-  const M = out.market = out.market || { size: [], growth: [], concentration: [], share: [], competitors: [], drivers: [], strengths: [] };
+  const M = out.market = out.market || { size: [], growth: [], concentration: [], share: [], competitors: [], drivers: [], strengths: [], served: [] };
   if (!/\b(competit\w*|rivals?|peers?)\b/i.test(title + ' ' + head.join(' '))) return false;
   if (!cells[0] || cells[0].split(/\s+/).length > 8) return false;
   M.competitors.push({ name: cells[0], fields: head.slice(1).map((h, i) => ({ label: h || '', text: cells[i + 1] || '' })).filter(f => f.text), text: cells.join(' | '), src: srcs[0] });
@@ -4709,8 +4746,8 @@ const qoeK = (v, pct) => v === 'na' ? 'n.a.' : v == null ? '' : pct ? (v * 100).
 /* the market and competitors as the documents present them: management's claims, cited, never used as the company's
    figures; the checks against the company's own plan and size are the C17 to C19 findings */
 function marketView(R) {
-  const MK = R.market || {}; const sizes = MK.size || [], grow = MK.growth || [], conc = MK.concentration || [], share = MK.share || [], comps = MK.competitors || [], drivers = MK.drivers || [], strengths = MK.strengths || [];
-  const any = sizes.length + grow.length + conc.length + share.length + comps.length + drivers.length + strengths.length;
+  const MK = R.market || {}; const sizes = MK.size || [], grow = MK.growth || [], conc = MK.concentration || [], share = MK.share || [], comps = MK.competitors || [], drivers = MK.drivers || [], strengths = MK.strengths || [], served = MK.served || [];
+  const any = sizes.length + grow.length + conc.length + share.length + comps.length + drivers.length + strengths.length + served.length;
   const scW = sc => sc === 'served' ? 'Company\'s own markets' : sc === 'global' ? 'Global market' : 'Overall market';
   const SM = R.SM; const py = SM ? SM.periods.filter(p => p.type === 'P' && SM.pl.revenue && SM.pl.revenue[p.key]) : []; const hy = SM ? SM.periods.filter(p => p.type === 'H' && p.key !== 'LTM' && SM.pl.revenue && SM.pl.revenue[p.key]) : [];
   const pcagr = py.length && hy.length ? Math.pow(SM.pl.revenue[py[py.length - 1].key].v / SM.pl.revenue[hy[hy.length - 1].key].v, 1 / (py[py.length - 1].year - hy[hy.length - 1].year)) - 1 : null;
@@ -4718,7 +4755,7 @@ function marketView(R) {
   const servedSize = sizeOf('served'), totalSize = sizeOf('total');
   const implied = R.revenue && (servedSize || totalSize) ? R.revenue / (servedSize || totalSize).value : null;
   const fired = (R.fired || []).filter(f => ['C17', 'C18', 'C19'].includes(f.id));
-  return { any, sizes, grow, conc, share, comps, drivers, strengths, scW, pcagr, py, hy, servedSize, totalSize, implied, fired, sizeOf, growOf };
+  return { any, sizes, grow, conc, share, comps, drivers, strengths, served, scW, pcagr, py, hy, servedSize, totalSize, implied, fired, sizeOf, growOf };
 }
 function memoModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
@@ -4843,6 +4880,7 @@ function memoModel(R, m, opts) {
     if (parts.length) b.push({ p: `The documents describe ${parts.join(', and ')}.${V.implied != null ? ` Revenue of ${mn(R.revenue)} is ${pc(V.implied)} of the ${V.servedSize ? "company's own markets" : 'overall market'} on those figures.` : ''}${V.pcagr != null && g ? ` Management projects revenue growth of ${pc(V.pcagr)} a year, against market growth of ${pc(g.pct)}${V.pcagr - g.pct > 0.05 ? ', so the plan depends on gaining share' : ''}.` : ''} These are management's figures and were not verified.`, notes: note([V.totalSize && V.totalSize.src, V.servedSize && V.servedSize.src, g && g.src].filter(Boolean)) });
     const rows = [...V.sizes.map(x => ['Market size', V.scW(x.scope), mn(x.value), x.src]), ...V.grow.map(x => ['Market growth', V.scW(x.scope), pc(x.pct) + ' a year', x.src]), ...V.share.map(x => ["Company's market share", V.scW(x.scope), pc(x.pct), x.src]), ...V.conc.filter(x => !x.fragmented).map(x => [`Share of the ${x.n} largest providers`, 'Overall market', (x.qual ? x.qual + ' ' : '') + pc(x.pct), x.src])];
     if (rows.length) b.push({ h: 'Market size, growth and structure' }, { table: { head: ['Measure', 'Market', 'As stated'], rows: rows.map(r => r.slice(0, 3)), align: ['l', 'l', 'r'], widths: [0.4, 0.35, 0.25], notes: note(rows.map(r => r[3])) } });
+    if (V.served.length) b.push({ h: 'Markets served' }, { p: `The documents name ${V.served.length === 1 ? 'one market' : V.served.length + ' markets'} the company serves: ${V.served.map(x => x.name).join(', ')}.`, notes: note(V.served.map(x => x.src)) });
     if (V.comps.length) { const labels = [...new Set(V.comps.flatMap(c => (c.fields || []).map(f => f.label)))].filter(Boolean).slice(0, 2);
       b.push({ h: 'Competitors' }, { table: { head: ['Competitor', ...labels], rows: V.comps.map(c => [c.name, ...labels.map(l => ((c.fields || []).find(f => f.label === l) || {}).text || '')]), align: ['l', ...labels.map(() => 'l')], widths: labels.length === 2 ? [0.22, 0.46, 0.32] : labels.length === 1 ? [0.3, 0.7] : [1], notes: note(V.comps.map(c => c.src)) } }); }
     if (V.drivers.length) b.push({ h: 'Growth drivers presented by management' }, { bullets: V.drivers.map(x => ({ t: `${x.title ? x.title + ': ' : ''}${x.text}`, notes: note([x.src]) })) });
@@ -6532,6 +6570,7 @@ function workbookModel(R, m) {
     V.conc.filter(x => !x.fragmented).forEach(x => rows.push([`Share of the ${x.n} largest providers${x.qual ? ' (' + x.qual + ')' : ''}`, 'Overall market', { v: x.pct, k: 'pct' }, where(x.src)]));
     if (V.implied != null) rows.push(['Implied share (revenue / market size)', V.servedSize ? V.scW('served') : V.scW('total'), { v: V.implied, k: 'pct' }, 'Computed']);
     if (V.pcagr != null) rows.push(['Projected revenue growth (a year)', 'Company', { v: V.pcagr, k: 'pct' }, 'Computed from the projections']);
+    if (V.served.length) { rows.push(['', '', '', '']); rows.push(['Markets served', '', '', '']); V.served.forEach(x => rows.push(['  ' + x.name, '', '', where(x.src)])); }
     if (V.comps.length) { rows.push(['', '', '', '']); rows.push(['Competitors', '', '', '']); V.comps.forEach(c => rows.push(['  ' + c.name, (c.fields || []).map(f => `${f.label ? f.label + ': ' : ''}${f.text}`).join(' | '), '', where(c.src)])); }
     if (V.drivers.length) { rows.push(['', '', '', '']); rows.push(['Growth drivers', '', '', '']); V.drivers.forEach(x => rows.push(['  ' + (x.title || 'Driver'), x.text, '', where(x.src)])); }
     add('Market', ['Item', 'Market / detail', 'As stated', 'Source'], rows, { widths: [40, 70, 14, 50], note: "As presented in the documents; management's claims, not verified, and not used in the figures on the other tabs" }); } }
@@ -7352,6 +7391,7 @@ function vMarket() {
     ${V.conc.filter(x => !x.fragmented).map(x => `<tr><td>Share held by the ${x.n} largest providers</td><td>Overall market</td><td class="n">${x.qual ? esc(x.qual) + ' ' : ''}${pc(x.pct)}</td><td>${cite(x.src)}</td></tr>`).join('')}
     ${V.conc.some(x => x.fragmented) ? `<tr><td>Described as fragmented</td><td>Overall market</td><td class="n">${V.conc.filter(x => x.fragmented).length} mention${V.conc.filter(x => x.fragmented).length === 1 ? '' : 's'}</td><td>${cites(V.conc.filter(x => x.fragmented).map(x => x.src), 3)}</td></tr>` : ''}
     </tbody></table></div></section>` : ''}
+  ${V.served.length ? `<section class="sec"><div class="sechead"><h2>Markets the company serves</h2><span class="aside">As the documents name them</span></div><div class="tbl"><table><thead><tr><th>Market</th><th>Source</th></tr></thead><tbody>${V.served.map(x => `<tr><td><b>${esc(x.name)}</b></td><td>${cite(x.src)}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
   ${V.comps.length ? (() => { const labels = [...new Set(V.comps.flatMap(c => (c.fields || []).map(f => f.label)))].filter(Boolean).slice(0, 3);
     return `<section class="sec"><div class="sechead"><h2>Competitors</h2><span class="aside">${V.comps.length} as described in the documents</span></div><div class="tbl"><table><thead><tr><th>Competitor</th>${labels.map(l => `<th>${esc(l)}</th>`).join('')}<th>Source</th></tr></thead><tbody>
     ${V.comps.map(c => `<tr><td><b>${esc(c.name)}</b></td>${labels.map(l => `<td style="font-size:13px">${esc(((c.fields || []).find(f => f.label === l) || {}).text || '')}</td>`).join('')}<td>${cite(c.src)}</td></tr>`).join('')}</tbody></table></div></section>`; })() : ''}
