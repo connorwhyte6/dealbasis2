@@ -1094,6 +1094,14 @@ function docFromPdfItems(name, pagesItems) {
   if (pages.length >= 3) { const key = l => l.text.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().toLowerCase(); const cnt = {};
     pages.forEach(pg => { const seen = new Set(); pg.lines.forEach(l => { const k = key(l) + '@' + Math.round(l.box[1] / 4); if (!seen.has(k)) { seen.add(k); cnt[k] = (cnt[k] || 0) + 1; } }); });
     const need = Math.max(3, Math.ceil(pages.length / 3));
+    /* the page number printed on the page ("72", "Page 72 of 140", "Project Lantern   36"), which can differ from the PDF's own
+       page count (a cover and contents before page 1). Kept where the next or previous page's number runs in step with it */
+    { const num = pages.map(pg => { const ph = pg.h || 792; let v = null;
+        pg.lines.forEach(l => { if (!(l.box[1] < ph * 0.1 || l.box[1] > ph * 0.9)) return; const t = l.text.trim();
+          const m = t.match(/^(?:page\s*)?[-–]?\s*(\d{1,4})\s*[-–]?(?:\s*of\s*\d{1,4})?$/i) || (cnt[key(l) + '@' + Math.round(l.box[1] / 4)] >= need && (t.match(/(?:^|\s)(\d{1,4})$/) || t.match(/^(\d{1,4})(?:\s|$)/)));
+          if (m && v == null) v = +m[1]; }); return v; });
+      pages.forEach((pg, i) => { const v = num[i]; if (v == null) return; const off = v - pg.n;
+        if ((num[i - 1] != null && num[i - 1] - pages[i - 1].n === off) || (num[i + 1] != null && num[i + 1] - pages[i + 1].n === off)) pg.label = String(v); }); }
     pages.forEach(pg => { const ph = pg.h || 792; pg.lines = pg.lines.filter(l => { const edge = l.box[1] < ph * 0.1 || l.box[1] > ph * 0.9; return !(edge && cnt[key(l) + '@' + Math.round(l.box[1] / 4)] >= need && /[a-z]/i.test(l.text)); }); pg.lines.forEach((l, i) => l.n = i + 1); }); }
   return { type: 'pdf', name, pages };
 }
@@ -1139,9 +1147,11 @@ function docFromDocxHtml(name, html) {
 }
 
 /* ---------- anchors ---------- */
+/* the number printed on a PDF page, where it is not the page's place in the file */
+function printedPage(a) { try { const d = typeof MD === 'function' ? docById(a.d) : null; const pg = d && d.pages && d.pages[a.p - 1]; return pg && pg.label && pg.label !== String(a.p) ? pg.label : null; } catch (e) { return null; } }
 function anchorLabel(a) {
   if (!a) return '';
-  if (a.t === 'pdf') return `p.${a.p} L${a.l}`;
+  if (a.t === 'pdf') { const lb = printedPage(a); return `p.${a.p}${lb ? ` (printed ${lb})` : ''} L${a.l}`; }
   if (a.t === 'xlsx') return `${a.s}!${colL(a.c1)}${a.r}${a.c2 != null && a.c2 !== a.c1 ? ':' + colL(a.c2) + a.r : ''}`;
   if (a.t === 'csv') return `row ${a.r}`;
   if (a.t === 'docx') return `${a.k === 'slide' ? 'slide ' + a.s : '\u00a7' + a.s} \u00b6${a.b}${a.r ? ' r' + a.r : ''}`;
@@ -1530,7 +1540,7 @@ function tablesFromLines(lines, ctx, out) {
     /* a chart's figures alone on a line, or its period labels, are not sentences */
     if (!hp && ((cells.length >= 2 && cells.every(c => { const v = parseNum(c); return v && !v.dash; })) || (cells.length >= 2 && cells.every(c => periodTok(c, false))))) use(ln);
     if (hp) { use(ln); lastRow = null; block = { periods: hp, rows: [], cur: (unitsOf(near) || /\b(000s?|thousands|millions|currency)\b/i.test(near + ' ' + cells.join(' ')) ? currencyOf(near + ' ' + cells.join(' ')) : null) || ctx.cur || null, units: unitsOf(near + ' ' + cells.join(' ')) || ctx.units, unitsNear: !!unitsOf(near + ' ' + cells.join(' ')), src: ln.src, doc: ctx.doc, isBS: BS_HINT.test(near + ' ' + (ctx.bsHint || '')),
-      debtSchedule: /\b(net debt|funded debt|capitali[sz]ation table|capitali[sz]ation|debt summary|debt schedule|indebtedness)\b/i.test(near) && !BS_HINT.test(near) }; out.blocks.push(block); recent.length = 0; return; }
+      debtSchedule: /\b(net debt|funded debt|capitali[sz]ation table|capitali[sz]ation|debt summary|debt schedule|indebtedness)\b/i.test(near) && !BS_HINT.test(near), near }; out.blocks.push(block); recent.length = 0; return; }
     let row = block ? parseRow(cells, block.periods.cols ? block.periods.cols.length : block.periods.length) : null;
     /* in a spreadsheet each figure cites its own cell (or, for a year added up from months, the cells it adds) */
     let cellCols = null;
@@ -1562,7 +1572,7 @@ function tablesFromLines(lines, ctx, out) {
 
 /* ---------- facts from prose ---------- */
 const WORDN = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, fifteen: 15, twenty: 20 };
-const amt = (s, suffix) => { let v = parseFloat(String(s).replace(/[$,]/g, '')); const x = String(suffix || '').toLowerCase(); if (/^(b|bn|billion)/.test(x)) v *= 1e9; else if (/^(m|mm|million)/.test(x)) v *= 1e6; else if (/^(k|thousand)/.test(x)) v *= 1e3; return v; };
+const amt = (s, suffix) => { let v = parseFloat(String(s).replace(/[$,]/g, '')); const x = String(suffix || '').toLowerCase(); if (/^(t|tn|trillion)/.test(x)) v *= 1e12; else if (/^(b|bn|billion)/.test(x)) v *= 1e9; else if (/^(m|mm|million)/.test(x)) v *= 1e6; else if (/^(k|thousand)/.test(x)) v *= 1e3; return v; };
 function sentences(text) {
   const prot = text.replace(/(\d)\.(?=\d)/g, '$1․').replace(/\b(Mr|Mrs|Ms|Dr|Inc|Co|Corp|Ltd|St|vs|No|approx|Jr|Sr|U\.S|e\.g|i\.e)\./g, '$1․').replace(/(\s[A-Z])\.(?=\s[A-Z][a-z])/g, '$1․').replace(/(\w)\.(?=(com|org|net|gov|io)\b)/g, '$1․');
   const out = []; const re = /[^.!?]+(?:[.!?]+|$)/g; let m;
@@ -1754,7 +1764,7 @@ function factsFromText(text, srcAt, out, opts) {
     if (money.length && DEBTW.test(s) && !/\bper (month|year)\b|goodwill|purchase obligations?|lease (liabilit|payments?)|remaining performance|repurchase|dividend/i.test(s)) {
       money.forEach(mm => out.facts.push({ kind: 'debtMention', amount: amt(mm[1], mm[2]), notRecorded: /not (recorded|reflected|included|on)|off[- ]balance|unrecorded/i.test(s + ' ' + (text.slice(i + s.length, i + s.length + 200).split(/[.!?]/)[0] || '')), text: s, src: srcAt(i + mm.index + mm[0].length - 1) }));
     }
-    if (allMoney.length && /\b(market|comparable|replacement)\b/i.test(s)) {
+    if (allMoney.length && /\b(market|comparable|replacement)\b/i.test(mktClean(s)) && !/\b(?:unearned|unrecognized|stock-based|share-based|equity awards?|vest\w*)\b/i.test(s)) {
       const mm = allMoney[0]; let v = amt(mm[1], mm[2]); const monthly = /per month|monthly|\/mo\b|a month/i.test(s); if (monthly) v *= 12; const bsrc = srcAt(i + mm.index + mm[0].length - 1);
       if (/\b(manager|salary|compensation|executive|ceo|president)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'officer', value: v, text: s, src: bsrc });
       else if (/\b(lease|rent|space|facility|premises)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'rent', value: v, text: s, src: bsrc });
@@ -1788,6 +1798,24 @@ function factsFromText(text, srcAt, out, opts) {
    Market size, market growth, how concentrated the market is, a stated market share, competitors, growth drivers and
    the company's claimed strengths. Kept in out.market, cited to the line, never used as the company's figures. */
 const MKT_SCOPE = s => /\b(footprint|region(?:al)?|local|served|serviceable|our (?:five|four|three|six|seven|\d+)[- ]state|in (?:its|our) (?:markets|states|footprint)|sam\b)/i.test(s) ? 'served' : /\b(global|worldwide|international)\b/i.test(s) ? 'global' : 'total';
+/* "market" in a sense that is not a market for the company's services: a market price, fair market value, market-based
+   awards, the stock market, market risk, a money market fund. Blanked (same length, so offsets hold) before the market
+   words are looked for */
+const MKT_NOT = /\b(?:fair\s+)?market[- ](?:based|value[ds]?|price[sd]?|capitali[sz]ation|cap|conditions?|risks?|rates?|interest(?: rates?)?|participants?|data|inputs?|approach|multiples?|quotations?|making|maker|abuse|close|volatility|fluctuations?|sentiment|perception|trading|exchanges?|indices|index)\b|\b(?:stock|equity|capital|credit|financial|debt|bond|securities|money|public|open|secondary|trading|global select|nasdaq[\w ]{0,20}|new york stock exchange|over-the-counter|commodity)[- ]markets?\b|\b(?:below|above)[- ]market\b|\b(?:go|time)[- ]to[- ]market\b|\bmarketable\b|\bmarket for (?:the )?(?:registrant|our common|our stock|the company'?s common)|\bin the market\b(?=[^.]{0,30}\b(?:price|value|shares|stock)\b)|\bdisclosures? about market\b/gi;
+const mktClean = c => c.replace(MKT_NOT, x => ' '.repeat(x.length));
+/* a figure is a market's size only when the market is what it measures: "a $49 billion market", "the market ... is estimated
+   at approximately $49 billion". A figure that measures something else in the same sentence ("unearned stock-based
+   compensation expense was $14.8 billion", "revenue of $215.9 billion") is not, however many market words are near it */
+const MKT_N = /\b(market|industry|sector|tam|sam|addressable|footprint|opportunity)\b/gi;
+const MKT_ACC = /\b(expenses?|compensation|revenues?|sales|income|earnings|profits?|cash|debt|borrowings?|assets?|liabilit\w*|obligations?|commitments?|shares?|stock|repurchases?|dividends?|tax\w*|costs?|backlog|bookings|purchases?|investments?|goodwill|impairments?|fair value|awards?|grants?|balances?|loss(?:es)?|charges?|reserves?|capital expenditures?|valuation|consideration|proceeds|price|fees?)\b/i;
+function mktSizeOf(c, at, len) {
+  const after = c.slice(at + len, at + len + 50);
+  if (/^\s*(?:[A-Za-z.-]+\s+){0,3}?(market|industry|tam|addressable|opportunity|sector)\b/i.test(after) && !MKT_ACC.test(after.split(/\b(?:market|industry|tam|addressable|opportunity|sector)\b/i)[0])) return true;
+  const before = c.slice(Math.max(0, at - 170), at); let last = null; for (const m of before.matchAll(MKT_N)) last = m; if (!last) return false;
+  let between = before.slice(last.index + last[0].length);
+  between = between.replace(/^[\s-]*(?:wide\s+)?(?:sales|revenues?|spend(?:ing)?)\b/i, ' ');
+  return between.length <= 140 && !MKT_ACC.test(between);
+}
 function marketFromText(s, at, out, opts) {
   const M = out.market = out.market || { size: [], growth: [], concentration: [], share: [], competitors: [], drivers: [], strengths: [] };
   const title = (opts && opts.title) || ''; const isMkt = /\b(market|industry|sector|tam|addressable|footprint|demand)\b/i.test(s);
@@ -1795,11 +1823,12 @@ function marketFromText(s, at, out, opts) {
   const companyGrowth = /\b(our|its|the company'?s?|company'?s)\s+(revenue|sales|ebitda|business)\b|\brevenue (grew|increased|rose)\b/i;
   /* clauses: "the market is $49 billion, growing 6% a year; the footprint is $2.1 billion growing 8%" */
   const clauses = []; { let st = 0; for (const mm of s.matchAll(/[;:]|\.\s|,\s(?:and\s)?(?=(?:the|its|our)\s+(?:company|[a-z-]+\s+)?(?:footprint|region|market))/gi)) { clauses.push([st, mm.index]); st = mm.index + mm[0].length; } clauses.push([st, s.length]); }
-  clauses.forEach(([a0, b0]) => { const c = s.slice(a0, b0); if (!/\b(market|industry|sector|tam|addressable|footprint)\b/i.test(c) && !/\b(market|industry|footprint)\b/i.test(title + ' ' + s)) return;
+  const mktTitle = /\b(market|industry|competitive landscape|competition|addressable)\b/i.test(mktClean(title)) && !/\brisks?\b/i.test(title);
+  clauses.forEach(([a0, b0]) => { const c0 = s.slice(a0, b0), c = mktClean(c0); if (!/\b(market|industry|sector|tam|addressable|footprint)\b/i.test(c) && !(mktTitle && /\b(market|industry|footprint)\b/i.test(mktClean(s)))) return;
     const scope = MKT_SCOPE(c + ' ' + (/\bfootprint|region/i.test(c) ? '' : '')); const where = scope;
     /* size: "$49 billion", "estimated at approximately $2.1 billion" next to market words */
-    for (const mm of c.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(billion|million|bn|mm|b|m)\b/gi)) {
-      if (!/\b(market|industry|sector|tam|addressable|footprint|spend(?:ing)?)\b/i.test(c)) continue; if (/\b(revenue below|revenue above|revenue of|operators?|providers?|competitors?|companies|businesses|players)\b[^$]{0,40}$/i.test(c.slice(0, mm.index))) continue;
+    for (const mm of c.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|tn|bn|mm|b|m)\b/gi)) {
+      if (!mktSizeOf(c, mm.index, mm[0].length)) continue; if (/\b(revenue below|revenue above|revenue of|operators?|providers?|competitors?|companies|businesses|players)\b[^$]{0,40}$/i.test(c.slice(0, mm.index))) continue;
       if (notOwnFigure(c, mm.index, mm[0].length) && !/approximately|about|roughly|estimated/i.test(c.slice(Math.max(0, mm.index - 20), mm.index))) continue;
       M.size.push({ value: amt(mm[1], mm[2]), scope: where, year: (c.match(/\b(20\d{2})E?\b/) || [])[1] || null, text: s, src: at(a0 + mm.index + mm[0].indexOf(mm[1])) }); }
     /* growth: "growing 6% a year", "a 7% CAGR", "expected to grow at 8%" */
@@ -2809,6 +2838,33 @@ function statementModel(X) {
     if (ref) { const R0 = revOf(ref); cand.forEach(b => { if (b === ref) return; const k = revOf(b) / R0;
       const f = k >= 300 && k <= 3000 ? 1 / 1000 : k >= 1 / 3000 && k <= 1 / 300 ? 1000 : null;
       if (f) { b.units = b.units * f; unitFixes.push({ src: b.src, factor: f }); } }); } }
+  /* one cost spread across the income statement lines ("stock-based compensation: cost of revenue 260, research and
+     development 4,500, ... Total 6,060") is not the income statement: its "cost of revenue" is a slice of that cost */
+  const fullPL = b => b.rows.some(r => r.metric === 'revenue' && !r.pct) && b.rows.some(r => r.metric === 'cogs');
+  const costSlice = b => { if (b.isBS || b.rows.some(r => /^(revenue|grossProfit|ebitda|adjEbitda|netIncome|ebit)$/.test(r.metric || ''))) return false;
+    if (!b.rows.some(r => r.metric === 'cogs')) return false;
+    /* named just above the table as the cost being spread ("Our stock-based compensation expense is ... as follows") */
+    const SL = /\b(?:(?:stock|share|equity)[- ]based compensation|depreciation and amortization|amortization of (?:acquired )?intangibles?(?: assets)?|restructuring (?:costs?|charges?|expenses?))\b[^.]{0,120}\b(?:associated with|allocated|recorded in|recognized in|included in|as follows|by (?:function|line item)|consist(?:s|ed)? of|was|were)\b|\b(?:allocated|by function|by line item)\b/i;
+    { const nm = (b.near || '').match(SL); if (nm && !/\b(?:exclud\w*|before|net of|other than|except|without)\s*$/i.test((b.near || '').slice(Math.max(0, nm.index - 20), nm.index))) return true; }
+    /* otherwise only a bare "Total" that adds up every line, and only when another table gives the income statement:
+       a cost table that is the only source is kept */
+    const tot = b.rows.find(r => /^total$/i.test(normLabel(r.label || ''))); if (!tot || !b.rows.some(r => /^(opex|rnd|sga|sm)$/.test(r.metric || '') || /research|selling|general|administrative|marketing/i.test(r.label || ''))) return false;
+    const rest = b.rows.filter(r => r !== tot && !r.pct);
+    return tot.values.some((v, i) => v != null && Math.abs(rest.reduce((a, r) => a + (r.values[i] || 0), 0) - v) <= Math.max(1, Math.abs(v) * 0.002)) && X.blocks.some(o => o !== b && !o.isBS && fullPL(o)); };
+  /* such a table is not read as the income statement, but it is kept and shown as what it is: how that cost is spread */
+  const allocations = [];
+  X.blocks = X.blocks.filter(b => { if (!costSlice(b)) return true;
+    /* a second copy of the income statement's own costs is not an allocation of anything: nothing to show */
+    { const cg = b.rows.find(r => r.metric === 'cogs'); const vals = cg.values.filter(v => v != null).map(v => Math.round(v * (b.units || 1)));
+      if (vals.length && X.blocks.some(o => o !== b && fullPL(o) && o.rows.some(r => r.metric === 'cogs' && vals.every(v => r.values.some(w => w != null && Math.abs(w * (o.units || 1) - v) <= Math.max(1, Math.abs(v) * 0.001)))))) return false; }
+    const nm0 = (b.near || '').match(/\b(stock|share|equity)[- ]based compensation|\bdepreciation and amortization|\bamortization of (?:acquired )?intangibles?(?: assets)?|\brestructuring (?:costs?|charges?|expenses?)/i);
+    const nm = nm0 && !/\b(?:exclud\w*|before|net of|other than|except|without)\s*$/i.test((b.near || '').slice(Math.max(0, nm0.index - 20), nm0.index)) ? nm0 : null;
+    const lastHead = String(b.near || '').split(/\s{2,}|(?<=\.)\s/).map(x => x.trim()).filter(x => x && !/\d{3}/.test(x)).pop() || '';
+    const cost = nm ? nm[0].toLowerCase().replace(/^./, c => c.toUpperCase()) : (lastHead.replace(/\s*\((?:\$|in |amounts)[^)]*\)\s*/i, '').replace(/[:.]+$/, '').slice(0, 60) || 'A cost');
+    const per = (b.periods || []).map(p => p.label || p.key || String(p));
+    allocations.push({ cost, periods: per, src: b.src, rows: b.rows.filter(r => !r.pct).map(r => ({ label: r.label, total: /^total$/i.test(normLabel(r.label || '')), values: r.values.map(v => v == null ? null : v * (b.units || 1)), srcs: r.srcs || r.values.map(() => r.src), src: r.src })) });
+    const last = allocations[allocations.length - 1]; if (allocations.length > 1 && allocations.slice(0, -1).some(o => o.cost === last.cost && JSON.stringify(o.rows.map(r => r.values)) === JSON.stringify(last.rows.map(r => r.values)))) allocations.pop();
+    return false; });
   X.blocks.forEach(b => {
     if (b.bsOnly) return;
     /* a period is one the documents give figures for: a timeline's years or a chart's axis carry none */
@@ -2889,7 +2945,7 @@ function statementModel(X) {
       addbacks: ab.map(({ r, at }) => ({ label: r.label.replace(/\s*\((?:\d{1,2}|[a-z])\)\s*$/i, '').replace(/\s*[¹²³⁴⁵⁶⁷⁸⁹⁰]+$/, ''), values: Object.fromEntries(b.periods.map((p, k) => [p.key, r.values[k] * b.units])), src: r.src, pf: subs.some(k => at > k) }))
     };
   });
-  return { periods: order, pl, basis, recon, unitFixes };
+  return { periods: order, pl, basis, recon, unitFixes, allocations };
 }
 
 function classifyAddback(label, value) {
@@ -3224,7 +3280,7 @@ function findLineFor(docs, a, exp, units) {
     else if (named(b.text) && showsFigure(b.text, exp, units)) hits.push({ src: { d: a.d, t: 'docx', s: sc.n, b: b.n, ...(a.k ? { k: a.k } : {}) }, dist: Math.abs(sc.n - a.s) * 1000 + Math.abs(b.n - a.b) }); }));
   hits.sort((x, y) => x.dist - y.dist); return hits[0] ? hits[0].src : null;
 }
-const anchorWhere = a => a ? (a.t === 'pdf' ? `page ${a.p}, line ${a.l}` : a.t === 'docx' ? `${a.k === 'slide' ? 'slide' : 'section'} ${a.s}, paragraph ${a.b}${a.r ? ', row ' + a.r : ''}` : a.t === 'xlsx' ? `${a.s} row ${a.r}` : a.t === 'csv' ? `row ${a.r}` : 'the filing') : '';
+const anchorWhere = a => a ? (a.t === 'pdf' ? `page ${a.p}${printedPage(a) ? ` (printed ${printedPage(a)})` : ''}, line ${a.l}` : a.t === 'docx' ? `${a.k === 'slide' ? 'slide' : 'section'} ${a.s}, paragraph ${a.b}${a.r ? ', row ' + a.r : ''}` : a.t === 'xlsx' ? `${a.s} row ${a.r}` : a.t === 'csv' ? `row ${a.r}` : 'the filing') : '';
 function verifyFindings(findings, ctx) {
   const { docs, X, SM, M, readChecks, docUnits, fxDocs } = ctx;
   const ex = citeExpectations(X, SM, M); const tally = { checked: 0, shown: 0, moved: 0, unconfirmed: 0, moves: [], misses: [] };
@@ -3367,6 +3423,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   { const f = factsOf('arAged')[0]; if (f) { const arL = L && L.lines && L.lines.find(l => L.cls[l] === 'NWC asset' && /receivable/i.test(l)); const ar = arL && L.bsv[arL] ? L.bsv[arL][L.last] : null;
     dataChecks.push({ status: 'info', text: `Receivables over ${f.days} days are stated as ${fmtUSD(f.value)}${ar ? `, ${(f.value / ar * 100).toFixed(1)}% of receivables of ${fmtUSD(ar)} at the latest month-end` : ''}. Ask for the aging report to support the reserve.`, src: f.src }); } }
   let SM = X.blocks.length ? statementModel(X) : null;
+  if (SM && SM.allocations && SM.allocations.length) SM.allocations.forEach(al => dataChecks.push({ status: 'ok', text: `The table at ${anchorLabel(al.src)} shows how ${al.cost.toLowerCase()} is spread across ${al.rows.filter(r => !r.total).map(r => r.label.toLowerCase()).join(', ')}. It is read as that cost's allocation, not as the income statement, and is shown on the QoE page and in the workbook.`, src: al.src, doc: al.src && al.src.d }));
   if (SM && SM.unitFixes && SM.unitFixes.length) SM.unitFixes.forEach(u => dataChecks.push({ status: 'fixed', text: `The table at ${anchorLabel(u.src)} reads ${u.factor < 1 ? 'a thousand times larger' : 'a thousand times smaller'} than the income statement at the units stated nearby, so it was read ${u.factor < 1 ? 'in thousands rather than millions' : 'in millions rather than thousands'} to agree with it. If that is wrong, set the units for this document.`, src: u.src, doc: u.src && u.src.d }));
   if (SM && SM.basis && SM.pl.revenue && SM.pl.revenue[SM.basis]) {
     const rv = SM.pl.revenue[SM.basis]; const did = rv.src && rv.src.d;
@@ -4680,7 +4737,7 @@ function memoModel(R, m, opts) {
   /* numbered source notes */
   const notes = []; const noteIdx = {};
   const where = a => {
-    if (a.t === 'pdf') return `page ${a.p}`;
+    if (a.t === 'pdf') return `page ${a.p}${printedPage(a) ? ` (printed ${printedPage(a)})` : ''}`;
     if (a.t === 'csv') return '';
     if (a.t === 'xlsx') return `sheet "${a.s}"`;
     if (a.t === 'docx') return `${a.k === 'slide' ? 'slide' : 'section'} ${a.s}`;
@@ -6442,6 +6499,11 @@ function workbookModel(R, m) {
       .map(({ i, t }) => [t ? i.label.replace(/^./, c => c.toUpperCase()) : i.label, t ? (/^total\b/i.test(i.label) ? 'Total' : /equity|capital|deficit/i.test(i.label) ? 'Equity' : 'Total') : i.cls, i.asOf || '', { v: i.value, k: 'usd' }, t ? 'As stated' : i.within ? `Part of ${i.within}` : i.residual ? 'Not identified in the documents' : '', where(i.src)]);
     return [['Line', 'Class', 'As of', 'Amount', 'Note', 'Source'], rows, { widths: [40, 14, 10, 16, 30, 60], note: 'As stated in the documents' }]; }
   if (L && L.lines && L.lines.length && (R.bsItems || []).length) add('Stated balance sheet', ...stmtBS());
+  /* costs the documents spread across the income statement lines, as stated */
+  { const AL = (R.SM && R.SM.allocations) || []; if (AL.length) { const rows = []; const np = Math.max(...AL.map(a => a.periods.length));
+    AL.forEach((al, k) => { if (k) rows.push(Array(np + 2).fill('')); rows.push([al.cost, ...al.periods, ...Array(np - al.periods.length).fill(''), '']);
+      al.rows.forEach(r => rows.push(['  ' + r.label, ...al.periods.map((p, i) => r.values[i] == null ? '' : { v: r.values[i], k: 'usd' }), ...Array(np - al.periods.length).fill(''), where(r.src)])); });
+    add('Cost allocations', ['Cost / line', ...Array.from({ length: np }, (_, i) => AL.every(a => a.periods[i] === AL[0].periods[i]) ? AL[0].periods[i] || '' : ''), 'Source'], rows, { widths: [44, ...Array(np).fill(16), 60], note: 'As stated in the documents. These costs are already inside the income statement lines and are not counted again' }); } }
 
   /* Working capital */
   if (W) {
@@ -7077,6 +7139,15 @@ function vQoE() {
         return `<div class="qnote" id="note-${nt.ref}"><div class="top"><span class="chip id">${nt.ref}</span><b>${esc(nt.title)}</b>${nt.status === 'Computed' ? '<span class="chip dim">Computed</span>' : nt.status === 'Accepted' ? '<span class="chip ok">Accepted</span>' : nt.status === 'Excluded' ? '<span class="chip bad">Excluded</span>' : statusChip(nt.status)}${nt.src ? cite(nt.src) : ''}</div><p>${esc(nt.text)}</p>${ctl}${nt.evidence && nt.evidence.length ? evDetails(nt.evidence, `Source schedule: ${nt.evidence.length} ledger line${nt.evidence.length > 1 ? 's' : ''}`) : ''}</div>`; }).join('')}
       </div></section>`;
   }
+  /* a cost the documents spread across the income statement lines (stock-based compensation, depreciation): shown as
+     stated, apart from the income statement */
+  ((R.SM && R.SM.allocations) || []).forEach(al => { const isSBC = /stock|share|equity/i.test(al.cost);
+    const inBridge = M && (M.addbacks || []).some(a => /stock|share|equity[- ]based|sbc|non-?cash comp/i.test(a.label));
+    html += `<section class="sec"><div class="sechead"><h2>${esc(al.cost)} by line</h2><span class="aside">As stated ${cite(al.src)}</span></div>
+      <p class="lede">How the documents spread ${esc(al.cost.toLowerCase())} across the income statement. It is already inside the income statement's cost lines, so it is shown here and not counted again.${isSBC ? ` Stock-based compensation is a non-cash cost${M && (M.addbacks || []).length ? (inBridge ? "; management's bridge adds it back." : "; management's bridge does not add it back.") : '.'}` : ''}</p>
+      <div class="tbl"><table><thead><tr><th>Line</th>${al.periods.map(p => `<th class="n">${esc(p)}</th>`).join('')}<th>Source</th></tr></thead><tbody>
+      ${al.rows.map(r => `<tr class="${r.total ? 'total' : ''}"><td>${esc(r.label)}</td>${al.periods.map((p, i) => `<td class="n">${r.values[i] == null ? '' : $(r.values[i])}</td>`).join('')}<td>${cite(r.src)}</td></tr>`).join('')}
+</tbody></table></div></section>`; });
   if (M && M.addbacks.length && !L) {
     const stmtOnly = !L;
     html += `<section class="sec"><div class="sechead"><h2>Management's add-backs tested</h2><span class="aside">${esc(M.basisLabel)}, as stated in ${esc((R.srcDoc || {}).the || 'the documents')}</span></div>
@@ -7498,7 +7569,7 @@ function drawerHTML(a, note) {
   const modeBar = d.pages ? `<div class="row" style="gap:6px;margin-bottom:10px">${orig ? `<button class="btn sm ${drawerMode === 'page' ? '' : 'ghost'}" data-dmode="page">Original page</button><button class="btn sm ${drawerMode === 'text' ? '' : 'ghost'}" data-dmode="text">Extracted text</button>` : '<span class="muted" style="font-size:12px">Showing the extracted text. The original file is not stored for this document, so the page itself cannot be shown.</span>'}</div>` : '';
   if (note) body += `<p class="muted" style="font-size:12px;margin-bottom:8px">${esc(note)}</p>`;
   if (d.pages && orig && drawerMode === 'page') { const p = d.pages[a.p - 1] || d.pages[0];
-    body += modeBar + `<div class="sec2">Page ${p.n} of ${d.pages.length}${a.l ? ' · line ' + a.l + ' highlighted' : ''}</div><div class="pdfwrap" id="pdfwrap"><div class="muted" style="padding:20px;font-size:13px">Opening the page…</div></div>`
+    body += modeBar + `<div class="sec2">Page ${p.n} of ${d.pages.length}${p.label && p.label !== String(p.n) ? ` (numbered ${esc(p.label)} on the page)` : ''}${a.l ? ' · line ' + a.l + ' highlighted' : ''}</div><div class="pdfwrap" id="pdfwrap"><div class="muted" style="padding:20px;font-size:13px">Opening the page…</div></div>`
       + `<div class="row" style="margin-top:12px">${p.n > 1 ? `<button class="btn sm ghost" data-goto='${JSON.stringify({ d: d.id, t: 'pdf', p: p.n - 1, l: 0 })}'>Previous page</button>` : ''}${p.n < d.pages.length ? `<button class="btn sm ghost" data-goto='${JSON.stringify({ d: d.id, t: 'pdf', p: p.n + 1, l: 0 })}'>Next page</button>` : ''}</div>`;
     return drawerShell(d, a, body); }
   if (d.pages) body += modeBar;
@@ -7507,7 +7578,7 @@ function drawerHTML(a, note) {
   else if (a.t === 'xbrl') { const fs = (d.xbrl || []).filter(f => f.c === a.c).sort((x, y) => x.e < y.e ? 1 : -1);
     body = `<div class="sec2">XBRL tag ${esc(a.c)}</div><p class="muted" style="font-size:12px;margin-bottom:8px">Read directly from the tag in the filing, not from the rendered table. Contexts with segments or other dimensions are excluded.</p><div class="tbl grid"><table><thead><tr><th>Period</th><th class="n">Value</th></tr></thead><tbody>${fs.map(f => `<tr class="${f.e === a.p ? 'on' : ''}" ${f.e === a.p ? 'id="hit"' : ''}><td>${f.i ? 'At ' + f.e : f.s + ' to ' + f.e}</td><td class="n">${$(f.v)}</td></tr>`).join('')}</tbody></table></div>`; }
   else if (d.pages) { const p = d.pages[a.p - 1] || d.pages[0];
-    body += `<div class="sec2">Page ${p.n} of ${d.pages.length}</div>` + p.lines.map(l => `<div class="ln ${l.n === a.l ? 'on' : ''}" ${l.n === a.l ? 'id="hit"' : ''}><span>${l.n}</span><span>${esc(l.text)}</span></div>`).join('')
+    body += `<div class="sec2">Page ${p.n} of ${d.pages.length}${p.label && p.label !== String(p.n) ? ` (numbered ${esc(p.label)} on the page)` : ''}</div>` + p.lines.map(l => `<div class="ln ${l.n === a.l ? 'on' : ''}" ${l.n === a.l ? 'id="hit"' : ''}><span>${l.n}</span><span>${esc(l.text)}</span></div>`).join('')
       + `<div class="row" style="margin-top:12px">${p.n > 1 ? `<button class="btn sm ghost" data-goto='${JSON.stringify({ d: d.id, t: 'pdf', p: p.n - 1, l: 0 })}'>Previous page</button>` : ''}${p.n < d.pages.length ? `<button class="btn sm ghost" data-goto='${JSON.stringify({ d: d.id, t: 'pdf', p: p.n + 1, l: 0 })}'>Next page</button>` : ''}</div>`; }
   else if (d.rows) { const r = a.r; const from = Math.max(2, r - 8), to = Math.min(d.rows.length, r + 8); const hdr = d.rows[0] || [];
     body = `<div class="sec2">Rows ${from}–${to} of ${d.rows.length}</div><div class="tbl grid"><table><thead><tr><th>#</th>${hdr.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${d.rows.slice(from - 1, to).map((row, i) => `<tr class="${from + i === r ? 'on' : ''}" ${from + i === r ? 'id="hit"' : ''}><td class="rn">${from + i}</td>${row.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`; }
@@ -8121,7 +8192,7 @@ function mandateToRecord(m) {
   while (json.length > 240000 && rec.rv.activity.length > 20) { rec.rv.activity = rec.rv.activity.slice(Math.floor(rec.rv.activity.length / 2)); json = JSON.stringify(rec); }
   return JSON.parse(json);
 }
-const PARSE_V = 11; /* raise when the readers change: stored documents are read again from their originals */
+const PARSE_V = 12; /* raise when the readers change: stored documents are read again from their originals */
 async function persistDoc(d, file) {
   d.parseV = PARSE_V;
   const up = await store.assets.upload(new Blob([JSON.stringify(d)], { type: 'application/json' }), { type: 'application/json' });
