@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Security | DealBasis</title>
+<meta name="description" content="How DealBasis protects your firm’s deal documents: where they are processed and stored, who can reach them, and what is logged.">
+<link rel="canonical" href="https://dealbasis.vercel.app/security">
+<meta name="theme-color" content="#ffffff">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DealBasis">
+<meta property="og:url" content="https://dealbasis.vercel.app/security">
+<meta property="og:title" content="Security | DealBasis">
+<meta property="og:description" content="How DealBasis protects your firm’s deal documents: where they are processed and stored, who can reach them, and what is logged.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Security | DealBasis">
+<meta name="twitter:description" content="How DealBasis protects your firm’s deal documents: where they are processed and stored, who can reach them, and what is logged.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/home.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="/faq#faq-text">How it works</a></div>
+<header class="nav" id="nav"><div class="wrap">
+  <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
+  <nav class="links" aria-label="Main"><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a></nav>
+  <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-secondary btn-sm demo-btn" href="/demo">Request a demo</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
+</div>
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a><a href="/signin">Sign in</a><a href="/demo">Request a demo</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
+</header>
+
+<main id="main">
+<div class="pagehead left"><div class="wrap"><span class="eyebrow">Trust</span><h1>Security</h1><p>Where your documents are processed and stored, who can reach them, and what is recorded.</p></div></div>
+<section class="doc"><div class="wrap"><div class="doctext">
+<p class="updated">Last updated October 16, 2026</p>
+<div class="notice"><b>In short.</b> Documents are read in your browser by fixed rules. No AI model reads them, and they are never sent to an AI provider. Results and originals are stored in your firm’s private workspace, which the database keeps separate from every other firm. Admins control access, can require two-factor sign-in, see an activity log, and can export or permanently delete the workspace.</div>
+
+<h2>1. How documents are processed</h2>
+<ul><li><b>In your browser.</b> When you upload a file, it is read on your own computer by the DealBasis code running in the page. PDFs, spreadsheets, Word files and CSVs are turned into text and figures there, before anything is saved.</li>
+<li><b>By fixed rules, not AI.</b> Every figure and finding comes from tested rules. The same documents always give the same answer, and every figure links to the page, line, cell or row it came from. No AI model reads your documents, and they are not used to train one.</li>
+<li><b>Scanned pages.</b> A PDF page with no text layer is read with open-source text recognition (Tesseract), also in your browser. Figures read this way are marked as coming from a scan so they can be checked against the page.</li>
+<li><b>Code libraries.</b> The page loads open-source libraries for reading files (pdf.js, SheetJS, ExcelJS, JSZip, docx, jsPDF and Tesseract) from public content networks. They run in your browser; your documents are not sent to those networks.</li></ul>
+
+<h2>2. Where data is stored</h2>
+<ul><li><b>Supabase</b> holds the database, file storage and sign-in. <b>Vercel</b> serves the website and platform.</li>
+<li>What is stored: each deal’s extracted figures and results, your team’s decisions and notes, and the original files so a citation can open the page itself.</li>
+<li>Files sit in a private storage bucket, in a folder that belongs to your workspace. Only your workspace’s members can reach them. When a file is opened, it is fetched with your own sign-in or through a link that expires after five minutes. There are no public links.</li></ul>
+
+<h2>3. Encryption</h2>
+<ul><li>Every connection uses HTTPS. The site sends Strict-Transport-Security for two years, including subdomains, so browsers refuse unencrypted connections.</li>
+<li>Supabase encrypts the database and stored files on disk.</li></ul>
+
+<h2>4. Each firm’s data is separate</h2>
+<ul><li>Every deal, file, invite, member and log entry belongs to one workspace. Row-level security in the database enforces this on every table and on file storage, so the separation doesn’t depend on the app.</li>
+<li>Three roles: <b>Admin</b> (access and settings), <b>Member</b> (works on deals) and <b>Viewer</b> (read only). Viewers can’t change or upload anything, which the database also enforces.</li>
+<li>People join a firm by an admin’s invite or with a confirmed email at the firm’s domain. Personal email domains can’t be used as a firm domain, and each domain belongs to one workspace. An admin can remove someone immediately.</li></ul>
+
+<h2>5. Signing in</h2>
+<ul><li>Passwords are stored only as a secure hash by our sign-in provider.</li>
+<li>Anyone can turn on two-factor sign-in with an authenticator app. An admin can require it for the whole workspace; once required, a session without two-factor gets no data at all, enforced by the database.</li>
+<li>Each workspace sets how soon inactive sessions are signed out, from 15 minutes to 8 hours (30 minutes unless changed). It applies across all open tabs.</li></ul>
+
+<h2>6. Activity log</h2>
+<p>The database records sign-ins and sign-outs, deal changes, uploads, deletions, file openings, invites, access and settings changes, exports and two-factor changes, with who and when. Entries can’t be edited or deleted from the app, only admins can read them, and admins can filter the log and download it as CSV. The log contains no document contents and is kept after a workspace is deleted, so a firm can still show who accessed what.</p>
+
+<h2>7. Export and deletion</h2>
+<ul><li>An admin can download the whole workspace (deals, settings, members, the activity log and every file) as one ZIP file.</li>
+<li>An admin can permanently delete the workspace, which removes its files, deals, invites and members. After an account ends, data is deleted from active systems within 30 days, and backups expire on their normal schedule.</li></ul>
+
+<h2>8. Browser protections</h2>
+<p>Pages can’t be framed by other sites (to prevent clickjacking), browsers are told not to guess file types, referrers are limited, and camera, microphone and location access are turned off.</p>
+
+<h2>9. What we don’t claim</h2>
+<ul><li>DealBasis has not completed a SOC 2 audit. The platform is built with SOC 2 controls in mind, and we’ll say so plainly when an independent audit is complete.</li>
+<li>Whoever administers the hosting accounts could technically read stored data, as with almost every hosted service.</li>
+<li>The activity log records what happens through DealBasis; changes made directly in the hosting provider’s console are recorded in that provider’s own logs.</li></ul>
+
+<h2>10. Reporting a security concern</h2>
+<p>Inside the platform, use Help, then Get help; requests are stored privately. Otherwise, use our <a href="/team#contact">contact form</a>. We’ll reply as quickly as we can.</p>
+</div></div></section>
+</main>
+
+<footer><div class="wrap">
+  <div class="fgrid">
+    <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
+    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a></li><li><a href="/security">Security</a></li><li><a href="/faq">FAQ</a></li><li><a href="/about">About</a></li><li><a href="/team">Team</a></li></ul></div>
+    <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/demo">Request a demo</a></li><li><a href="/team#contact">Contact us</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
+  </div>
+  <p class="legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · DealBasis provides diligence analysis, not an audit, attestation or accounting firm’s quality of earnings report.<br>© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
+</div></footer>
+<script src="/home.js"></script>
+
+</body>
+</html>

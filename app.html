@@ -120,6 +120,7 @@ tr.dim td{color:var(--ink3)}
 .cite{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font:500 11px/1 var(--f-mono);color:var(--brandtext);padding:3px 5px;border-radius:2px;background:var(--brandwash);white-space:nowrap}
 .cite::before{content:'';width:5px;height:5px;background:var(--brand);border-radius:1px}
 .cite:hover{text-decoration:underline}
+.cite.scan{background:var(--warnwash,#fff4e0);color:var(--warntext,#8a5300)}.cite.scan::before{background:var(--warn,#d98a00)}
 .cite:focus-visible{outline:2px solid var(--brand)}
 .cites{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center}
 
@@ -844,7 +845,7 @@ function analyze(D, S, dec) {
      part of revenue the concentration test is not run rather than run on part of the revenue */
   const UNNAMED = '\u0000unnamed';
   /* placeholder names ("Unbilled - various", "Cash sales", "Misc customer") are not customers either */
-  const PLACEHOLDER = n0 => /^(?:-+|n\/?a|none|unknown|internal|multiple|general|various|other|cash|walk[- ]?in|customers?|sales)(?:\s+(?:customers?|sales?|clients?|accounts?|revenue))?$/i.test(n0) || /\b(?:unbilled|various|miscellaneous|sundry)\b|^misc\.?(?:\s|$)/i.test(n0);
+  const PLACEHOLDER = CUST_PLACEHOLDER;
   const revBy = set => { const o = {}; inPer.filter(r => r.category === 'Revenue' && set.has(r.month)).forEach(r => { const nm = String(r.counterparty || '').trim(); const k = !nm || PLACEHOLDER(nm) ? UNNAMED : nm; o[k] = (o[k] || 0) + r.amount; }); return o; };
   const cT = revBy(ttmSet), cP = revBy(priorSet);
   const unnamedRev = Math.max(0, cT[UNNAMED] || 0); delete cT[UNNAMED]; delete cP[UNNAMED];
@@ -952,6 +953,141 @@ function analyze(D, S, dec) {
     val: { basisE, ev: ev_, equity },
     fingerprint
   };
+}
+
+/* placeholder customer names ("Unbilled - various", "Cash sales", "Misc customer") are not customers */
+const CUST_PLACEHOLDER = n0 => /^(?:-+|n\/?a|none|unknown|internal|multiple|general|various|other|cash|walk[- ]?in|customers?|sales)(?:\s+(?:customers?|sales?|clients?|accounts?|revenue))?$/i.test(n0) || /\b(?:unbilled|various|miscellaneous|sundry)\b|^misc\.?(?:\s|$)/i.test(n0);
+
+/* ---------- revenue analytics from the ledger: cohorts, cuts, bridges ----------
+   Every figure is a sum of ledger lines; each keeps the lines it adds up (shown as its evidence) and every table adds up
+   to the ledger's own revenue for the period. Periods are whole twelve-month blocks ending at the ledger's last month. */
+function revenueAnalytics(L) {
+  if (!L || !L.gl || !L.months || L.months.length < 12) return null;
+  const n = L.months.length, nb = Math.floor(n / 12); if (nb < 1) return null;
+  const blocks = []; for (let k = nb - 1; k >= 0; k--) { const ms = L.months.slice(n - 12 * (k + 1), n - 12 * k); blocks.push({ months: ms, set: new Set(ms), end: ms[ms.length - 1], start: ms[0] }); }
+  blocks.forEach((b, i) => { b.label = i === blocks.length - 1 ? `TTM ${monthLabel(b.end)}` : `12 months to ${monthLabel(b.end)}`; b.short = i === blocks.length - 1 ? 'TTM' : `12m to ${monthLabel(b.end)}`; });
+  const early = new Set(L.months.slice(0, n - 12 * nb));
+  const blockOf = m => blocks.findIndex(b => b.set.has(m));
+  const rev = L.gl.filter(r => r.category === 'Revenue'), cogs = L.gl.filter(r => r.category === 'COGS');
+  const round2 = v => Math.round(v * 100) / 100;
+  const ev = rs => rs.map(r => ({ date: r.date, id: r.entry_id, account: r.account + ' ' + r.account_name, desc: r.description, cp: r.counterparty, amount: r.amount, src: r.src || null }));
+  const sum = rs => round2(rs.reduce((a, r) => a + r.amount, 0));
+  const totalRev = blocks.map(b => sum(rev.filter(r => b.set.has(r.month))));
+  const totalCogs = blocks.map(b => sum(cogs.filter(r => b.set.has(r.month))));
+  const UN = '\u0000';
+  const custOf = r => { const nm = String(r.counterparty || '').trim(); return !nm || CUST_PLACEHOLDER(nm) ? UN : nm; };
+  /* revenue by customer by block, and where each customer first appears */
+  const by = {}; const first = {}; const earlySeen = new Set();
+  rev.forEach(r => { const c = custOf(r); if (early.has(r.month)) { if (c !== UN && r.amount > 0) earlySeen.add(c); return; } const b = blockOf(r.month); if (b < 0) return;
+    const o = by[c] = by[c] || { rev: blocks.map(() => 0), rows: blocks.map(() => []) }; o.rev[b] += r.amount; o.rows[b].push(r); });
+  Object.entries(by).forEach(([c, o]) => { o.rev = o.rev.map(round2); if (c === UN) return; const fb = earlySeen.has(c) ? 0 : o.rev.findIndex(v => v > 0); first[c] = fb; });
+  const named = Object.keys(by).filter(c => c !== UN);
+  const unnamed = by[UN] || { rev: blocks.map(() => 0), rows: blocks.map(() => []) };
+
+  /* cohorts: customers grouped by the block in which they first bought */
+  const cohorts = [];
+  if (blocks.length >= 2) blocks.forEach((b, bi) => { const cs = named.filter(c => first[c] === bi); if (!cs.length) return;
+    cohorts.push({ block: bi, label: bi === 0 ? `In ${b.short} (the ledger starts here, so some began earlier)` : `New in ${b.short}`, customers: cs.length,
+      rev: blocks.map((_, k) => k < bi ? null : round2(cs.reduce((a, c) => a + by[c].rev[k], 0))),
+      active: blocks.map((_, k) => k < bi ? null : cs.filter(c => by[c].rev[k] > 0).length),
+      rows: blocks.map((_, k) => k < bi ? [] : cs.flatMap(c => by[c].rows[k])) }); });
+  const neverPositive = named.filter(c => first[c] === -1);
+  if (cohorts.length && neverPositive.length) cohorts.push({ block: null, label: 'Credits only (no sales in any period)', customers: neverPositive.length, rev: blocks.map((_, k) => round2(neverPositive.reduce((a, c) => a + by[c].rev[k], 0))), active: blocks.map(() => 0), rows: blocks.map((_, k) => neverPositive.flatMap(c => by[c].rows[k])) });
+  if (cohorts.length && unnamed.rev.some(v => v)) cohorts.push({ block: null, label: 'Revenue with no customer name', customers: null, rev: unnamed.rev, active: blocks.map(() => null), rows: unnamed.rows, unnamed: true });
+
+  /* retention and the revenue bridge between each pair of consecutive blocks */
+  const bridges = [];
+  for (let k = 1; k < blocks.length; k++) {
+    const P = k - 1, C = k; const g = { lost: [], expand: [], contract: [], fresh: [], back: [], credits: [] };
+    named.forEach(c => { const rp = by[c].rev[P], rc = by[c].rev[C];
+      if (rp > 0 && rc <= 0) g.lost.push(c); else if (rp > 0 && rc > 0) (rc >= rp ? g.expand : g.contract).push(c);
+      else if (rp <= 0 && rc > 0) { const before = earlySeen.has(c) || by[c].rev.slice(0, P).some(v => v > 0); (before ? g.back : g.fresh).push(c); }
+      else if (rp !== 0 || rc !== 0) g.credits.push(c); });
+    const part = (cs, label, key) => ({ key, label, customers: cs.length, amount: round2(cs.reduce((a, c) => a + by[c].rev[C] - by[c].rev[P], 0)), rows: cs.flatMap(c => [...by[c].rows[P].map(r => ({ ...r, amount: -r.amount, flip: true })), ...by[c].rows[C]]) });
+    const lines = [part(g.lost, 'Customers lost', 'lost'), part(g.contract, 'Existing customers buying less', 'contract'), part(g.expand, 'Existing customers buying more', 'expand'), part(g.back, 'Returning customers', 'back'), part(g.fresh, 'New customers', 'fresh')];
+    if (g.credits.length) lines.push(part(g.credits, 'Credits from customers with no sales', 'credits'));
+    if (unnamed.rev[P] || unnamed.rev[C]) lines.push({ key: 'unnamed', label: 'Revenue with no customer name', customers: null, amount: round2(unnamed.rev[C] - unnamed.rev[P]), rows: [...unnamed.rows[P].map(r => ({ ...r, amount: -r.amount, flip: true })), ...unnamed.rows[C]] });
+    const startP = named.filter(c => by[c].rev[P] > 0); const base = startP.reduce((a, c) => a + by[c].rev[P], 0);
+    const kept = startP.reduce((a, c) => a + Math.max(0, by[c].rev[C]), 0), keptCapped = startP.reduce((a, c) => a + Math.max(0, Math.min(by[c].rev[C], by[c].rev[P])), 0);
+    const foot = round2(totalRev[P] + lines.reduce((a, l) => a + l.amount, 0));
+    bridges.push({ from: P, to: C, fromLabel: blocks[P].label, toLabel: blocks[C].label, start: totalRev[P], end: totalRev[C], lines, foots: Math.abs(foot - totalRev[C]) < 0.01,
+      nrr: base > 0 ? kept / base : null, grr: base > 0 ? keptCapped / base : null, startCustomers: startP.length, lostCustomers: g.lost.length, newCustomers: g.fresh.length });
+  }
+
+  /* price and volume, where the ledger records quantities on (nearly) all revenue: by product or item, else by account */
+  const itemDim = ['Product', 'Item', 'Product/Service', 'Product Service', 'Item Name', 'Product Line', 'Service Line', 'Service'].find(d => rev.some(r => r.dims && r.dims[d]));
+  const itemOf = r => (itemDim && r.dims && r.dims[itemDim]) || r.account_name || r.account || 'Revenue';
+  const pvm = [];
+  for (let k = 1; k < blocks.length; k++) { const P = k - 1, C = k;
+    const rs = rev.filter(r => blocks[P].set.has(r.month) || blocks[C].set.has(r.month)); const withQ = rs.filter(r => r.qty != null && r.qty !== 0);
+    const cov = rs.reduce((a, r) => a + Math.abs(r.amount), 0) ? withQ.reduce((a, r) => a + Math.abs(r.amount), 0) / rs.reduce((a, r) => a + Math.abs(r.amount), 0) : 0;
+    if (cov < 0.95) continue;
+    const it = {}; withQ.forEach(r => { const key = itemOf(r); const o = it[key] = it[key] || { item: key, rP: 0, qP: 0, rC: 0, qC: 0, rowsP: [], rowsC: [] }; if (blocks[P].set.has(r.month)) { o.rP += r.amount; o.qP += r.qty; o.rowsP.push(r); } else { o.rC += r.amount; o.qC += r.qty; o.rowsC.push(r); } });
+    let price = 0, volume = 0, added = 0, dropped = 0; const items = [];
+    Object.values(it).forEach(o => { let pe = 0, ve = 0, ad = 0, dr = 0;
+      if (o.qP > 0 && o.qC > 0) { const pP = o.rP / o.qP, pC = o.rC / o.qC; ve = (o.qC - o.qP) * pP; pe = (pC - pP) * o.qC; }
+      else if (o.qP > 0) dr = o.rC - o.rP; else if (o.qC > 0) ad = o.rC - o.rP; else ad = o.rC - o.rP;
+      price += pe; volume += ve; added += ad; dropped += dr;
+      items.push({ item: o.item, revP: round2(o.rP), revC: round2(o.rC), qtyP: o.qP, qtyC: o.qC, priceP: o.qP ? o.rP / o.qP : null, priceC: o.qC ? o.rC / o.qC : null, price: round2(pe), volume: round2(ve), other: round2(ad + dr), rows: [...o.rowsP.map(r => ({ ...r, amount: -r.amount, flip: true })), ...o.rowsC] }); });
+    const noQ = rs.filter(r => !(r.qty != null && r.qty !== 0)); const nqP = sum(noQ.filter(r => blocks[P].set.has(r.month))), nqC = sum(noQ.filter(r => blocks[C].set.has(r.month)));
+    pvm.push({ from: P, to: C, fromLabel: blocks[P].label, toLabel: blocks[C].label, by: itemDim || 'Account', start: totalRev[P], end: totalRev[C], price: round2(price), volume: round2(volume), added: round2(added), dropped: round2(dropped), noQty: round2(nqC - nqP), items: items.sort((a, b) => Math.abs(b.revC - b.revP) - Math.abs(a.revC - a.revP)) });
+  }
+
+  /* revenue and gross margin by each column the ledger carries (class, location, product ...) */
+  const dimNames = [...new Set(rev.flatMap(r => Object.keys(r.dims || {})))];
+  const last = blocks.length - 1, prev = blocks.length >= 2 ? blocks.length - 2 : null;
+  const cuts = dimNames.map(dn => {
+    const inB = (rs, b) => rs.filter(r => blocks[b].set.has(r.month));
+    const revT = inB(rev, last); const tagged = revT.filter(r => r.dims && r.dims[dn]); const covR = totalRev[last] ? sum(tagged) / totalRev[last] : 0;
+    if (Math.abs(covR) < 0.5) return null;
+    const cogT = inB(cogs, last); const cTag = cogT.filter(r => r.dims && r.dims[dn]); const covC = totalCogs[last] ? sum(cTag) / totalCogs[last] : 0; const withGP = cogT.length > 0 && covC >= 0.5;
+    const NT = 'Not tagged'; const vOf = r => (r.dims && r.dims[dn]) || NT;
+    const vals = [...new Set([...revT, ...(prev != null ? inB(rev, prev) : []), ...(withGP ? cogT : [])].map(vOf))];
+    const rows = vals.map(v => { const rC = inB(rev, last).filter(r => vOf(r) === v), rP = prev != null ? inB(rev, prev).filter(r => vOf(r) === v) : [], cC = withGP ? cogT.filter(r => vOf(r) === v) : [];
+      const revC = sum(rC), revP = prev != null ? sum(rP) : null, cost = withGP ? sum(cC) : null;
+      return { value: v, revC, revP, growth: revP ? revC / revP - 1 : null, share: totalRev[last] ? revC / totalRev[last] : null, cogs: cost, gp: withGP ? round2(revC - cost) : null, gm: withGP && revC ? (revC - cost) / revC : null, revRows: rC, prevRows: rP, cogsRows: cC }; })
+      .filter(r => r.revC || r.revP || r.cogs).sort((a, b) => (a.value === NT) - (b.value === NT) || b.revC - a.revC);
+    return { dim: dn, rows, withGP, coverage: covR, cogsCoverage: withGP ? covC : null, totalRev: totalRev[last], totalPrev: prev != null ? totalRev[prev] : null, totalCogs: withGP ? totalCogs[last] : null,
+      foots: Math.abs(rows.reduce((a, r) => a + r.revC, 0) - totalRev[last]) < 0.01 && (!withGP || Math.abs(rows.reduce((a, r) => a + r.cogs, 0) - totalCogs[last]) < 0.01) };
+  }).filter(Boolean);
+
+  /* gross margin bridge between the last two blocks, by the first column that tags both revenue and cost: rate (each
+     part's own margin moving) and mix (the parts' weights moving), adding exactly to the change in gross margin */
+  const marginBridges = [];
+  if (prev != null && totalRev[prev] && totalRev[last]) (cuts.filter(c => c.withGP && c.cogsCoverage >= 0.9 && c.coverage >= 0.9).length ? cuts.filter(c => c.withGP && c.cogsCoverage >= 0.9 && c.coverage >= 0.9) : [null]).forEach(cut => { let marginBridge;
+  {
+    const gmP = (totalRev[prev] - totalCogs[prev]) / totalRev[prev], gmC = (totalRev[last] - totalCogs[last]) / totalRev[last];
+    if (cut) { const dn = cut.dim; const NT = 'Not tagged'; const vOf = r => (r.dims && r.dims[dn]) || NT;
+      const seg = {}; const add = (rs, b, k) => rs.filter(r => blocks[b].set.has(r.month)).forEach(r => { const o = seg[vOf(r)] = seg[vOf(r)] || { value: vOf(r), rP: 0, cP: 0, rC: 0, cC: 0 }; o[k] += r.amount; });
+      add(rev, prev, 'rP'); add(cogs, prev, 'cP'); add(rev, last, 'rC'); add(cogs, last, 'cC');
+      let mix = 0, rate = 0; const parts = Object.values(seg).map(o => { const wP = o.rP / totalRev[prev], wC = o.rC / totalRev[last]; const mP = o.rP ? (o.rP - o.cP) / o.rP : null, mC = o.rC ? (o.rC - o.cC) / o.rC : null;
+        /* a part with revenue in only one period (or cost with no revenue, such as cost not tagged): its whole change in contribution is mix */
+        let mx, rt; if (mP != null && mC != null) { rt = wC * (mC - mP); mx = (wC - wP) * mP; } else { rt = 0; mx = (o.rC - o.cC) / totalRev[last] - (o.rP - o.cP) / totalRev[prev]; }
+        mix += mx; rate += rt; return { value: o.value, wP, wC, mP, mC, mix: mx, rate: rt }; });
+      const resid = (gmC - gmP) - (mix + rate);
+      marginBridge = { by: dn, fromLabel: blocks[prev].label, toLabel: blocks[last].label, gmP, gmC, mix, rate, other: Math.abs(resid) < 1e-9 ? 0 : resid, parts: parts.sort((a, b) => Math.abs(b.mix + b.rate) - Math.abs(a.mix + a.rate)) };
+    } else marginBridge = { by: null, fromLabel: blocks[prev].label, toLabel: blocks[last].label, gmP, gmC };
+  } marginBridges.push(marginBridge); });
+  return { blocks: blocks.map(b => ({ label: b.label, short: b.short, start: b.start, end: b.end })), totalRev, totalCogs, cohorts, bridges, pvm, cuts, marginBridges, marginBridge: marginBridges[0] || null, earlyMonths: early.size, customers: named.length };
+}
+
+/* revenue by segment as the documents state it (a table whose segment lines add up to its revenue line), and the change
+   in each segment between the two latest periods it covers: every figure cites its cell */
+function segmentBridge(X) {
+  const out = [];
+  (X.blocks || []).forEach(b => { if (b.isBS || b.xbrl) return; const tot = b.rows.find(r => r.metric === 'revenue' && !r.pct); if (!tot) return;
+    const ti = b.rows.indexOf(tot); const segs = b.rows.slice(0, ti).filter(r => !r.pct && !r.metric && r.values.some(v => v != null));
+    if (segs.length < 2) return;
+    const H = b.periods.map((p, i) => ({ p, i })).filter(({ p, i }) => p.type === 'H' && tot.values[i] != null && segs.every(r => r.values[i] != null));
+    const ties = H.filter(({ i }) => Math.abs(segs.reduce((a, r) => a + r.values[i], 0) - tot.values[i]) <= Math.max(1, Math.abs(tot.values[i]) * 0.0005));
+    if (ties.length < 2 || ties.length < H.length) return;
+    const yrs = ties.filter(({ p }) => p.key !== 'LTM'); const pair = yrs.length >= 2 ? yrs.slice(-2) : ties.slice(-2);
+    const [a, z] = pair; const u = b.units || 1; const src = (r, i) => (r.srcs && r.srcs[i]) || r.src;
+    out.push({ fromLabel: a.p.label, toLabel: z.p.label, start: tot.values[a.i] * u, end: tot.values[z.i] * u, startSrc: src(tot, a.i), endSrc: src(tot, z.i),
+      lines: segs.map(r => ({ label: r.label, from: r.values[a.i] * u, to: r.values[z.i] * u, change: (r.values[z.i] - r.values[a.i]) * u, fromSrc: src(r, a.i), toSrc: src(r, z.i) })), doc: b.doc, src: b.src });
+  });
+  /* the same segment table printed twice (a summary page and the financials) is shown once */
+  return out.filter((x, i) => out.findIndex(y => y.fromLabel === x.fromLabel && y.toLabel === x.toLabel && Math.abs(y.start - x.start) < 1 && Math.abs(y.end - x.end) < 1) === i);
 }
 
 /* ---------- formatting shared with the UI ---------- */
@@ -1148,10 +1284,12 @@ function docFromDocxHtml(name, html) {
 
 /* ---------- anchors ---------- */
 /* the number printed on a PDF page, where it is not the page's place in the file */
+/* a PDF page read with text recognition: its figures are marked so they're checked against the page image */
+function scannedPage(a) { try { const d = a && a.t === 'pdf' && typeof MD === 'function' ? docById(a.d) : null; const pg = d && d.pages && d.pages[a.p - 1]; return !!(pg && pg.ocr); } catch (e) { return false; } }
 function printedPage(a) { try { const d = typeof MD === 'function' ? docById(a.d) : null; const pg = d && d.pages && d.pages[a.p - 1]; return pg && pg.label && pg.label !== String(a.p) ? pg.label : null; } catch (e) { return null; } }
 function anchorLabel(a) {
   if (!a) return '';
-  if (a.t === 'pdf') { const lb = printedPage(a); return `p.${a.p}${lb ? ` (printed ${lb})` : ''} L${a.l}`; }
+  if (a.t === 'pdf') { const lb = printedPage(a); return `p.${a.p}${lb ? ` (printed ${lb})` : ''} L${a.l}${scannedPage(a) ? ' · scan' : ''}`; }
   if (a.t === 'xlsx') return `${a.s}!${colL(a.c1)}${a.r}${a.c2 != null && a.c2 !== a.c1 ? ':' + colL(a.c2) + a.r : ''}`;
   if (a.t === 'csv') return `row ${a.r}`;
   if (a.t === 'docx') return `${a.k === 'slide' ? 'slide ' + a.s : '\u00a7' + a.s} \u00b6${a.b}${a.r ? ' r' + a.r : ''}`;
@@ -1209,7 +1347,7 @@ function normDate(v) {
 const CUR_PAT = [['EUR', /€|\beur\b|\beuros?\b/i], ['GBP', /£|\bgbp\b|pounds? sterling|\bsterling\b/i], ['CAD', /\bc\$|\bcad\b|canadian dollars?/i], ['AUD', /\ba\$|\baud\b|australian dollars?/i], ['NZD', /\bnz\$|\bnzd\b/i], ['JPY', /¥|\bjpy\b|\byen\b/i], ['CHF', /\bchf\b|swiss francs?/i], ['INR', /₹|\binr\b|\brupees?\b|\blakhs?\b|\bcrores?\b/i], ['CNY', /\bcny\b|\brmb\b|\byuan\b|\brenminbi\b/i], ['HKD', /\bhk\$|\bhkd\b/i], ['SGD', /\bs\$|\bsgd\b/i], ['MXN', /\bmx\$|\bmxn\b|mexican pesos?/i], ['BRL', /\br\$|\bbrl\b|\breais\b/i], ['SEK', /\bsek\b|swedish kron/i], ['NOK', /\bnok\b|norwegian kron/i], ['DKK', /\bdkk\b|danish kron/i], ['ZAR', /\bzar\b|\brand\b/i], ['PLN', /\bpln\b|z\u0142oty|zloty/i], ['USD', /\busd\b|us\$|u\.s\. dollars?|\$/i]];
 const currencyOf = text => { const t = String(text || ''); for (const [c, re] of CUR_PAT) if (re.test(t)) return c; return null; };
 const unitsOf = text => /in billions|\(\$\s?bn?\)|\$\s?billions/i.test(text) ? 1e9 : /in millions|\(\$\s?mm\)|\$\s?mm\b|\$\s?millions|\(\$m\)|\$\s?m\b(?!\w)|usd\s?m(illion)?s?\b|dollars in millions/i.test(text) ? 1e6 : /in thousands|\(\$\s?0{3}'?s?\)|\$\s?0{3}'?s?\b|\(\$k\)|\$ thousands|in 0{3}'?s\b|0{3}'?s omitted|\(0{3}'?s\)|dollars in thousands|usd\s?(k|thousands?)\b|(usd|eur|gbp|cad)\s?'?0{3}'?s?\b|[€£]\s?'?0{3}'?s?\b|\(0{3}\)|\$k\b|in \$?0{3}'?s?\b|\bthousands of (us )?dollars\b/i.test(text) ? 1000 : null;
-const normLabel = s => String(s).replace(/\s\([a-z]\)\s*$/, '').toLowerCase().replace(/\(\d{1,2}\)|\*+|†|‡|[¹²³⁴⁵⁶⁷⁸⁹⁰]+|\[\d{1,2}\]/g, '').replace(/[:$]/g, '').replace(/\s+/g, ' ').trim();
+const normLabel = s => String(s).replace(/\s\([a-z]\)\s*$/, '').replace(/^(\s*total)\s*[-–:]\s*/i, '$1 ').toLowerCase().replace(/\(\d{1,2}\)|\*+|†|‡|[¹²³⁴⁵⁶⁷⁸⁹⁰]+|\[\d{1,2}\]/g, '').replace(/[:$]/g, '').replace(/\s+/g, ' ').trim();
 
 /* ---------- terms: the other names documents use for the same item ----------
    DealBasis looks for these names everywhere in a document: table rows (whatever the table is called), lines that
@@ -1243,7 +1381,7 @@ const TERMS = {
     revenue: ['revenue', 'revenues', 'net revenue', 'net revenues', 'total revenue', 'total revenues', 'sales', 'net sales', 'total sales', 'turnover', 'net turnover', 'operating revenue', 'operating revenues', 'total net revenue', 'sales revenue', 'total income', 'income', 'trading income', 'total trading income', 'gross receipts', 'gross receipts or sales', 'gross sales', 'revenue from contracts with customers', 'revenues from contracts with customers', 'sales and services', 'total sales and services', 'net sales and services', 'sales and service revenue', 'revenue and other income', 'fee income', 'fees', 'fee revenue', 'total fees', 'net fees', 'service revenue', 'services revenue', 'revenue net', 'sales net', 'total operating revenue', 'total operating revenues', 'gross revenue', 'gross revenues', 'income from sales', 'top line'],
     cogs: ['cost of goods sold', 'cogs', 'cost of sales', 'cost of revenue', 'cost of revenues', 'direct costs', 'cost of services', 'direct cost of revenue', 'total cost of goods sold', 'total cost of sales', 'total cost of revenue', 'total cogs', 'cost of sales and services', 'cost of goods and services sold', 'direct expenses', 'total direct costs', 'total direct expenses', 'cost of goods sold cogs', 'cost of operations', 'costs of revenue', 'costs of sales', 'cost of products sold', 'cost of contract revenue', 'job costs', 'total job costs'],
     gp: ['gross profit', 'gross income', 'total gross profit', 'gross profit loss', 'gross margin dollars', 'gross margin $'],
-    opex: ['operating expenses', 'opex', 'sg&a', 'overhead', 'overheads', 'total overhead', 'total overheads', 'selling, general and administrative', 'operating costs', 'total operating expenses', 'expenses', 'total expenses', 'total operating costs', 'overhead expenses', 'total overhead expenses', 'administrative expenses', 'selling general and administrative expenses', 'total sg&a', 'indirect expenses', 'total indirect expenses', 'operating expenses total', 'total administrative expenses', 'other operating expenses total'],
+    opex: ['operating expenses', 'opex', 'sg&a', 'overhead', 'overheads', 'total overhead', 'total overheads', 'selling, general and administrative', 'operating costs', 'total operating expenses', 'expenses', 'total expenses', 'expense', 'total expense', 'total operating costs', 'overhead expenses', 'total overhead expenses', 'administrative expenses', 'selling general and administrative expenses', 'total sg&a', 'indirect expenses', 'total indirect expenses', 'operating expenses total', 'total administrative expenses', 'other operating expenses total'],
     ebitda: ['ebitda', 'reported ebitda', 'unadjusted ebitda', 'earnings before interest taxes depreciation and amortization', 'earnings before interest tax depreciation and amortization', 'earnings before interest, taxes, depreciation and amortization', 'ebitda reported', 'ebitda unadjusted', 'ebitda as reported', 'gaap ebitda'],
     adjEbitda: ['adjusted ebitda', 'adj. ebitda', 'adj ebitda', 'normalized ebitda', 'normalised ebitda', 'recast ebitda', 'pro forma ebitda', 'pro forma adjusted ebitda', 'management adjusted ebitda', 'ebitda as adjusted', 'ebitda adjusted', 'ebitda normalized', 'adjusted ebitda normalized', 'normalized adjusted ebitda', 'management ebitda', 'mgmt ebitda', 'qoe adjusted ebitda', 'diligence adjusted ebitda', 'adjusted earnings before interest taxes depreciation and amortization', 'ebitda after adjustments', 'ebitda post adjustments', 'total adjusted ebitda', 'consolidated adjusted ebitda', 'recast adjusted ebitda', 'owner adjusted ebitda'],
     operatingIncome: ['operating income', 'operating profit', 'ebit', 'income from operations', 'net operating income', 'net ordinary income', 'operating profit loss', 'operating income loss', 'profit from operations', 'income loss from operations', 'operating earnings', 'earnings from operations', 'total operating income'],
@@ -1285,9 +1423,9 @@ function bsClass(label) {
   const l = canonLabel(label);
   if (/^total\b/.test(l)) return 'Skip';
   const tm = bsTerm(label); if (tm) return tm.cls;
-  if (/^total|equity|retained earnings|^net (income|loss)|liabilities and/.test(l)) return 'Skip';
+  if (/^total|equity|retained earnings|^net (income|loss)|liabilities and|^net assets$|current year earnings|common stock|capital stock|share capital|paid[- ]in capital|^drawings$|^owner'?s? (draws?|contributions?)$/.test(l)) return 'Skip';
   /* bank accounts listed by name, as accounting systems do ("Wells Fargo Checking", "Chase Savings x1234", "Undeposited Funds") */
-  if (/\b(checking|chequing|savings|petty cash|money market|undeposited funds|cash on hand|cash in bank|operating account|payroll account|sweep account|business account|current account|bank account)\b/.test(l) && !/\b(loan|overdraft|line of credit|credit card|payable|interest)\b/.test(l)) return 'Cash';
+  if (/\b(cheque account|business cheque|checking|chequing|savings|petty cash|money market|undeposited funds|cash on hand|cash in bank|operating account|payroll account|sweep account|business account|current account|bank account)\b/.test(l) && !/\b(loan|overdraft|line of credit|credit card|payable|interest)\b/.test(l)) return 'Cash';
   if (/^cash|cash equivalents|restricted cash|marketable securities|short[- ]term investments|treasury bills|certificates of deposit/.test(l) && !/non-?current|long[- ]term/.test(l)) return 'Cash';
   // tax balances and owner/related-party balances are not operating working capital
   if (/(income )?tax(es)? (receivable|refund)|prepaid (income )?tax|deferred (income )?tax/.test(l)) return 'Other';
@@ -1298,7 +1436,7 @@ function bsClass(label) {
   if (/accounts payable|trade payable|trade creditors/.test(l)) return 'NWC liability';
   if (/accrued (bonus|bonuses|compensation)|deferred comp|income tax(es)? payable|accrued income tax|accrued interest|interest payable|deferred rent|deferred tax|dividends? payable|distributions? payable|declared distributions/.test(l)) return 'Debt-like';
   if (/line of credit|revolv|term loan|long[- ]term debt|current portion|notes? payable|equipment (notes|loans)|(equipment|vehicle|fleet|seller|vendor) (financing|notes?|loans?)|financing obligations?|capital lease|finance lease|\bloan\b|borrowing|shareholder note|related[- ]party note|debt|credit card/.test(l) && !/deferred financing/.test(l)) return 'Debt';
-  if (/accrued|other current liabilities|payroll|wages|salaries|sales tax|use tax|payable/.test(l)) return 'NWC liability';
+  if (/accrued|other current liabilities|payroll|wages|salaries|sales tax|use tax|payable|^(gst|vat|hst|pst)( payable| liability| control)?$/.test(l)) return 'NWC liability';
   if (/deferred revenue|unearned|customer deposits|billings in excess|contract liabilit/.test(l)) return 'NWC liability';
   if (/property|equipment|fixed assets|pp&e|intangible|goodwill|right[- ]of[- ]use|operating lease/.test(l)) return 'Other';
   return 'Other';
@@ -1316,7 +1454,7 @@ const MET = [
   ['otherIncome', /^other income( \(expense\))?(, net)?$/, false],
   ['da', /^depreciation( (and|&) amortization)?$|^d&a$/, false],
   ['interest', /^interest( expense)?(, net)?$/, false],
-  ['tax', /^(income )?tax(es)?( expense)?$|^provision for income taxes$/, false],
+  ['tax', /^((state|federal|state and local) )?(income )?tax(es)?( expense)?$|^provision for income taxes$/, false],
   ['netIncome', /^net income( \(loss\))?$/, false],
   ['operatingIncome', /^(total )?operating income( \(loss\))?$|^income( \(loss\))? from operations$/, false],
   ['cfo', /^(net )?cash (flows? )?(provided by|from|generated (by|from)|provided by \(used in\)|from \(used in\)|\(used in\) provided by) operating activities$|^cash flows? from operations$|^(net )?operating cash flows?$|^cash (generated )?from operations$/, false],
@@ -1379,6 +1517,18 @@ function monthlyPeriods(cells) {
   out.cols = cs.map((c, i) => pos.has(i)); out.groups = groups.map(g => g.ks); out.monthly = true; return out;
 }
 /* a statement with one column under "Year ended December 31, 2025" or "Fiscal year 2025" */
+/* one figures column headed only "Total", "Amount" or "Balance", as accounting systems export a report for one period: the
+   period is in the report's title ("January - December 2025", "For the year ended 31 December 2025", "As of December 31,
+   2025", "End of Dec 2025"). A part-year range is not read as a year */
+const MON_N = s => ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(String(s).slice(0, 3).toLowerCase()) + 1;
+function titlePeriod(text) { const t = String(text || ''); const M = '(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?'; let m;
+  const fy = (y, mo) => { const out = [{ key: y + 'A', label: 'FY' + y, type: 'H', year: +y, date: y + '-' + String(mo).padStart(2, '0') }]; out.single = true; return out; };
+  if ((m = t.match(new RegExp(`\\b${M}\\s*(?:\\d{1,2},?\\s*)?(\\d{4})?\\s*(?:-|–|through|thru|to)\\s*${M}\\s*(?:\\d{1,2},?\\s*)?(\\d{4})\\b`, 'i')))) {
+    const m1 = MON_N(m[1]), y1 = m[2] ? +m[2] : null, m2 = MON_N(m[3]), y2 = +m[4]; const span = ((y2 - (y1 || (m1 <= m2 ? y2 : y2 - 1))) * 12 + m2 - m1 + 1); if (span === 12) return fy(y2, m2); return null; }
+  if ((m = t.match(new RegExp(`\\b(?:for the )?(?:fiscal )?(?:year|twelve months|12 months) end(?:ed|ing)\\s+(?:${M}\\s+(\\d{1,2}),?\\s+(\\d{4})|(\\d{1,2})\\s+${M}\\s+(\\d{4}))`, 'i')))) return m[3] ? fy(+m[3], MON_N(m[1])) : fy(+m[6], MON_N(m[5]));
+  if ((m = t.match(new RegExp(`\\b(?:as of|as at|end of|at)\\s+(?:${M}\\s+(?:(\\d{1,2}),?\\s+)?(\\d{4})|(\\d{1,2})\\s+${M}\\s+(\\d{4}))`, 'i')))) return m[3] ? fy(+m[3], MON_N(m[1])) : fy(+m[6], MON_N(m[5]));
+  return null; }
+function amountHeader(cells, ctxText) { const c = cells.length === 2 && /^(financial row|account|accounts|description|particulars|line item|item|name)$/i.test(String(cells[0]).trim()) ? cells.slice(1) : cells; if (c.length !== 1 || !/^(total|amount|balance|actual|ytd total)$/i.test(String(c[0]).trim())) return null; return titlePeriod(ctxText); }
 function singlePeriod(cells) {
   if (cells.length !== 1) return null; const t = String(cells[0]).trim(); let m;
   /* one column headed with a period range or a fiscal year: "Jan - Dec 25", "Jan - Dec 2025", "FY2025", "YE Dec-25" */
@@ -1528,13 +1678,13 @@ function tablesFromLines(lines, ctx, out) {
     /* a footnote marker printed on its own ("(a)", a superscript one line up or down from its row) */
     if (/^\(?(?:[a-z]|\d{1,2})\)$/i.test(txt)) { prevCells = pc0; use(ln); return; }
     /* the second line of a wrapped row name ("Summit Alarm pre-acquisition" / "EBITDA (g)") */
-    if (block && lastRow && cells.length === 1 && txt.length <= 45 && !/\d/.test(txt.replace(/\s*\((?:[a-z]|\d{1,2})\)\s*$/i, '')) && (/^[a-z]/.test(txt) || /\s\((?:[a-z]|\d{1,2})\)\s*$/i.test(txt))) {
+    if (block && lastRow && cells.length === 1 && txt.length <= 45 && !/\d/.test(txt.replace(/\s*\((?:[a-z]|\d{1,2})\)\s*$/i, '')) && (/^[a-z]/.test(txt) || /\s\((?:[a-z]|\d{1,2})\)\s*$/i.test(txt) || /(?:&|,|\band|\bof|\bfor|\bthe|-)\s*$/i.test(lastRow.label || ''))) {
       lastRow.label += ' ' + txt; lastRow.text = (lastRow.text || '') + ' ' + txt; use(ln); return; }
     if (side) { const pr = periodTok(cells[0], side.proj); const vs = pr && cells.length === side.names.length + 1 ? cells.slice(1).map(c => parseNum(String(c).replace(/\$\s+/, '$'))) : null;
       if (vs && vs.every(Boolean)) { side.rows.push({ p: pr, vals: vs, src: ln.src }); use(ln); return; }
       flushSide(); }
     { const sh = sidewaysHeader(cells); if (sh) { use(ln); side = { ...sh, rows: [], near: near + ' ' + (ctx.title || ''), head: cells.join(' '), src: ln.src, proj: ctx.proj || PROJ_CTX.test(near) }; block = null; return; } }
-    let hp = monthlyPeriods(cells) || headerPeriods(cells, ctx.proj || PROJ_CTX.test(near)) || columnPeriods(cells, ctx.proj || PROJ_CTX.test(near), near + ' ' + (ctx.title || '')) || singlePeriod(cells);
+    let hp = monthlyPeriods(cells) || headerPeriods(cells, ctx.proj || PROJ_CTX.test(near)) || columnPeriods(cells, ctx.proj || PROJ_CTX.test(near), near + ' ' + (ctx.title || '')) || singlePeriod(cells) || amountHeader(cells, near + ' ' + (ctx.bsHint || '') + ' ' + (ctx.title || ''));
     /* a chart: its figures printed in a row with no name, its period labels on the axis below them */
     if (hp && pc0 && pc0.length >= 2 && pc0.every(c => { const v = parseNum(c); return v && !v.dash; })) { hp = null; use(ln); }
     /* a chart's figures alone on a line, or its period labels, are not sentences */
@@ -1572,7 +1722,7 @@ function tablesFromLines(lines, ctx, out) {
 
 /* ---------- facts from prose ---------- */
 const WORDN = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, fifteen: 15, twenty: 20 };
-const amt = (s, suffix) => { let v = parseFloat(String(s).replace(/[$,]/g, '')); const x = String(suffix || '').toLowerCase(); if (/^(t|tn|trillion)/.test(x)) v *= 1e12; else if (/^(b|bn|billion)/.test(x)) v *= 1e9; else if (/^(m|mm|million)/.test(x)) v *= 1e6; else if (/^(k|thousand)/.test(x)) v *= 1e3; return v; };
+const amt = (s, suffix) => { let v = parseFloat(String(s).replace(/[$,]/g, '')); const x = String(suffix || '').toLowerCase(); if (/^(k|th|thousand)/.test(x)) v *= 1e3; else if (/^(t|tn|trillion)/.test(x)) v *= 1e12; else if (/^(b|bn|billion)/.test(x)) v *= 1e9; else if (/^(m|mm|million)/.test(x)) v *= 1e6; else if (/^(k|thousand)/.test(x)) v *= 1e3; return v; };
 function sentences(text) {
   const prot = text.replace(/(\d)\.(?=\d)/g, '$1․').replace(/\b([A-Z])\.(?=[A-Z]\.)/g, '$1․').replace(/\b([A-Z])․([A-Z])\.(?=\s+[a-z(])/g, '$1․$2․').replace(/\b(Mr|Mrs|Ms|Dr|Inc|Co|Corp|Ltd|St|vs|No|approx|Jr|Sr|U\.S|e\.g|i\.e)\./g, '$1․').replace(/(\s[A-Z])\.(?=\s[A-Z][a-z])/g, '$1․').replace(/(\w)\.(?=(com|org|net|gov|io)\b)/g, '$1․');
   const out = []; const re = /[^.!?]+(?:[.!?]+|$)/g; let m;
@@ -1635,6 +1785,11 @@ function notOwnFigure(s, at, len) {
      $10–50 million of revenue", "competitors generating $20 million", "targets with revenue of $3 million") */
   if (/\$?\d[\d,.]*\s+$/.test(before) && !/\b(19|20)\d{2}\s+$/.test(before)) return true;
   if (/\b(competitors?|operators|providers|players|peers|rivals|independents|consolidators|contractors|businesses|companies|firms|targets|acquisitions?|branch(?:es)?|locations?|stores|sites|customers?|clients?)\b(?:[\s,-]+[\w-]+){0,5}[\s,]+(?:with|having|generating|averaging|of|that (?:have|generate|average)|each with)\s+(?:revenues?\s+(?:of|below|above|under|over)\s+)?(?:approximately\s+|about\s+|roughly\s+)?\$?\s?$/i.test(before)) return true;
+  /* another company's figure: "Granite Valley Foods, the largest private label snack manufacturer in the United States, has
+     annual revenue of ..." */
+  if (/,\s+(?:the|a|an|one of the)\s+(?:[\w-]+\s+){0,10}?(?:manufacturers?|providers?|company|companies|competitors?|players?|operators?|producers?|suppliers?|distributors?|retailers?|brands?|rivals?|peers?)\b[^,.]{0,60},/i.test(s.slice(0, at)) && !/\b(the company|we|our|its own)\b/i.test(s.slice(0, at).split(/,\s+(?:the|a|an|one of the)\s/i)[0])) return true;
+  /* what something adds to the figures, not the figures: "add approximately $600 thousand of annual EBITDA" */
+  if (/^\s*(?:thousand|million|billion|k|m|mm|bn)?\s*(?:of|in)\s+(?:annual\s+|additional\s+|incremental\s+|annualized\s+)?(?:ebitda|revenue|sales|gross profit|earnings|profit)\b/i.test(after) && /\b(add|adds|added|adding|contribut\w*|increas\w*|reduc\w*|benefit\w*|sav\w*|impact\w*|improv\w*|lift\w*|generate additional)\b[^.]{0,50}$/i.test(s.slice(Math.max(0, at - 60), at))) return true;
   if (/\b(pro forma|run[- ]rate|contribut\w*|includes?|including|of which|acquir\w*|target\w*|goal|plan(?:s|ned)?|would|could)\b/i.test(before) || /\bby (?:fy\s?)?'?(?:19|20)?\d{2}\b/i.test(after.slice(0, 30))) return true;
   return false;
 }
@@ -1718,6 +1873,13 @@ function factsFromText(text, srcAt, out, opts) {
     if (!opts.noFigures) dated = figuresFromText(s, src, out, dated, k => srcAt(i + k));
     marketFromText(s, k => srcAt(i + k), out, opts);
     const re1 = /\b(top|largest)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s+customers?\b[^.%]{0,80}?(\d{1,3}(?:\.\d+)?)\s?%/gi;
+    /* "the ten largest customers accounted for 78.9% ... and the five largest for 61.2%" */
+    { const NW = '(\\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)';
+      for (const mm of s.matchAll(new RegExp('\\b' + NW + '\\s+largest\\s+customers?\\b[^.%]{0,80}?(\\d{1,3}(?:\\.\\d+)?)\\s?%', 'gi'))) out.facts.push({ kind: 'topN', n: WORDN[mm[1].toLowerCase()] || +mm[1], pct: +mm[2] / 100, text: s, src: srcAt(i + mm.index + mm[0].length - 1) });
+      for (const mm of s.matchAll(new RegExp('\\b(?:and|while|with)\\s+the\\s+' + NW + '\\s+largest\\s+(?:for|at|with|representing|accounting for)\\s+(\\d{1,3}(?:\\.\\d+)?)\\s?%', 'gi'))) out.facts.push({ kind: 'topN', n: WORDN[mm[1].toLowerCase()] || +mm[1], pct: +mm[2] / 100, text: s, src: srcAt(i + mm.index + mm[0].length - 1) }); }
+    /* a named customer's share ("Customer A, a national warehouse club, accounted for 28.4% of TTM revenue") */
+    { const mm = s.match(/\b(Customer\s+[A-Z0-9]{1,3}|[A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,4})\s*,?(?:\s+an?\s+[^,]{3,60},)?\s+(?:accounted for|represented|comprised|made up|contributed)\s+(?:approximately\s+|about\s+)?(\d{1,2}(?:\.\d+)?)\s?%\s+of\s+(?:the\s+company'?s\s+|our\s+|total\s+|ttm\s+|ltm\s+|net\s+|fy\s?\d{2,4}\s+)*(?:revenue|sales)/i);
+      if (mm && !/^(?:The|Our|This|These|Top|Its)\b/.test(mm[1]) && !/largest|top \d/i.test(mm[1])) out.facts.push({ kind: 'customerShare', name: mm[1], pct: +mm[2] / 100, text: s, src: srcAt(i + mm.index + mm[0].lastIndexOf(mm[2])) }); }
     while ((m = re1.exec(s))) out.facts.push({ kind: 'topN', n: WORDN[m[2].toLowerCase()] || +m[2], pct: +m[3] / 100, text: s, src: srcAt(i + m.index + m[0].length - 1) });
     if ((m = s.match(/\b([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,5}) is (?:our|the Company's) largest customer\b[^.%]{0,80}?(\d{1,3}(?:\.\d+)?)\s?%/)))
       out.facts.push({ kind: 'largest', name: m[1], pct: +m[2] / 100, text: s, src: srcAt(i + m.index + m[0].length - 1) });
@@ -1725,7 +1887,7 @@ function factsFromText(text, srcAt, out, opts) {
       out.facts.push({ kind: 'largest', name: m[1] || null, pct: +m[2] / 100, text: s, src: srcAt(i + m.index + m[0].length - 1) });
     /* "sales to one customer represented 22% of total revenue and sales to another represented 14%" */
     if (!/receivable/i.test(s) && !out.facts.some(f => f.kind === 'largest' && f.src && f.src.d === src.d && f.auto)) {
-      const pcts = [...s.matchAll(/\bcustomers?\b[^.%]{0,60}?(?:represented|accounted for|comprised|made up)\s+(?:approximately\s+|about\s+)?(\d{1,2}(?:\.\d+)?)\s?%(?:\s+and\s+(\d{1,2}(?:\.\d+)?)\s?%)?[^.%]{0,30}?of\s+(?:our\s+)?(?:total\s+|net\s+|consolidated\s+)?(?:revenues?|net sales|sales)\b/gi)].flatMap(x => [x[1], x[2]].filter(Boolean).map(Number));
+      const pcts = [...s.matchAll(/\bcustomers?\b[^.%]{0,60}?(?:represented|accounted for|comprised|made up)\s+(?:approximately\s+|about\s+)?(\d{1,2}(?:\.\d+)?)\s?%(?:\s+and\s+(\d{1,2}(?:\.\d+)?)\s?%)?[^.%]{0,30}?of\s+(?:our\s+)?(?:total\s+|net\s+|consolidated\s+)?(?:revenues?|net sales|sales)\b/gi)].filter(x => !/\b(?:top|largest)\s+\w+\s+customers?|\b\w+\s+largest\s+customers?/i.test(x[0])).flatMap(x => [x[1], x[2]].filter(Boolean).map(Number));
       if (pcts.length) { const sorted = pcts.sort((a, b) => b - a);
         out.facts.push({ kind: 'largest', name: null, pct: sorted[0] / 100, text: s, src, auto: true });
         if (sorted.length > 1) out.facts.push({ kind: 'topN', n: sorted.length, pct: sorted.reduce((a, v) => a + v, 0) / 100, text: s, src }); }
@@ -1747,11 +1909,12 @@ function factsFromText(text, srcAt, out, opts) {
        word in the next, or a year in a heading above a column titled Employees, is not a headcount) */
     { const sameLine = mm => { const a = srcAt(i + mm.index), b = srcAt(i + mm.index + mm[0].length - 1); return !a || !b || (a.l === b.l && a.p === b.p); };
       const m1 = s.match(/\b(?:employs|employing|employ)\s+(?:approximately\s+|about\s+|over\s+|more than\s+)?(\d[\d,]*)\s+(?:full-time\s+)?(?:people|employees|staff)/i);
-      const m2 = m1 ? null : s.match(/\b(\d[\d,]*)\s(?:full-time\s+)?employees\b/i);
-      const mm = m1 || (m2 && sameLine(m2) && !/^(19|20)\d{2}$/.test(m2[1]) ? m2 : null);
+      const m2 = m1 ? null : s.match(/(?<![\d.,])\b(\d[\d,]*)\s(?:full-time\s+)?employees\b/i);
+      /* a split by place ('Lancaster employs 286 people and Reno employs 126') is not the company's headcount */
+      const mm = (s.match(/\bemploy(?:s|ing)?\s+(?:approximately\s+|about\s+)?\d/gi) || []).length > 1 ? null : m1 || (m2 && sameLine(m2) && !/^(19|20)\d{2}$/.test(m2[1]) ? m2 : null);
       if (mm) out.facts.push({ kind: 'employees', value: +mm[1].replace(/,/g, ''), text: s, src: srcAt(i + mm.index + mm[0].length - 1) }); }
     // stated revenue magnitude in prose, used to check table units
-    if (!opts.noFigures && !/increase|decrease|grew|growth|declin|change|segment|backlog|pipeline|target|goal|by 20\d\d|per (customer|employee|unit)/i.test(s)) {
+    if (!opts.noFigures && !/increase|decrease|grew|growth|declin|change|segment|backlog|pipeline|target|goal|by 20\d\d|per (customer|employee|unit)|reduction of (?:net )?revenue|deducted from (?:net )?revenue|net (?:against|of) revenue|(?:percentage|%) of (?:net )?revenue/i.test(s)) {
       const rm = s.match(/\b(?:total |annual |net )?(?:revenues?|net sales|sales)\b[^.$]{0,50}?\$\s?([\d,]+(?:\.\d+)?)\s*(billion|million|thousand|bn|mm|m|k)\b/i) || s.match(/\$\s?([\d,]+(?:\.\d+)?)\s*(billion|million|bn|mm)\s+(?:in|of)\s+(?:total |annual |net )?(?:revenues?|net sales|sales)\b/i);
       if (rm && !notOwnFigure(s, (rm.index || 0) + rm[0].indexOf(rm[1]), rm[1].length + (rm[2] ? rm[2].length + 1 : 0))) out.facts.push({ kind: 'revenueMention', amount: amt(rm[1], rm[2]), text: s, src: srcAt(i + (rm.index || 0) + rm[0].length - 1) });
     }
@@ -1760,18 +1923,22 @@ function factsFromText(text, srcAt, out, opts) {
     /* a debt amount: money stated next to a borrowing word (a footnote reference such as "Note 5" is not a note payable) */
     const DEBTW = /\b(notes? payable|promissory notes?|senior notes|convertible notes|(term |bank |shareholder |member |related[- ]party )?loans?|debt|borrow\w*|owes|owed|line of credit|credit (facility|agreement)|revolv\w+|debentures?|bonds)\b/i;
     const allMoney = [...s.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(billion|million|thousand|bn|mm|m|k)?\b/gi)];
-    const money = allMoney.filter(mm => { const w = s.slice(Math.max(0, mm.index - 80), mm.index + mm[0].length + 80); return DEBTW.test(w); });
+    /* a borrowing word near a figure that is not borrowed: money invested or spent, or a facility's size rather than what is drawn */
+    const money = allMoney.filter(mm => { const w = s.slice(Math.max(0, mm.index - 80), mm.index + mm[0].length + 80); if (!DEBTW.test(w)) return false;
+      if (/\b(invest\w*|spent|spend|cost(?:s|ing)?|at a cost of|purchas\w*|capital expenditures?|paid for)\s+(?:of\s+)?(?:approximately\s+|about\s+|roughly\s+)?$/i.test(s.slice(Math.max(0, mm.index - 40), mm.index))) return false;
+      if (/\b(?:facility|line of credit|revolver|revolving credit|credit agreement)\s*\(\s*$/i.test(s.slice(Math.max(0, mm.index - 40), mm.index))) return false;
+      if (/^\s*(?:million|billion|thousand|m|mm|bn|k)?\s*(?:commitment|facility|limit|borrowing base|availability|capacity|maximum|committed)\b/i.test(s.slice(mm.index + mm[0].length, mm.index + mm[0].length + 25))) return false; return true; });
     if (money.length && DEBTW.test(s) && !/\bper (month|year)\b|goodwill|purchase obligations?|lease (liabilit|payments?)|remaining performance|repurchase|dividend/i.test(s)) {
       money.forEach(mm => out.facts.push({ kind: 'debtMention', amount: amt(mm[1], mm[2]), notRecorded: /not (recorded|reflected|included|on)|off[- ]balance|unrecorded/i.test(s + ' ' + (text.slice(i + s.length, i + s.length + 200).split(/[.!?]/)[0] || '')), text: s, src: srcAt(i + mm.index + mm[0].length - 1) }));
     }
-    if (allMoney.length && /\b(market|comparable|replacement)\b/i.test(mktClean(s)) && !/\b(?:unearned|unrecognized|stock-based|share-based|equity awards?|vest\w*)\b/i.test(s)) {
-      const mm = allMoney[0]; let v = amt(mm[1], mm[2]); const monthly = /per month|monthly|\/mo\b|a month/i.test(s); if (monthly) v *= 12; const bsrc = srcAt(i + mm.index + mm[0].length - 1);
+    if (allMoney.length && /\b(market|comparable|replacement)\b/i.test(mktClean(s)) && !/\b(?:unearned|unrecognized|stock-based|share-based|equity awards?|vest\w*)\b/i.test(s) && !/\b(?:in excess of|above|over|below|less than) (?:the )?(?:estimated )?(?:market|comparable)\b/i.test(s.replace(/exceeds the estimated \$[\d,.]+\s*(?:thousand|million|k)?\s*market/i, ''))) {
+      const mw = mktClean(s).search(/\b(market|comparable|replacement)\b/i); const mm = allMoney.slice().sort((a, b) => Math.abs(a.index - mw) - Math.abs(b.index - mw))[0]; let v = amt(mm[1], mm[2]); const monthly = /per month|monthly|\/mo\b|a month/i.test(s); if (monthly) v *= 12; const bsrc = srcAt(i + mm.index + mm[0].length - 1);
       if (/\b(manager|salary|compensation|executive|ceo|president)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'officer', value: v, text: s, src: bsrc });
       else if (/\b(lease|rent|space|facility|premises)\b/i.test(s)) out.facts.push({ kind: 'benchmark', target: 'rent', value: v, text: s, src: bsrc });
     }
     /* related parties named in the text: the owner, entities the owner holds, shareholder lenders */
-    { const ORG = "([A-Z][\\w&'.-]*(?:\\s+(?:[A-Z][\\w&'.-]*|of|and|&))*)", PER = "((?:Mr\\.|Ms\\.|Mrs\\.|Dr\\.)?\\s*[A-Z][a-z]+(?:\\s+[A-Z]\\.)?\\s+[A-Z][a-z'-]+)";
-      const OWNERW = "(?:the\\s+)?(?:seller|owner|founder|sole (?:member|owner|shareholder)|majority (?:member|owner|shareholder)|principal|shareholders?|members?|ceo|president|chief executive officer|(?:Mr\\.|Ms\\.|Mrs\\.|Dr\\.)\\s*[A-Z][a-z'-]+|[A-Z][a-z]+\\s+[A-Z][a-z'-]+)";
+    { const ORG = "([A-Z][\\w&'.-]*(?:\\s+(?:[A-Z][\\w&'.-]*|of|and|&))*(?:,\\s*(?:LLC|L\\.L\\.C\\.|Inc\\.?|LP|L\\.P\\.|Ltd\\.?|LLP))?)", PER = "((?:Mr\\.|Ms\\.|Mrs\\.|Dr\\.)?\\s*[A-Z][a-z]+(?:\\s+[A-Z]\\.)?\\s+[A-Z][a-z'-]+)";
+      const OWNERW = "(?:the\\s+)?(?:[A-Z][a-z]+\\s+family|seller|owner|founder|sole (?:member|owner|shareholder)|majority (?:member|owner|shareholder)|principal|shareholders?|members?|ceo|president|chief executive officer|(?:Mr\\.|Ms\\.|Mrs\\.|Dr\\.)\\s*[A-Z][a-z'-]+|[A-Z][a-z]+\\s+[A-Z][a-z'-]+)";
       const pats = [
         new RegExp(ORG + ",?\\s+(?:an?\\s+|the\\s+)?(?:entity|company|business|affiliate|partnership|trust|llc)\\s+(?:that\\s+is\\s+|which\\s+is\\s+)?(?:wholly[- ]|partially\\s+|majority[- ]|jointly\\s+)?(?:owned|controlled|held)\\s+by\\s+" + OWNERW, 'g'),
         new RegExp(ORG + ",?\\s+(?:which|that|whom)\\s+" + OWNERW + "\\s+(?:also\\s+)?(?:owns|controls|holds)\\b", 'g'),
@@ -1803,6 +1970,14 @@ const MKT_SCOPE = s => /\b(footprint|region(?:al)?|local|served|serviceable|our 
    words are looked for */
 const MKT_NOT = /\b(?:fair\s+)?market[- ](?:based|value[ds]?|price[sd]?|capitali[sz]ation|cap|conditions?|risks?|rates?|interest(?: rates?)?|participants?|data|inputs?|approach|multiples?|quotations?|making|maker|abuse|close|volatility|fluctuations?|sentiment|perception|trading|exchanges?|indices|index)\b|\b(?:stock|equity|capital|credit|financial|debt|bond|securities|money|public|open|secondary|trading|global select|nasdaq[\w ]{0,20}|new york stock exchange|over-the-counter|commodity)[- ]markets?\b|\b(?:below|above)[- ]market\b|\b(?:go|time)[- ]to[- ]market\b|\bmarketable\b|\bmarket for (?:the )?(?:registrant|our common|our stock|the company'?s common)|\bin the market\b(?=[^.]{0,30}\b(?:price|value|shares|stock)\b)|\bdisclosures? about market\b/gi;
 const mktClean = c => c.replace(MKT_NOT, x => ' '.repeat(x.length));
+/* which market a figure is for, as the sentence names it ("the U.S. savory snacks market", "the outsourced baked snack
+   co-manufacturing market"): the words before "market" nearest the figure */
+const MKT_STOP = /^(?:the|a|an|of|for|in|on|at|to|is|are|was|and|or|our|its|their|this|that|which|whose|management|estimates?|estimated|approximately|about|total|overall|entire|broader|addressable|serviceable|annual|retail|current|within|across|by)$/i;
+function mktName(c, at) { const cc = mktClean(c); let best = null;
+  for (const m of cc.matchAll(/((?:[A-Za-z][\w.&'-]*\s+){1,7})(?:market|industry|sector)\b/gi)) { const d = m.index <= at ? at - (m.index + m[0].length) : (m.index - at) * 3; if (d >= 0 && (!best || d < best.d)) best = { d, m }; }
+  if (!best) return ''; const ws = best.m[1].trim().split(/\s+/); const keep = []; for (let i = ws.length - 1; i >= 0; i--) { if (MKT_STOP.test(ws[i])) break; keep.unshift(ws[i]); }
+  const nm = keep.join(' ').replace(/[,;:]+$/, ''); return mktKey(nm) ? nm : ''; }
+const mktKey = n => String(n || '').toLowerCase().replace(/\bu\.s\.?|\b(us|united states|north american?|domestic|global|worldwide)\b/g, '').replace(/[^a-z-]+/g, ' ').trim();
 /* a figure is a market's size only when the market is what it measures: "a $49 billion market", "the market ... is estimated
    at approximately $49 billion". A figure that measures something else in the same sentence ("unearned stock-based
    compensation expense was $14.8 billion", "revenue of $215.9 billion") is not, however many market words are near it */
@@ -1828,7 +2003,7 @@ function marketFromText(s, at, out, opts) {
   /* the company's own growth is not the market's ("Revenue grew 13.8%", "the Company's revenue") */
   const companyGrowth = /\b(our|its|the company'?s?|company'?s)\s+(revenue|sales|ebitda|business)\b|\brevenue (grew|increased|rose)\b/i;
   /* clauses: "the market is $49 billion, growing 6% a year; the footprint is $2.1 billion growing 8%" */
-  const clauses = []; { let st = 0; for (const mm of s.matchAll(/[;:]|\.\s|,\s(?:and\s)?(?=(?:the|its|our)\s+(?:company|[a-z-]+\s+)?(?:footprint|region|market))/gi)) { clauses.push([st, mm.index]); st = mm.index + mm[0].length; } clauses.push([st, s.length]); }
+  const clauses = []; { let st = 0; for (const mm of s.matchAll(/[;:]|(?<!\b[A-Z])\.\s|,\s(?:and\s)?(?=(?:the|its|our)\s+(?:company|[a-z-]+\s+)?(?:footprint|region|market))/gi)) { clauses.push([st, mm.index]); st = mm.index + mm[0].length; } clauses.push([st, s.length]); }
   const mktTitle = /\b(market|industry|competitive landscape|competition|addressable)\b/i.test(mktClean(title)) && !/\brisks?\b/i.test(title);
   clauses.forEach(([a0, b0]) => { const c0 = s.slice(a0, b0), c = mktClean(c0); if (!/\b(market|industry|sector|tam|addressable|footprint)\b/i.test(c) && !(mktTitle && /\b(market|industry|footprint)\b/i.test(mktClean(s)))) return;
     const scope = MKT_SCOPE(c + ' ' + (/\bfootprint|region/i.test(c) ? '' : '')); const where = scope;
@@ -1836,10 +2011,10 @@ function marketFromText(s, at, out, opts) {
     for (const mm of c.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|tn|bn|mm|b|m)\b/gi)) {
       if (!mktSizeOf(c, mm.index, mm[0].length)) continue; if (/\b(revenue below|revenue above|revenue of|operators?|providers?|competitors?|companies|businesses|players)\b[^$]{0,40}$/i.test(c.slice(0, mm.index))) continue;
       if (notOwnFigure(c, mm.index, mm[0].length) && !/approximately|about|roughly|estimated/i.test(c.slice(Math.max(0, mm.index - 20), mm.index))) continue;
-      M.size.push({ value: amt(mm[1], mm[2]), scope: where, year: (c.match(/\b(20\d{2})E?\b/) || [])[1] || null, text: s, src: at(a0 + mm.index + mm[0].indexOf(mm[1])) }); }
+      M.size.push({ value: amt(mm[1], mm[2]), scope: where, name: mktName(c, mm.index), year: (c.match(/\b(20\d{2})E?\b/) || [])[1] || null, text: s, src: at(a0 + mm.index + mm[0].indexOf(mm[1])) }); }
     /* growth: "growing 6% a year", "a 7% CAGR", "expected to grow at 8%" */
     const g = c.match(/\b(grow(?:s|ing|th)?|cagr|compound annual|expand(?:s|ing)?|increas(?:e|ing))\b[^.%]{0,40}?(\d{1,2}(?:\.\d)?)\s?%|(\d{1,2}(?:\.\d)?)\s?%\s*(?:cagr|compound annual|annual growth|a year|per year|annually)/i);
-    if (g && !companyGrowth.test(c)) { const v = +(g[2] || g[3]); const dg = g[2] || g[3]; if (v > 0 && v < 60) M.growth.push({ pct: v / 100, scope: where, text: s, src: at(a0 + g.index + g[0].lastIndexOf(dg)) }); }
+    if (g && !companyGrowth.test(c)) { const v = +(g[2] || g[3]); const dg = g[2] || g[3]; if (v > 0 && v < 60) M.growth.push({ pct: v / 100, scope: where, name: mktName(c, g.index), text: s, src: at(a0 + g.index + g[0].lastIndexOf(dg)) }); }
     /* concentration: "the ten largest providers account for less than 20% of the market" */
     const k = c.match(/\b(?:the\s+)?(top|largest|biggest)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s+(?:largest\s+)?(providers|players|competitors|companies|firms|operators|participants)\b[^.%]{0,60}?(less than|under|fewer than|approximately|about|over|more than)?\s*(\d{1,2}(?:\.\d)?)\s?%/i) || c.match(/\b(?:the\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s+(largest|biggest)\s+(providers|players|competitors|companies|firms|operators|participants)\b[^.%]{0,60}?(less than|under|fewer than|approximately|about|over|more than)?\s*(\d{1,2}(?:\.\d)?)\s?%/i);
     if (k) { const nTok = /^\d|^[a-z]+$/i.test(k[2]) && !/largest|biggest/i.test(k[2]) ? k[2] : k[1]; const n = WORDN[String(nTok).toLowerCase()] || +nTok; M.concentration.push({ n, pct: +k[5] / 100, qual: (k[4] || '').toLowerCase(), text: s, src: at(a0 + k.index + k[0].lastIndexOf(k[5])) }); }
@@ -1916,7 +2091,7 @@ function marketWords(out) {
   const SEC = /\b(industry overview|industry|market overview|our markets|market opportunit\w*|market size|addressable market|industry background|the market|market landscape|industry dynamics)\b/i;
   const SUBJ = /^(?:the\s+)?(?:[A-Z]?[\w&.'-]+\s+){0,6}?(?:market|industry|sector)s?\s+(?:is|are|has|have|continues|remains|consists|includes|represents|was|grew|serves)\b|\bis (?:the|a|an) (?:largest|fastest[- ]growing|large|growing|mature|fragmented)\b[^.]{0,60}\b(?:market|industry)\b/i;
   const drv = new Set([...(M.drivers || []), ...(M.strengths || [])].map(x => x.text));
-  const ov = Q.filter(q => !riskPlace(q) && !RISKY.test(q.s) && !used.has(q.s) && !drv.has(q.s) && !/\b(?:competitors|competition)\s+(?:include|are)\b/i.test(q.s) && (SEC.test(q.title + ' ' + q.head) || SUBJ.test(mktClean(q.s))) && !/^(?:[A-Z][\w&-]*\s*){1,6}$/.test(q.s) && q.s.length >= 60 && (q.s.match(/(?:^|\s)\(?\$?\d[\d,.]*%?\)?(?=\s|$)/g) || []).length < 3 && !/\bsource:/i.test(q.s));
+  const ov = Q.filter(q => !riskPlace(q) && !RISKY.test(q.s) && !used.has(q.s) && !drv.has(q.s) && !/\b(?:competitors|competition)\s+(?:include|are)\b/i.test(q.s) && (SEC.test(q.title + ' ' + q.head) || SUBJ.test(mktClean(q.s))) && !/^(?:[A-Z][\w&-]*\s*){1,6}$/.test(q.s) && q.s.length >= 60 && !/(?:\(?\$?\d[\d,.]*%?\)?\s+){3,}/.test(q.s + ' ') && !/\bsource:|\(\s*\$?\s*in (?:billions|millions|thousands)/i.test(q.s));
   const seen = new Set(); M.overview = ov.filter(q => { const k = q.s.slice(0, 80); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 4).map(q => descOf(q, ''));
 }
 /* a row of a table of words about competitors ("National consolidators | Private equity-backed platforms ... | Competes on ...") */
@@ -1924,6 +2099,14 @@ function marketFromRow(head, cells, srcs, out, title) {
   const M = out.market = out.market || { size: [], growth: [], concentration: [], share: [], competitors: [], drivers: [], strengths: [], served: [] };
   if (!/\b(competit\w*|rivals?|peers?)\b/i.test(title + ' ' + head.join(' '))) return false;
   if (!cells[0] || cells[0].split(/\s+/).length > 8) return false;
+  /* a table by kind of competitor, naming the companies in another column ("Competitor type | Representative participants | ..."):
+     each named company is a competitor, with its kind; a kind with no names ("More than 100 independent bakeries") stays a kind */
+  const nc = head.findIndex((h, i) => i > 0 && /\b(participants?|competitors?|companies|examples?|representative|players|names?|key firms?)\b/i.test(h || '') && !/\btype\b/i.test(h || ''));
+  if (nc > 0 && /\b(type|category|kind|segment|group|tier|class)\b/i.test(head[0] || '')) {
+    const names = String(cells[nc] || '').split(/;\s*|,\s*(?=[A-Z])/).map(x => x.trim().replace(/\.$/, '')).filter(x => /^[A-Z][\w&.'-]*(?:\s+[A-Z&][\w&.'-]*)*$/.test(x) && !/^(?:More|National|Numerous|Various|Other|Regional|Local|Several|Many|Independent|Private|Public)\b/.test(x) && x.split(/\s+/).length <= 5);
+    const rest = head.map((h, i) => ({ label: h || '', text: cells[i] || '', i })).filter(f => f.i !== nc && f.text);
+    if (names.length) { names.forEach(n => { if (!M.competitors.some(c => c.name === n)) M.competitors.push({ name: n, fields: rest.map(({ label, text }) => ({ label, text })), text: cells.join(' | '), src: srcs[nc] || srcs[0] }); else { const c = M.competitors.find(c => c.name === n); c.fields = c.fields && c.fields.length ? c.fields : rest.map(({ label, text }) => ({ label, text })); } }); return true; }
+  }
   M.competitors.push({ name: cells[0], fields: head.slice(1).map((h, i) => ({ label: h || '', text: cells[i + 1] || '' })).filter(f => f.text), text: cells.join(' | '), src: srcs[0] });
   return true;
 }
@@ -1952,12 +2135,13 @@ function tabular(rows, anchor, out, where, docId) {
   const iDate = idx('date', 'posting date', 'transaction date'), iAmt = idx('amount', 'net amount', 'debit/credit'), iCat = idx('category', 'type', 'fs category'),
     iDesc = idx('description', 'memo', 'memo/description'), iAcct = idx('account', 'account number', 'gl account'), iCp = idx('counterparty', 'name', 'customer/vendor', 'vendor', 'customer');
   if (iDate >= 0 && iAmt >= 0 && iCat >= 0 && iDesc >= 0 && body.some(({ r }) => normDate(r[iDate]) && parseNum(String(r[iAmt]).replace(/\s/g, '')) && normCat(r[iCat]))) {
-    let bad = 0;
+    let bad = 0; const ex0 = glExtras(hdr.map(hdrKey), [iDate, iAmt, iCat, iDesc, iAcct, iCp, idx('entry_id', 'entry', 'je', 'journal entry'), idx('account_name', 'account name'), idx('source', 'journal', 'source type')]);
     body.forEach(({ r, i }) => {
       const date = normDate(r[iDate]); const a = parseNum(String(r[iAmt]).replace(/\s/g, '')); const cat = normCat(r[iCat]);
       if (!date || !a || !cat) { bad++; return; }
+      const dm = glDimsOf(ex0, r), qy = glQtyOf(ex0, r);
       out.gl.push({ date, entry_id: r[idx('entry_id', 'entry', 'je', 'journal entry')] || 'R' + (i + 1), account: iAcct >= 0 ? r[iAcct] : '', account_name: r[idx('account_name', 'account name')] || (iAcct >= 0 ? r[iAcct] : cat),
-        category: cat, description: r[iDesc], counterparty: iCp >= 0 ? r[iCp] : '', amount: a.v, source: r[idx('source', 'journal', 'source type')] || '', src: anchor(i, 0, lastCol) });
+        category: cat, description: r[iDesc], counterparty: iCp >= 0 ? r[iCp] : '', amount: a.v, source: r[idx('source', 'journal', 'source type')] || '', src: anchor(i, 0, lastCol), ...(dm ? { dims: dm } : {}), ...(qy != null ? { qty: a.v < 0 ? -Math.abs(qy) : Math.abs(qy) } : {}) });
     });
     return { role: 'General ledger', count: body.length - bad, skipped: bad, where };
   }
@@ -2024,6 +2208,14 @@ const GL_COLS = {
   entry: ['entry_id', 'entry', 'je', 'journal entry', 'je number', 'je no', 'journal no', 'journal number', 'transaction id', 'txn id', 'trans no', 'document number', 'doc number', 'doc no', 'num', 'no', 'number', 'ref', 'reference', 'transaction number'],
   source: ['source', 'journal', 'source type', 'transaction type', 'type', 'txn type', 'trans type', 'module', 'source journal']
 };
+/* columns a ledger carries beyond the posting itself: a dimension to cut revenue and margin by (class, location, product,
+   salesperson ...) and a quantity, so a revenue change can be split into price and volume */
+const GL_DIM_NAMES = ['class', 'location', 'department', 'dept', 'division', 'region', 'branch', 'product', 'product line', 'product/service', 'product service', 'product category', 'item', 'item name', 'service line', 'service', 'segment', 'channel', 'sales channel', 'sales rep', 'salesperson', 'sales person', 'rep', 'project', 'job', 'store', 'territory', 'site', 'facility', 'plant', 'market', 'business unit', 'customer type', 'customer class', 'line of business', 'cost center', 'profit center', 'tracking category', 'tracking', 'subsidiary'];
+const GL_QTY_NAMES = ['quantity', 'qty', 'units', 'unit count', 'cases', 'quantity sold', 'qty sold'];
+function glExtras(hdr, taken) { const t = new Set(taken.filter(i => i >= 0)); const dims = []; hdr.forEach((h, i) => { if (!t.has(i) && GL_DIM_NAMES.includes(h)) dims.push({ i, name: h.replace(/\b\w/g, c => c.toUpperCase()).replace(/\/(\w)/, (m, c) => '/' + c.toUpperCase()) }); });
+  const iQty = hdr.findIndex((h, i) => !t.has(i) && GL_QTY_NAMES.includes(h)); return { dims, iQty }; }
+const glDimsOf = (ex, cells) => { const o = {}; ex.dims.forEach(d => { const v = String(cells[d.i] == null ? '' : cells[d.i]).trim(); if (v) o[d.name] = v; }); return Object.keys(o).length ? o : null; };
+const glQtyOf = (ex, cells) => { if (ex.iQty < 0) return null; const q = parseNum(String(cells[ex.iQty] == null ? '' : cells[ex.iQty]).replace(/\s/g, '')); return q && !q.pct ? q.v : null; };
 const glCol = (hdr, key, not) => { const names = GL_COLS[key]; for (const n of names) { const i = hdr.findIndex((x, k) => x === n && !(not || []).includes(k)); if (i >= 0) return i; } return -1; };
 const PL_TYPE = [[/^(income|revenue|revenues|sales|operating revenue|other operating revenue)$/, 'Revenue'], [/^(other income|non-?operating income|other revenue)$/, 'OtherIncome'], [/^(cost of goods sold|cogs|cost of sales|cost of revenue|direct costs?|cost of services)$/, 'COGS'], [/^(expense|expenses|operating expense|operating expenses|overhead|sg&a)$/, 'OpEx'], [/^(depreciation|d&a|depreciation and amortization)$/, 'D&A'], [/^(interest|interest expense)$/, 'Interest'], [/^(tax|taxes|income tax|income taxes)$/, 'Tax']];
 const BS_TYPE = /^(bank|cash|accounts receivable|a\/r|other current assets?|fixed assets?|other assets?|accounts payable|a\/p|credit cards?|other current liabilit\w*|long[- ]term liabilit\w*|equity|asset|assets|liability|liabilities|current assets?|current liabilit\w*|non-?current \w+)$/;
@@ -2059,6 +2251,7 @@ function glFromRows(rows, h, anchor, out, where) {
   const dayFirst = rows.slice(h + 1, h + 400).some(r => { const m = String(r[iDate] || '').match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-]\d{2,4}$/); return m && +m[1] > 12; });
   const dateOf = v => { const t = String(v == null ? '' : v).trim(); const m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2}|\d{4})$/); if (m) { const [a, b] = dayFirst ? [m[2], m[1]] : [m[1], m[2]]; const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${a.padStart(2, '0')}-${b.padStart(2, '0')}`; } return normDate(t) || bankDate(t, null, null); };
   const lastCol = hdr.length - 1; const recs = []; let heading = null, headings = 0, bsRows = 0, bad = 0;
+  const ex = glExtras(hdr, [iDate, iDr, iCr, iAmt, iCat, iAcct, iName, iDesc, iCp, iEnt, iSrc, iBal]);
   rows.slice(h + 1).forEach((r, k) => { const i = h + 1 + k; const cells = r.map(x => String(x == null ? '' : x).trim());
     const date = dateOf(cells[iDate]);
     if (!date) { const ne = cells.filter(Boolean);
@@ -2086,7 +2279,8 @@ function glFromRows(rows, h, anchor, out, where) {
     if (!v) return;
     const num = (String(acctNo || acctName).match(/^\s*(\d{3,6})/) || [])[1] || '';
     out.gl.push({ date, entry_id: (iEnt >= 0 && cells[iEnt]) || 'R' + (i + 1), account: num || acctNo || '', account_name: String(acctName || acctNo || cat).replace(/^\s*\d{3,6}(?:[.-]\d{1,4})?\s*[·•:|–-]?\s*/, '') || cat,
-      category: cat, description: iDesc >= 0 ? cells[iDesc] : '', counterparty: iCp >= 0 ? cells[iCp] : '', amount: Math.round(v * 100) / 100, source: iSrc >= 0 ? cells[iSrc] : '', src: anchor(i, 0, lastCol) });
+      category: cat, description: iDesc >= 0 ? cells[iDesc] : '', counterparty: iCp >= 0 ? cells[iCp] : '', amount: Math.round(v * 100) / 100, source: iSrc >= 0 ? cells[iSrc] : '', src: anchor(i, 0, lastCol),
+      ...(glDimsOf(ex, cells) ? { dims: glDimsOf(ex, cells) } : {}), ...(glQtyOf(ex, cells) != null ? { qty: v < 0 ? -Math.abs(glQtyOf(ex, cells)) : Math.abs(glQtyOf(ex, cells)) } : {}) });
   });
   const note = bsRows ? `${bsRows} balance sheet lines (cash, receivables, payables and similar) set aside` : '';
   return { role: 'General ledger', count: recs.length, skipped: bad, where, note };
@@ -2320,7 +2514,10 @@ function blocksToBS(blocks, out) {
   blocks.forEach(b => {
     if (b.xbrl) return;
     /* a debt schedule or net debt table repeats balance sheet lines (and adds net debt): it is not a balance sheet */
-    if (b.debtSchedule || b.rows.some(r => /^(net debt|total (funded )?debt|total indebtedness|less:? cash)\b/.test(normLabel(r.label || '')))) { b.isBS = false; return; }
+    /* a debt schedule lists borrowings; a block of payables, accruals and deferred revenue printed under a debt heading
+       (a scanned page read across its columns) is the balance sheet's liabilities, not a debt schedule */
+    const nwcRows = b.rows.filter(r => /^NWC/.test(bsClass(r.label || '') || '')).length;
+    if ((b.debtSchedule && nwcRows < 2) || b.rows.some(r => /^(net debt|total (funded )?debt|total indebtedness|less:? cash)\b/.test(normLabel(r.label || '')))) { b.isBS = false; return; }
     if (!b.isBS) {
       /* a table that isn't headed "balance sheet" but is made of balance sheet lines (a working capital summary, a debt
          schedule, a key-figures table) is read the same way; its lines are marked so a labeled balance sheet comes first */
@@ -2485,15 +2682,19 @@ function extractAll(docs) {
           const dm = pageText.match(/as of ([A-Z][a-z]+)\.? (\d{1,2}), (\d{4})/);
           const asOf = dm ? dm[3] + '-' + String(MON.indexOf(dm[1].slice(0, 3).toLowerCase()) + 1).padStart(2, '0') : null;
           const units = unitsOf(pageText) || docUnits;
-          let inDebt = false;
-          lines.forEach(l => { const { label, vals } = rowValues(mergeCells(l.cells));
+          let inDebt = false, ended = false;
+          lines.forEach(l => { const { label, vals } = rowValues(mergeCells(l.cells)); if (ended) return;
+            /* a debt table's heading read before the liabilities beside it (a page read column by column): a payable or an
+               accrual ends the debt table, because a debt table holds borrowings only */
+            if (inDebt === true && label && vals.length && /^NWC/.test(bsClass(label) || '')) inDebt = false;
             /* a net debt or capitalization table printed beside the balance sheet repeats its debt lines */
             if (!inDebt && !/^net debt\s*\//i.test(label || l.text) && /\b(net debt|funded debt|capitali[sz]ation|debt summary|debt schedule|indebtedness)\b/i.test(label || l.text) && (!vals.length || /^(19|20)\d{2}$/.test(String((vals[0] || {}).raw || '').trim()))) { inDebt = true; return; }
             if (inDebt === true) { if (/^net debt\b/i.test(label || '')) inDebt = 'end'; return; }
             if (inDebt === 'end') { if (/^net debt\b/i.test(label || l.text)) return; inDebt = false; }
             if (vals.length === 1 && /^(19|20)\d{2}$/.test(String(vals[0].raw).trim()) && /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?$/i.test(label || '')) return;
             if (!label || !vals.length || !/^[A-Za-z]/.test(label) || vals.some(v => v.pct) || /confidential|in thousands|in millions|as of|page \d/i.test(label)) return;
-            const cls = bsClass(label); if (cls === 'Skip') { if (/^total (current )?(assets|liabilities)|equity/i.test(normLabel(label))) out.bsTotals.push({ label: normLabel(label), value: vals[vals.length - 1].v * units, asOf, src: l.src, doc: d.id }); return; }
+            const cls = bsClass(label); if (cls === 'Skip') { if (/^total (current )?(assets|liabilities)|equity/i.test(normLabel(label))) out.bsTotals.push({ label: normLabel(label), value: vals[vals.length - 1].v * units, asOf, src: l.src, doc: d.id }); if (/^total liabilities and|^(total )?(shareholders?|stockholders?|members?|owners?|partners?)['’]?\s*(equit|capital|deficit)/i.test(normLabel(label))) ended = true; return; }
+            if (/^(total )?(shareholders?|stockholders?|members?|owners?|partners?)['’]?\s*(equit|capital|deficit)/i.test(normLabel(label))) { ended = true; return; }
             out.bsItems.push({ label, cls, value: vals[vals.length - 1].v * units, asOf, src: l.src, doc: d.id }); });
         }
         /* the sentence reader reads sentences only: lines read as tables are left out, and so is a run of three or more short
@@ -2514,6 +2715,12 @@ function extractAll(docs) {
             /* a name alone on its line with its dollar figure alone on the next ("Revenue" / "$18,600,000") */
             if (/^\(?(?:US)?\$\s?\d[\d,]*(?:\.\d+)?\)?\s*(?:billion|million|thousand|bn|mm|m|k)?$/i.test(t) && run.length && !/\d/.test(run[run.length - 1].text) && run[run.length - 1].text.length <= 40) { run.pop(); close(false); return; }
             if (t.length >= 60) { close(false); return; } run.push(l); }); close(false);
+          /* a column of a table whose cells happen to end in a full stop ("... Ridgeline Baking Co.") sits on the same rows as
+             the table's other columns: it is the table's too */
+          { const dl = prose.filter(l => drop.has(l.n) && l.box); if (dl.length >= 3) { const lo = Math.min(...dl.map(l => l.box[1])) - 2, hi = Math.max(...dl.map(l => l.box[1])) + 2;
+              const groups = []; prose.forEach(l => { if (drop.has(l.n) || !l.box || l.box[1] < lo || l.box[1] > hi) return; const g = groups.find(g => Math.abs(g.x - l.box[0]) <= 3); if (g) g.ls.push(l); else groups.push({ x: l.box[0], ls: [l] }); });
+              groups.forEach(g => { const rowsHit = g.ls.filter(l => dl.some(o => Math.abs(o.box[1] - l.box[1]) <= 2 && Math.abs(o.box[0] - l.box[0]) > 20)).length;
+                const xs = dl.map(o => o.box[0]); if (rowsHit >= 2 && rowsHit >= g.ls.length * 0.5 && g.x > Math.min(...xs) + 3 && g.x < Math.max(...xs) - 3 && g.ls.reduce((a, l) => a + l.text.length, 0) / g.ls.length < 48 && !dl.some(o => Math.abs(o.box[0] - g.x) <= 3)) g.ls.forEach(l => drop.add(l.n)); }); } }
           for (let k = prose.length - 1; k >= 0; k--) if (drop.has(prose[k].n)) prose.splice(k, 1); }
         /* the page's title: the largest line among the first few (a section eyebrow in capitals is not it) */
         const title = (p.lines.slice(0, 4).filter(l => /[a-z]/.test(l.text)).sort((a, b) => (b.h || 0) - (a.h || 0))[0] || {}).text || '';
@@ -2594,6 +2801,10 @@ function extractAll(docs) {
   }
   /* a fact read twice (a table row the sentence reader also saw) is kept once */
   { const seen = new Set(); out.facts = out.facts.filter(f => { if (!['largest', 'topN', 'recurring'].includes(f.kind)) return true; const k = [f.kind, f.n || '', Math.round((f.pct || 0) * 10000), f.src && f.src.d, f.src && f.src.p, f.src && f.src.l].join('|'); if (seen.has(k)) return false; seen.add(k); return true; }); }
+  /* the customer named with the largest share, where the documents name customers' shares but never say which is largest */
+  { const byDoc = {}; out.facts.filter(f => f.kind === 'customerShare' && f.src).forEach(f => (byDoc[f.src.d] = byDoc[f.src.d] || []).push(f));
+    Object.entries(byDoc).forEach(([dd, fs]) => { if (out.facts.some(f => f.kind === 'largest' && f.src && f.src.d === dd)) return; const top = fs.slice().sort((a, b) => b.pct - a.pct)[0];
+      out.facts.push({ kind: 'largest', name: top.name, pct: top.pct, text: top.text, src: top.src, named: true }); }); }
   marketWords(out);
   proseBlocks(out);
   return out;
@@ -2939,25 +3150,29 @@ function statementModel(X) {
   X.blocks.forEach(b => {
     if (b.bsOnly) return;
     /* a period is one the documents give figures for: a timeline's years or a chart's axis carry none */
-    const seenM = {}; b.rows.forEach(r => { if (r.metric) seenM[r.metric] = (seenM[r.metric] || 0) + 1; });
+    /* "Adjusted EBITDA" and "Pro forma Adjusted EBITDA" in one reconciliation: the adjusted line is the figure, the pro forma line is not a second reading of it */
+    { const by = {}; b.rows.forEach(r => { if (r.metric) (by[r.metric] = by[r.metric] || []).push(r); });
+      Object.values(by).forEach(rs => { if (rs.length < 2) return; const plain = rs.filter(r => !/pro ?forma|run[- ]rate/i.test(r.label || '')); if (plain.length === 1) rs.forEach(r => { if (r !== plain[0]) r.pfDup = true; }); }); }
+    const seenM = {}; b.rows.forEach(r => { if (r.metric && !r.pfDup) seenM[r.metric] = (seenM[r.metric] || 0) + 1; });
     const core = Object.keys(seenM).length;
     b.rows.forEach(r => {
-      if (!r.metric || seenM[r.metric] > 1) return;
+      if (!r.metric || r.pfDup || seenM[r.metric] > 1) return;
       r.values.forEach((v, i) => {
         if (r.srcs && !r.srcs[i]) return;
         /* a dash under a margin or a headline line means the figure is not presented, not that it is zero */
         if (r.dash && r.dash[i] && (r.pct || /^(revenue|gp|ebitda|adjEbitda|netIncome|operatingIncome)$/.test(r.metric))) return;
         const key = b.periods[i].key; const val = r.pct ? v / 100 : v * b.units; if (v != null && isFinite(v) && !periods[key]) periods[key] = { ...b.periods[i] };
-        ((occ[r.metric] = occ[r.metric] || {})[key] = occ[r.metric][key] || []).push({ v: val, src: r.srcs ? r.srcs[i] : r.src, size: b.xbrl ? 1000 : core * 100 + b.rows.length, label: r.label });
+        ((occ[r.metric] = occ[r.metric] || {})[key] = occ[r.metric][key] || []).push({ v: val, src: r.srcs ? r.srcs[i] : r.src, size: b.xbrl ? 1000 : core * 100 + b.rows.length, label: r.label, prec: b.xbrl ? 0 : (() => { const dec = (String(v).split('.')[1] || '').length; return (r.pct ? 0.01 : b.units) * Math.pow(10, -dec) / 2; })() });
       });
     });
   });
   const pl = {};
   Object.entries(occ).forEach(([m, byP]) => Object.entries(byP).forEach(([k, list]) => {
     const groups = [];
-    list.forEach(o => { const g = groups.find(g => near(g.v, o.v, Math.max(Math.abs(g.v) * 0.0005, m.endsWith('Pct') ? 0.0005 : 0.5))); if (g) g.items.push(o); else groups.push({ v: o.v, items: [o] }); });
+    /* a figure rounded in one place ($12.9 million) and stated exactly in another ($12,860 thousand) is the same figure: they agree within the rounding, and the exact one is kept */
+    list.forEach(o => { const g = groups.find(g => near(g.v, o.v, Math.max(Math.abs(g.v) * 0.0005, m.endsWith('Pct') ? 0.0005 : 0.5, (g.prec || 0) * 1.0001, (o.prec || 0) * 1.0001))); if (g) { g.items.push(o); if ((o.prec || 0) < (g.prec || 0)) { g.v = o.v; g.prec = o.prec; } } else groups.push({ v: o.v, prec: o.prec || 0, items: [o] }); });
     groups.sort((a, b) => b.items.length - a.items.length || Math.max(...b.items.map(i => i.size)) - Math.max(...a.items.map(i => i.size)));
-    const best = groups[0].items.slice().sort((a, b) => b.size - a.size)[0];
+    const best = groups[0].items.slice().sort((a, b) => (a.prec || 0) - (b.prec || 0) || b.size - a.size)[0];
     (pl[m] = pl[m] || {})[k] = { v: groups[0].v, src: best.src, all: list, conflict: groups.length > 1 ? groups : null };
   }));
   /* costs are held as positive amounts whether a statement prints them as 7,470 or (7,470) */
@@ -3021,13 +3236,13 @@ function statementModel(X) {
 
 function classifyAddback(label, value) {
   const l = normLabel(label);
-  if (/employee retention|\berc\b|\bppp\b|grant|forgiveness|gain on|insurance proceeds|interest income/.test(l))
+  if (/employee retention|\berc\b|\bppp\b|grant|forgiveness|gain on|\bgains?\b|insurance (?:proceeds|recovery|recoveries|settlement)|recovery gain|interest income/.test(l))
     return { cls: 'Income item', rule: 'K5', accept: value <= 0, note: value > 0 ? 'Income already inside EBITDA cannot be added back. It should be deducted.' : 'Deduction of non-operating income.' };
   if (/pro ?forma|run[- ]rate|annuali[sz]|full[- ]year|full[- ]period|synerg|savings|projected|anticipated|expected|planned|price increase|new (customer|contract)|budget|pre-?acquisition|acquired (company|business)|prior to (the )?acquisition/.test(l))
     return { cls: 'Pro forma', rule: 'K4', accept: false, note: 'Forward-looking. Historical results do not include it.' };
   if (/owner|officer|shareholder|member|family|related[- ]party|personal/.test(l)) return { cls: 'Owner normalization', rule: 'K1', accept: true, note: 'Normalizes owner-related costs.' };
   if (/legal|litigation|lawsuit|settlement|dispute|transaction|sale process|\bdeal\b|banker|quality of earnings/.test(l)) return { cls: 'Litigation & transaction', rule: 'K2', accept: true, note: 'Tied to a dispute or the sale process.' };
-  if (/severance|write-?off|impairment|relocation|one[- ]time|non[- ]recurring|recruit|consult|implementation|\berp\b|system conversion|integration/.test(l)) return { cls: 'Non-recurring', rule: 'K3', accept: true, note: 'Described as non-recurring.' };
+  if (/severance|write-?off|impairment|relocation|one[- ]time|non[- ]recurring|recruit|consult|implementation|\berp\b|system conversion|integration|start-?up|pre-?production|ramp-?up|\brecall\b|fire|flood|storm/.test(l)) return { cls: 'Non-recurring', rule: 'K3', accept: true, note: 'Described as non-recurring.' };
   return { cls: 'Unclassified', rule: 'K0', accept: true, note: 'No rule matched. Verify the support.' };
 }
 
@@ -3615,7 +3830,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       if (opI != null && da != null) return Math.abs(eb.v - (opI + Math.abs(da) + oi)) < Math.abs(eb.v - (opI + Math.abs(da)));
       const o1 = bsOrd(src('otherIncome', b)), o2 = bsOrd(eb.src); return !!(o1 && o2 && o1[0] === o2[0] && o1[1] < o2[1]); })();
     /* management's bridge may already take the non-operating income out ("Gain on sale of vehicles (210)"): then it is not taken out twice */
-    const mgmtDeducts = addbacks.some(a => a.cls === 'Income item' && a.amount < 0 && Math.abs(a.amount + (val('otherIncome', b) || 0)) <= Math.max(1, Math.abs(val('otherIncome', b) || 0) * 0.02));
+    const mgmtDeducts = addbacks.some(a => (a.cls === 'Income item' || /gain|income|recover/i.test(a.label)) && a.amount < 0 && Math.abs(a.amount + (val('otherIncome', b) || 0)) <= Math.max(1, Math.abs(val('otherIncome', b) || 0) * 0.02));
     const s1 = !L && otherInEbitda && !mgmtDeducts && (val('otherIncome', b) || 0) > 0 ? { id: 'S1', title: 'Non-operating income', amount: -val('otherIncome', b), src: src('otherIncome', b), accepted: dec['adj:S1'] !== undefined ? !!dec['adj:S1'] : true } : null;
     const diligence = reported == null ? null : reported + addbacks.filter(a => a.accepted).reduce((s, a) => s + a.amount, 0) + (s1 && s1.accepted ? s1.amount : 0);
     M = { basis: b, basisLabel: (SM.periods.find(p => p.key === b) || {}).label || b, reported, reportedSrc: src('ebitda', b), stated, statedSrc: rec && rec.subtotal && rec.adjRow ? rec.adjRow.src : src('adjEbitda', b) || (rec && rec.adjRow ? rec.adjRow.src : null),
@@ -3732,9 +3947,9 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       if (sh && rev) { const sz = sizes.find(x => x.scope === sh.scope) || sizes.find(x => x.scope === 'total'); if (sz) { const implied = rev / sz.value; const off = Math.abs(implied - sh.pct) / sh.pct;
         F('C18', 'Projections', off > 0.5 ? 'Medium' : null, 'Market share claim does not match', off > 0.5 ? `The documents state a market share of ${pct(sh.pct)}, but revenue of ${fmtUSD(rev)} over the ${fmtUSD(sz.value)} market they give for ${scW(sz.scope)} is ${pct(implied)}.` : `The stated market share of ${pct(sh.pct)} agrees with revenue over the stated market size (${pct(implied)}).`,
           { metric: `${pct(sh.pct)} vs ${pct(implied)}`, cites: [sh.src, sz.src, M.revenueSrc].filter(Boolean) }); } }
-      const conf = []; [['size', x => x.value, (a, b) => b > a * 1.05], ['growth', x => x.pct, (a, b) => b - a > 0.01]].forEach(([k, v, far]) => { const by = {}; (MK[k] || []).forEach(x => (by[x.scope] = by[x.scope] || []).push(x));
-        Object.entries(by).forEach(([sc, list]) => { const vs = list.map(v); if (far(Math.min(...vs), Math.max(...vs))) conf.push({ k, sc, list }); }); });
-      if ((MK.size || []).length || (MK.growth || []).length) F('C19', 'Projections', conf.length ? 'Medium' : null, 'Market figures disagree', conf.length ? conf.map(c => `${c.k === 'size' ? 'The size' : 'The growth rate'} of ${scW(c.sc)} is given as ${[...new Set(c.list.map(x => c.k === 'size' ? fmtUSD(x.value) : pct(x.pct)))].join(' and ')}`).join('; ') + '.' : 'Market size and growth are stated the same way wherever they appear.',
+      const conf = []; [['size', x => x.value, (a, b) => b > a * 1.05], ['growth', x => x.pct, (a, b) => b - a > 0.01]].forEach(([k, v, far]) => { const by = {}; (MK[k] || []).forEach(x => { const key = x.scope + '|' + mktKey(x.name); (by[key] = by[key] || []).push(x); });
+        Object.entries(by).forEach(([key, list]) => { const vs = list.map(v); if (far(Math.min(...vs), Math.max(...vs))) conf.push({ k, sc: key.split('|')[0], name: list[0].name, list }); }); });
+      if ((MK.size || []).length || (MK.growth || []).length) F('C19', 'Projections', conf.length ? 'Medium' : null, 'Market figures disagree', conf.length ? conf.map(c => `${c.k === 'size' ? 'The size' : 'The growth rate'} of ${c.name ? 'the ' + c.name + ' market' : scW(c.sc)} is given as ${[...new Set(c.list.map(x => c.k === 'size' ? fmtUSD(x.value) : pct(x.pct)))].join(' and ')}`).join('; ') + '.' : 'Market size and growth are stated the same way wherever they appear.',
         { metric: `${conf.length} conflicts`, cites: conf.flatMap(c => c.list.map(x => x.src)) }); }
     { const hy = SM.periods.filter(p => p.type === 'H' && p.key !== 'LTM' && val('revenue', p.key) != null); const dn = [];
       for (let i = 1; i < hy.length; i++) if (val('revenue', hy[i].key) < val('revenue', hy[i - 1].key)) dn.push(hy[i]);
@@ -3852,7 +4067,10 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     const NAMES = { revenue: 'Revenue', cogs: 'Cost of revenue', gp: 'Gross profit', opex: 'Operating expenses', operatingIncome: 'Operating income', da: 'Depreciation and amortization', ebitda: 'EBITDA', adjEbitda: "Management's Adjusted EBITDA", netIncome: 'Net income', cfo: 'Cash from operations', capex: 'Capital expenditure', nwcChange: 'Change in working capital' };
     Object.keys(NAMES).forEach(m => { const o = g(m); if (!o) return; let status, how;
       const places = (o.all || []).filter(i => Math.abs(i.v - o.v) <= tol(o.v)); const blocks = new Set(places.map(i => JSON.stringify([i.src && i.src.d, i.src && (i.src.p || i.src.s || i.src.b)])));
+      /* a figure stated differently in two full statements is not verified by arithmetic that holds within one of them */
+      const cg = o.conflict ? o.conflict.filter(g => Math.max(...g.items.map(i => i.size)) >= 200) : []; const realConflict = cg.length >= 2 && cg.slice(1).some(g => { const r = Math.abs(g.v) / Math.max(1, Math.abs(cg[0].v)); return r > 0.33 && r < 3; });
       if (o.src && o.src.t === 'xbrl') { status = 'verified'; how = 'Tagged value in the filing (XBRL)'; }
+      else if (realConflict) { status = 'conflict'; how = `Stated differently elsewhere (${cg.slice(0, 3).map(x => fmtUSD(x.v)).join(' vs ')})`; }
       else if (ties[m]) { status = 'verified'; how = ties[m][0]; }
       else if (o.computed) { status = 'verified'; how = o.parts ? 'Sum of the lines it is built from: ' + o.parts.join(', ') : 'Computed from operating income and D&A as read'; }
       else if (blocks.size >= 2) { status = 'verified'; how = `Stated the same in ${blocks.size} places`; }
@@ -4010,7 +4228,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   const R = {
     X, L, SM, M, S, assumptionSrc, findings, fired, highs, risk, confidence, verdict, issues, actions, questions: qBase,
     reported, diligence, management, revenue, periodLabel, pos, val: { mult, basisE, ev, equity, contributors },
-    cash: L ? cashFlow(L) : cashFromStatements(SM, M, diligence), nwcNotes: L ? nwcCommentary(L) : [], poc,
+    cash: L ? cashFlow(L) : cashFromStatements(SM, M, diligence), nwcNotes: L ? nwcCommentary(L) : [], poc, RA: L ? revenueAnalytics(L) : null, segBridge: segmentBridge(X),
     facts: X.facts, market: X.market || null, fingerprint, docs, srcDoc, dataChecks, readChecks, industry, saas, currency: { code: CUR.code, sym: CUR.sym }, baseCurrency: baseCur, detectedCurrency: (Object.entries(curCount).sort((a, b) => b[1] - a[1])[0] || ['USD'])[0], curSources, fxPending, docCur, docCurRead, fxNeeded, bsItems: X.bsItems, bsTotals: X.bsTotals || [], docUnits, nwcMeasures: NWM
   };
   if (typeof answerQuestion === 'function') {
@@ -4019,7 +4237,38 @@ function buildRecord(docs, mandate, S0, dec, rv) {
       const linked = qUniq([...q.linked, ...a.linked].map(f => f.id)).map(id => fired.find(f => f.id === id)).filter(Boolean);
       return { ...q, ...a, linked }; });
   }
+  /* findings resting on a figure read from a scanned page say so: on a scan, a mismatch may be a misread, not the seller's error */
+  (R.fired || []).forEach(f => { const ss = [...(f.cites || []), ...((f.evidence || []).map(e => e && e.src))].filter(Boolean); if (ss.some(a => srcIsScan(docs, a))) f.scan = true; });
+  R.review = reviewList(R, docs);
   return R;
+}
+/* a citation on a PDF page that was read with text recognition */
+function srcIsScan(docs, a) { if (!a || a.t !== 'pdf') return false; const d = (docs || []).find(x => x.id === a.d); const pg = d && d.pages && d.pages[a.p - 1]; return !!(pg && pg.ocr); }
+/* ---------- what needs a person's review, for each upload ----------
+   One list of everything read with less than full certainty: figures that don't tie, figures stated two ways, units the
+   platform had to decide, tables read in a particular way, and figures read from scanned pages. Each item cites where to look. */
+function reviewList(R, docs) {
+  const out = []; const add = (doc, level, text, cites) => out.push({ doc: doc || null, level, text, cites: (cites || []).filter(Boolean).slice(0, 12) });
+  const docOf = a => a && a.d ? a.d : null;
+  /* scanned pages: which ones, how sure the recognition was, and the key figures that came from them */
+  (docs || []).filter(d => d.ocr && d.ocr.pages && d.ocr.pages.length).forEach(d => {
+    const low = d.pages.filter(p => p.ocr && p.conf != null && p.conf < 85).map(p => p.n);
+    const key = []; const SM = R.SM;
+    if (SM) ['revenue', 'ebitda', 'adjEbitda', 'gp', 'netIncome'].forEach(m => { const o = SM.pl[m] && SM.basis && SM.pl[m][SM.basis]; if (o && !o.computed && srcIsScan(docs, o.src) && o.src.d === d.id) key.push(o.src); });
+    (R.M ? R.M.addbacks : []).forEach(a => { if (srcIsScan(docs, a.src) && a.src.d === d.id) key.push(a.src); });
+    (R.bsItems || []).forEach(i => { if (i.src && i.src.d === d.id && srcIsScan(docs, i.src) && ['Cash', 'Debt', 'Debt-like'].includes(i.cls)) key.push(i.src); });
+    add(d.id, 'check', `${d.name}: page${d.ocr.pages.length === 1 ? '' : 's'} ${d.ocr.pages.length > 10 ? d.ocr.pages.slice(0, 10).join(', ') + '…' : d.ocr.pages.join(', ')} ${d.ocr.pages.length === 1 ? 'is a scan' : 'are scans'}, read with text recognition (average confidence ${d.ocr.confidence}%${low.length ? `; lowest on page${low.length === 1 ? '' : 's'} ${low.join(', ')}` : ''}). Text recognition can misread a digit or drop a line, so check the figures marked "scan" against the page. The key ones are cited here.`, key); });
+  /* figures that don't tie, disagree between places, or were adjusted to fit */
+  (R.dataChecks || []).forEach(c => { if (c.status !== 'warn' && c.status !== 'fixed') return; if (/read with text recognition/.test(c.text)) return;
+    add(c.doc || docOf(c.src), c.status === 'fixed' ? 'decided' : 'check', c.text, [c.src, ...(c.srcs || [])]); });
+  (R.readChecks || []).forEach(r => { if (r.status === 'conflict' || r.status === 'implausible') add(docOf(r.src), 'check', `${r.figure}: ${r.how}`, [r.src]); });
+  /* findings about the documents' own consistency, which on a scan may be a misread */
+  (R.fired || []).filter(f => f.scan && ['C03', 'C04', 'C05', 'C19', 'X03'].includes(f.id)).forEach(f => add(docOf((f.cites || [])[0]), 'check', `${f.id} ${f.title}: ${f.text} Some of these figures were read from a scanned page, so this may be a misread rather than an error in the document; check the page.`, f.cites));
+  /* how particular tables were read */
+  ((R.SM && R.SM.allocations) || []).forEach(al => add(docOf(al.src), 'info', `The table at ${anchorLabel(al.src)} was read as how ${al.cost.toLowerCase()} is spread across the income statement, not as the income statement itself. If it is the income statement, tell us.`, [al.src]));
+  (docs || []).forEach(d => { if (d.failed) add(d.id, 'check', `${d.name} could not be read${d.error ? ': ' + d.error : ''}.`, []); else if (d.notice && !d.ocr) add(d.id, 'check', `${d.name}: ${d.notice}`, []); });
+  const rank = { check: 0, decided: 1, info: 2 };
+  return out.sort((a, b) => rank[a.level] - rank[b.level]);
 }
 
 
@@ -4399,7 +4648,7 @@ function icDraft(R, m) {
     const MW = /\b(markets?|industry|industries|competit\w*|competitors?|fragment\w*|end markets?|serves?|serving|region|metropolitan|market share|segments?)\b/i;
     sents.filter(x => MW.test(typeof mktClean === 'function' ? mktClean(x.s) : x.s) && !/\b(fair market|market[- ]rate|at market|market terms|market would|leases? for)\b/i.test(x.s)
       && !/^[a-z]/.test(x.s.trim()) && !MRISK.test(x.s) && !MRES.test(x.s) && !RISKY.test(x.s) && !(x.heading && (AVOID_H.test(x.heading) || RISK_SEC.test(x.heading)))
-      && (x.s.match(/(?:^|\s)\(?\$?\d[\d,.]*%?\)?(?=\s|$)/g) || []).length < 3 && !/\bsource:/i.test(x.s) && x.s.length >= 40)
+      && !/(?:\(?\$?\d[\d,.]*%?\)?\s+){3,}/.test(x.s + ' ') && !/\bsource:|\(\s*\$?\s*in (?:billions|millions|thousands)/i.test(x.s) && x.s.length >= 40)
       .map((x, i) => ({ x, i, p: x.heading && PREFER_H.test(x.heading) ? 0 : 1 })).sort((a, b) => a.p - b.p || a.i - b.i).slice(0, 4).forEach(o => out.market.push(o.x.s.replace(/\.$/, ''))); }
   const top = (R.facts || []).find(x => x.kind === 'topN'), big = (R.facts || []).find(x => x.kind === 'largest');
   if (L && L.customers && L.customers.list.length) out.market.push(`Customer base of ${L.customers.count} in the ledger; largest ${qPc(L.customers.list[0].share)} of revenue, top ten ${qPc(L.customers.list[Math.min(9, L.customers.list.length - 1)].cum)}`);
@@ -4465,6 +4714,12 @@ function dealMetrics(R) {
   const ok = v => v != null && isFinite(v);
   const M = R.M, L = R.L;
   const top = L && L.customers && L.customers.list[0] ? L.customers.list[0].share : ((R.facts || []).find(f => f.kind === 'largest') || {}).pct;
+  /* growth over the latest two full years the figures cover; gross margin at the period the deal is priced on; working
+     capital on the purchase-agreement definition (cash-free, debt-free) where it can be built */
+  const SM = R.SM; let gr = L ? L.revGrowth : null, gm = L ? L.T.GM : null;
+  if (!L && SM && SM.pl.revenue) { const hy = SM.periods.filter(p => p.type === 'H' && p.key !== 'LTM' && SM.pl.revenue[p.key]); if (hy.length >= 2) { const a = SM.pl.revenue[hy[hy.length - 2].key].v, z = SM.pl.revenue[hy[hy.length - 1].key].v; if (a > 0) gr = z / a - 1; }
+    const b = SM.basis; const rv = b && SM.pl.revenue[b] ? SM.pl.revenue[b].v : null; const gp = b && SM.pl.gp && SM.pl.gp[b] ? SM.pl.gp[b].v : (b && SM.pl.cogs && SM.pl.cogs[b] && rv != null ? rv - Math.abs(SM.pl.cogs[b].v) : null); if (rv > 0 && gp != null) gm = gp / rv; }
+  const W = R.nwcMeasures; const dd = W && W.defs ? (W.defs.find(d => d.id === 'deal' && d.value != null) || W.defs.find(d => d.id === 'operating' && d.value != null)) : null; const nwcV = dd ? dd.value : null;
   return {
     revenue: ok(R.revenue) ? R.revenue : null,
     ebitda: ok(R.diligence) ? R.diligence : null,
@@ -4473,6 +4728,10 @@ function dealMetrics(R) {
     gapPct: ok(R.management) && ok(R.diligence) && R.management ? (R.management - R.diligence) / R.management : null,
     topCustomer: ok(top) ? top : null,
     multiple: R.val ? R.val.mult : null,
+    revGrowth: ok(gr) ? gr : null,
+    grossMargin: ok(gm) ? gm : null,
+    nwcPct: ok(nwcV) && R.revenue ? nwcV / R.revenue : null,
+    leverage: R.pos && ok(R.pos.debt) && ok(R.diligence) && R.diligence > 0 ? (R.pos.debt + (R.pos.debtLike || 0) - (R.pos.cash || 0)) / R.diligence : null,
     highs: (R.highs || []).length,
     confidence: R.L || R.M ? R.confidence : null
   };
@@ -4522,7 +4781,7 @@ function keyFigures(R, m) {
 function confirmState(R, m) { return { items: keyFigures(R, m), pending: [], done: true }; }
 
 /* ---------- benchmarks against the firm's other deals ---------- */
-const BENCH = [['addbackPct', 'Add-backs, % of reported EBITDA', 'lower'], ['gapPct', 'Gap between management and diligence EBITDA', 'lower'], ['margin', 'Diligence-adjusted EBITDA margin', 'higher'], ['topCustomer', 'Largest customer, % of revenue', 'lower'], ['confidence', 'Pre-LOI confidence score', 'higher']];
+const BENCH = [['revenue', 'Revenue', 'higher'], ['revGrowth', 'Revenue growth, latest year', 'higher'], ['grossMargin', 'Gross margin', 'higher'], ['margin', 'Diligence-adjusted EBITDA margin', 'higher'], ['addbackPct', 'Add-backs, % of reported EBITDA', 'lower'], ['gapPct', 'Gap between management and diligence EBITDA', 'lower'], ['topCustomer', 'Largest customer, % of revenue', 'lower'], ['nwcPct', 'Working capital, % of revenue', 'lower'], ['leverage', 'Net debt / diligence EBITDA', 'lower'], ['confidence', 'Pre-LOI confidence score', 'higher']];
 function benchmarks(cur, others) {
   const med = a => { const s = a.slice().sort((x, y) => x - y); const n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; };
   return BENCH.map(([k, label, better]) => {
@@ -4532,7 +4791,7 @@ function benchmarks(cur, others) {
     const below = vals.filter(x => x < v).length, eq = vals.filter(x => x === v).length;
     const pct = (below + eq / 2) / vals.length;
     const worse = better === 'lower' ? pct : 1 - pct;
-    return { key: k, label, value: v, median: med(vals), n: vals.length, pct, flag: worse >= 0.8 ? 'worse' : worse <= 0.2 ? 'better' : 'typical' };
+    return { key: k, label, value: v, median: med(vals), min: Math.min(...vals), max: Math.max(...vals), n: vals.length, pct, highest: v > Math.max(...vals), lowest: v < Math.min(...vals), flag: worse >= 0.8 ? 'worse' : worse <= 0.2 ? 'better' : 'typical' };
   }).filter(Boolean);
 }
 
@@ -4554,7 +4813,7 @@ function summarizeRecord(R, m) {
   return JSON.parse(JSON.stringify({ revenue: R.revenue, reported: R.reported, diligence: R.diligence, management: R.management, periodLabel: R.periodLabel,
     confidence: live ? R.confidence : null, verdict: live ? R.verdict : null, highs: (R.issues || []).filter(i => i.status !== 'Resolved' && i.finding.severity === 'High').length,
     open: (R.issues || []).filter(i => i.status !== 'Resolved').length, fingerprint: R.fingerprint,
-    margin: x.margin, addbackPct: x.addbackPct, gapPct: x.gapPct, topCustomer: x.topCustomer, multiple: x.multiple,
+    margin: x.margin, addbackPct: x.addbackPct, gapPct: x.gapPct, topCustomer: x.topCustomer, multiple: x.multiple, revGrowth: x.revGrowth, grossMargin: x.grossMargin, nwcPct: x.nwcPct, leverage: x.leverage,
     criteria: { set: cr.set, pass: cr.pass, label: cr.label, fails: cr.fails.map(f => f.name) }, 
     topIssue: top ? top.title : null, flags: (R.fired || []).map(f => ({ id: f.id, title: f.title, severity: f.severity, category: f.category })), currency: CUR.code, termHits: (cr.tests.find(t => t.name === 'No excluded sectors or terms') || {}).actual || null }, (k, v) => typeof v === 'number' && !isFinite(v) ? null : v));
 }
@@ -4804,14 +5063,18 @@ const qoeK = (v, pct) => v === 'na' ? 'n.a.' : v == null ? '' : pct ? (v * 100).
 function marketView(R) {
   const MK = R.market || {}; const sizes = MK.size || [], grow = MK.growth || [], conc = MK.concentration || [], share = MK.share || [], comps = MK.competitors || [], drivers = MK.drivers || [], strengths = MK.strengths || [], served = MK.served || [], overview = MK.overview || [];
   const any = sizes.length + grow.length + conc.length + share.length + comps.length + drivers.length + strengths.length + served.length + overview.length;
-  const scW = sc => sc === 'served' ? 'Company\'s own markets' : sc === 'global' ? 'Global market' : 'Overall market';
+  const scW = sc => sc === 'served' ? 'Company\'s own markets' : sc === 'global' ? 'Global market' : sc === 'segment' ? 'Market segment' : 'Overall market';
   const SM = R.SM; const py = SM ? SM.periods.filter(p => p.type === 'P' && SM.pl.revenue && SM.pl.revenue[p.key]) : []; const hy = SM ? SM.periods.filter(p => p.type === 'H' && p.key !== 'LTM' && SM.pl.revenue && SM.pl.revenue[p.key]) : [];
   const pcagr = py.length && hy.length ? Math.pow(SM.pl.revenue[py[py.length - 1].key].v / SM.pl.revenue[hy[hy.length - 1].key].v, 1 / (py[py.length - 1].year - hy[hy.length - 1].year)) - 1 : null;
+  /* a second, narrower market named in the documents (a segment of the overall market) is labelled as such */
+  { const tot = sizes.filter(x => x.scope === 'total').sort((a, b) => b.value - a.value)[0]; const k0 = tot ? mktKey(tot.name) : null;
+    if (tot) [...sizes, ...grow].forEach(x => { if (x.scope === 'total' && x.name && mktKey(x.name) && k0 !== null && mktKey(x.name) !== k0 && (!k0 || !mktKey(x.name).includes(k0))) x.scope = 'segment'; }); }
+  const scW0 = scW; const scN = x => `${scW0(x.scope)}${x.name ? ' (' + x.name + ')' : ''}`;
   const sizeOf = sc => sizes.find(x => x.scope === sc); const growOf = sc => grow.find(x => x.scope === sc);
   const servedSize = sizeOf('served'), totalSize = sizeOf('total');
   const implied = R.revenue && (servedSize || totalSize) ? R.revenue / (servedSize || totalSize).value : null;
   const fired = (R.fired || []).filter(f => ['C17', 'C18', 'C19'].includes(f.id));
-  return { any, sizes, grow, conc, share, comps, drivers, strengths, served, overview, scW, pcagr, py, hy, servedSize, totalSize, implied, fired, sizeOf, growOf };
+  return { any, sizes, grow, conc, share, comps, drivers, strengths, served, overview, scW, scN, pcagr, py, hy, servedSize, totalSize, implied, fired, sizeOf, growOf };
 }
 function memoModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
@@ -4934,7 +5197,7 @@ function memoModel(R, m, opts) {
     const g = V.growOf('served') || V.growOf('total'); const sz = V.servedSize || V.totalSize;
     const parts = [V.totalSize && `an overall market of ${mn(V.totalSize.value)}${V.growOf('total') ? ` growing ${pc(V.growOf('total').pct)} a year` : ''}`, V.servedSize && `${mn(V.servedSize.value)} in the company's own markets${V.growOf('served') ? `, growing ${pc(V.growOf('served').pct)} a year` : ''}`].filter(Boolean);
     if (parts.length) b.push({ p: `The documents describe ${parts.join(', and ')}.${V.implied != null ? ` Revenue of ${mn(R.revenue)} is ${pc(V.implied)} of the ${V.servedSize ? "company's own markets" : 'overall market'} on those figures.` : ''}${V.pcagr != null && g ? ` Management projects revenue growth of ${pc(V.pcagr)} a year, against market growth of ${pc(g.pct)}${V.pcagr - g.pct > 0.05 ? ', so the plan depends on gaining share' : ''}.` : ''} These are management's figures and were not verified.`, notes: note([V.totalSize && V.totalSize.src, V.servedSize && V.servedSize.src, g && g.src].filter(Boolean)) });
-    const rows = [...V.sizes.map(x => ['Market size', V.scW(x.scope), mn(x.value), x.src]), ...V.grow.map(x => ['Market growth', V.scW(x.scope), pc(x.pct) + ' a year', x.src]), ...V.share.map(x => ["Company's market share", V.scW(x.scope), pc(x.pct), x.src]), ...V.conc.filter(x => !x.fragmented).map(x => [`Share of the ${x.n} largest providers`, 'Overall market', (x.qual ? x.qual + ' ' : '') + pc(x.pct), x.src])];
+    const rows = [...V.sizes.map(x => ['Market size', V.scN(x), mn(x.value), x.src]), ...V.grow.map(x => ['Market growth', V.scN(x), pc(x.pct) + ' a year', x.src]), ...V.share.map(x => ["Company's market share", V.scW(x.scope), pc(x.pct), x.src]), ...V.conc.filter(x => !x.fragmented).map(x => [`Share of the ${x.n} largest providers`, 'Overall market', (x.qual ? x.qual + ' ' : '') + pc(x.pct), x.src])];
     if (rows.length) b.push({ h: 'Market size, growth and structure' }, { table: { head: ['Measure', 'Market', 'As stated'], rows: rows.map(r => r.slice(0, 3)), align: ['l', 'l', 'r'], widths: [0.4, 0.35, 0.25], notes: note(rows.map(r => r[3])) } });
     if (V.overview.length) b.push({ h: 'The market as the documents describe it' }, ...V.overview.map(x => ({ p: x.text, notes: note([x.src]) })));
     if (V.served.length) { b.push({ h: 'Markets served' }, { p: `The documents name ${V.served.length === 1 ? 'one market' : V.served.length + ' markets'} the company serves: ${V.served.map(x => x.name).join(', ')}.`, notes: note(V.served.map(x => x.src)) });
@@ -5258,6 +5521,19 @@ function memoModel(R, m, opts) {
     if (has('revenue')) { const rq = getS('Revenue quality'); const cl = L && L.customers ? L.customers.list.slice(0, 10) : [];
       if (rq) addR('Revenue analysis', [...rq.blocks, ...(cl.length >= 3 ? [{ chart: { kind: 'hbar', pct: true, title: `Top ${cl.length} customers, share of revenue`, labels: cl.map(c => c.name), series: [{ name: 'Share of revenue', values: cl.map(c => c.share) }], h: 30 + cl.length * 15 } }] : [])]);
       else if (kind === 'revenue') addR('Revenue analysis', [{ p: 'Revenue by customer needs a general ledger with customer names. None was found in the documents provided.' }]); }
+    /* revenue bridge, cohorts, price and volume, cuts and margin bridges from the ledger; segment change as stated */
+    if (has('revenue') && (R.RA || (R.segBridge || []).length)) { const A = R.RA, b = []; const sgn = v => v == null ? '' : (v < 0 ? '(' + th(-v) + ')' : th(v)); const pts = x => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + ' pts';
+      const ledgerNote = { small: 'Each figure from the ledger adds up the ledger lines behind it; every line, with its row in the file, is listed in the workbook (Revenue analytics lines).' };
+      (R.segBridge || []).forEach(sb => { b.push({ h: `Revenue change by segment, ${sb.fromLabel} to ${sb.toLabel} (as stated)` }, { table: { unit: curUnit('thousands'), head: ['Segment', sb.fromLabel, sb.toLabel, 'Change', 'Growth'], rows: [...sb.lines.map(l => [l.label, th(l.from), th(l.to), sgn(l.change), l.from ? pc(l.to / l.from - 1) : '–']), ['Total revenue', th(sb.start), th(sb.end), sgn(sb.end - sb.start), sb.start ? pc(sb.end / sb.start - 1) : '–']], align: ['l', 'r', 'r', 'r', 'r'], widths: [0.36, 0.16, 0.16, 0.16, 0.16], notes: note([...sb.lines.flatMap(l => [l.fromSrc, l.toSrc]), sb.startSrc, sb.endSrc]) } }); });
+      const bk = A && A.bridges[A.bridges.length - 1];
+      if (bk) b.push({ h: `Revenue bridge by customer, ${bk.fromLabel} to ${bk.toLabel}` }, { p: `Net revenue retention was ${bk.nrr != null ? pc(bk.nrr) : 'n/a'} and gross revenue retention ${bk.grr != null ? pc(bk.grr) : 'n/a'} across the ${bk.startCustomers} customers buying in ${bk.fromLabel}; ${bk.lostCustomers} of them stopped buying and ${bk.newCustomers} new customers bought for the first time.` },
+        { table: { unit: curUnit('thousands'), head: ['', 'Customers', 'Revenue'], rows: [[`Revenue, ${bk.fromLabel}`, '', th(bk.start)], ...bk.lines.filter(l => l.customers || l.amount).map(l => [l.label, l.customers == null ? '' : String(l.customers), sgn(l.amount)]), [`Revenue, ${bk.toLabel}`, '', th(bk.end)]], align: ['l', 'r', 'r'], widths: [0.6, 0.15, 0.25] } });
+      if (A && A.cohorts.length) b.push({ h: 'Customer cohorts' }, { table: { unit: curUnit('thousands'), head: ['Cohort', 'Customers', ...A.blocks.map(x => x.label)], rows: [...A.cohorts.map(c => [c.label, c.customers == null ? '' : String(c.customers), ...c.rev.map(v => v == null ? '' : th(v))]), ['Total revenue', String(A.customers), ...A.totalRev.map(th)]], align: ['l', 'r', ...A.blocks.map(() => 'r')] } });
+      if (A) A.pvm.slice(-1).forEach(p => b.push({ h: `Price and volume, ${p.fromLabel} to ${p.toLabel}` }, { table: { unit: curUnit('thousands'), head: ['', 'Revenue'], rows: [[`Revenue, ${p.fromLabel}`, th(p.start)], ['Volume', sgn(p.volume)], ['Price', sgn(p.price)], ...(p.added ? [['Sold only in the later period', sgn(p.added)]] : []), ...(p.dropped ? [['Sold only in the earlier period', sgn(p.dropped)]] : []), ...(p.noQty ? [['Revenue with no quantity recorded', sgn(p.noQty)]] : []), [`Revenue, ${p.toLabel}`, th(p.end)]], align: ['l', 'r'], widths: [0.7, 0.3] } }));
+      if (A) A.cuts.forEach(c => b.push({ h: `Revenue${c.withGP ? ' and gross margin' : ''} by ${c.dim.toLowerCase()}, ${A.blocks[A.blocks.length - 1].label}` }, { table: { unit: curUnit('thousands'), head: [c.dim, 'Revenue', 'Share', ...(c.withGP ? ['Gross profit', 'Gross margin'] : [])], rows: [...c.rows.map(r => [r.value, th(r.revC), r.share != null ? pc(r.share) : '', ...(c.withGP ? [sgn(r.gp), r.gm != null ? pc(r.gm) : '–'] : [])]), ['Total', th(c.totalRev), '100.0%', ...(c.withGP ? [sgn(c.totalRev - c.totalCogs), c.totalRev ? pc((c.totalRev - c.totalCogs) / c.totalRev) : '–'] : [])]], align: ['l', 'r', 'r', ...(c.withGP ? ['r', 'r'] : [])] } }));
+      if (A) (A.marginBridges || []).filter(m => m && m.by).forEach(m => b.push({ h: `Gross margin bridge by ${m.by.toLowerCase()}, ${m.fromLabel} to ${m.toLabel}` }, { table: { head: [m.by, 'Mix', 'Rate'], rows: [[`Gross margin, ${m.fromLabel}`, pc(m.gmP), ''], ...m.parts.map(x => [x.value, pts(x.mix), pts(x.rate)]), ['Total', pts(m.mix), pts(m.rate)], [`Gross margin, ${m.toLabel}`, pc(m.gmC), '']], align: ['l', 'r', 'r'], widths: [0.5, 0.25, 0.25] } }));
+      if (A && (A.bridges.length || A.cuts.length)) b.push(ledgerNote);
+      addR('Revenue bridge, cohorts and margin', b); }
 
     /* net working capital */
     if (has('nwc') && N) {
@@ -6600,6 +6876,21 @@ function workbookModel(R, m) {
     AL.forEach((al, k) => { if (k) rows.push(Array(np + 2).fill('')); rows.push([al.cost, ...al.periods, ...Array(np - al.periods.length).fill(''), '']);
       al.rows.forEach(r => rows.push(['  ' + r.label, ...al.periods.map((p, i) => r.values[i] == null ? '' : { v: r.values[i], k: 'usd' }), ...Array(np - al.periods.length).fill(''), where(r.src)])); });
     add('Cost allocations', ['Cost / line', ...Array.from({ length: np }, (_, i) => AL.every(a => a.periods[i] === AL[0].periods[i]) ? AL[0].periods[i] || '' : ''), 'Source'], rows, { widths: [44, ...Array(np).fill(16), 60], note: 'As stated in the documents. These costs are already inside the income statement lines and are not counted again' }); } }
+  /* revenue analytics: the tables, and every ledger line behind them with its row in the file */
+  { const A = R.RA; const usd = v => v == null ? '' : { v, k: 'usd' };
+    (R.segBridge || []).forEach((sb, k) => add(k ? `Segment change ${k + 1}` : 'Segment change', ['Segment', sb.fromLabel, sb.toLabel, 'Change', 'Source (earlier)', 'Source (later)'], [...sb.lines.map(l => [l.label, usd(l.from), usd(l.to), usd(l.change), where(l.fromSrc), where(l.toSrc)]), ['Total revenue', usd(sb.start), usd(sb.end), usd(sb.end - sb.start), where(sb.startSrc), where(sb.endSrc)]], { widths: [34, 16, 16, 16, 40, 40], note: 'As stated in the documents; the segments add up to total revenue' }));
+    if (A) { const lines = [];
+      const push = (analysis, comp, rows) => rows.forEach(r => lines.push([analysis, comp, r.date, r.entry_id, `${r.account} ${r.account_name}`.trim(), r.counterparty || '', usd(r.flip ? -r.amount : r.amount), r.flip ? 'Subtracted (earlier period)' : 'Added', where(r.src)]));
+      const bk = A.bridges[A.bridges.length - 1];
+      if (bk) { add('Revenue bridge', ['', 'Customers', 'Revenue'], [[`Revenue, ${bk.fromLabel}`, '', usd(bk.start)], ...bk.lines.filter(l => l.customers || l.amount).map(l => [l.label, l.customers == null ? '' : l.customers, usd(l.amount)]), [`Revenue, ${bk.toLabel}`, '', usd(bk.end)], ['', '', ''], ['Net revenue retention', '', bk.nrr == null ? '' : { v: bk.nrr, k: 'pct' }], ['Gross revenue retention', '', bk.grr == null ? '' : { v: bk.grr, k: 'pct' }]], { widths: [44, 14, 18], note: 'From the ledger; every line behind each figure is on the Revenue analytics lines tab' });
+        bk.lines.forEach(l => push('Revenue bridge', l.label, l.rows)); }
+      if (A.cohorts.length) add('Customer cohorts', ['Cohort', 'Customers', ...A.blocks.map(b => b.label)], [...A.cohorts.map(c => [c.label, c.customers == null ? '' : c.customers, ...c.rev.map(usd)]), ['Total revenue', A.customers, ...A.totalRev.map(usd)]], { widths: [52, 12, ...A.blocks.map(() => 18)], note: 'Customers grouped by the period of their first sale in the ledger' });
+      A.pvm.slice(-1).forEach(p => { add('Price and volume', [p.by, 'Revenue (earlier)', 'Revenue (later)', 'Quantity (earlier)', 'Quantity (later)', 'Volume', 'Price', 'Sold in one period only'], [...p.items.map(it => [it.item, usd(it.revP), usd(it.revC), it.qtyP, it.qtyC, usd(it.volume), usd(it.price), usd(it.other)]), ['Total', usd(p.start), usd(p.end), '', '', usd(p.volume), usd(p.price), usd(p.added + p.dropped)], ...(p.noQty ? [['Revenue with no quantity recorded', '', '', '', '', '', '', usd(p.noQty)]] : [])], { widths: [30, 16, 16, 14, 14, 14, 14, 18], note: `${p.fromLabel} to ${p.toLabel}; volume at the earlier price, price on the later quantity` });
+        p.items.forEach(it => push('Price and volume', it.item, it.rows)); });
+      A.cuts.forEach(c => { add(`Revenue by ${c.dim}`.slice(0, 31), [c.dim, 'Revenue', 'Share', 'Earlier 12 months', ...(c.withGP ? ['Cost of revenue', 'Gross profit', 'Gross margin'] : [])], [...c.rows.map(r => [r.value, usd(r.revC), r.share == null ? '' : { v: r.share, k: 'pct' }, usd(r.revP), ...(c.withGP ? [usd(r.cogs), usd(r.gp), r.gm == null ? '' : { v: r.gm, k: 'pct' }] : [])]), ['Total', usd(c.totalRev), { v: 1, k: 'pct' }, usd(c.totalPrev), ...(c.withGP ? [usd(c.totalCogs), usd(c.totalRev - c.totalCogs), c.totalRev ? { v: (c.totalRev - c.totalCogs) / c.totalRev, k: 'pct' } : ''] : [])]], { widths: [30, 16, 10, 16, 16, 16, 12], note: `${A.blocks[A.blocks.length - 1].label}; from the ledger's ${c.dim} column` });
+        c.rows.forEach(r => { push(`Revenue by ${c.dim}`, r.value + ' (revenue)', r.revRows); push(`Revenue by ${c.dim}`, r.value + ' (cost of revenue)', r.cogsRows); }); });
+      (A.marginBridges || []).filter(m => m && m.by).forEach(m => add(`Margin bridge ${m.by}`.slice(0, 31), [m.by, 'Share (earlier)', 'Share (later)', 'Margin (earlier)', 'Margin (later)', 'Mix', 'Rate'], [...m.parts.map(x => [x.value, { v: x.wP, k: 'pct' }, { v: x.wC, k: 'pct' }, x.mP == null ? '' : { v: x.mP, k: 'pct' }, x.mC == null ? '' : { v: x.mC, k: 'pct' }, { v: x.mix, k: 'pct' }, { v: x.rate, k: 'pct' }]), ['Total', '', '', { v: m.gmP, k: 'pct' }, { v: m.gmC, k: 'pct' }, { v: m.mix, k: 'pct' }, { v: m.rate, k: 'pct' }]], { widths: [28, 14, 14, 14, 14, 12, 12], note: `${m.fromLabel} to ${m.toLabel}; mix and rate add to the change in gross margin` }));
+      if (lines.length) add('Revenue analytics lines', ['Analysis', 'Component', 'Date', 'Entry', 'Account', 'Customer', 'Amount (as in the file)', 'Counted as', 'Source'], lines, { widths: [22, 30, 11, 10, 26, 24, 16, 22, 40], note: 'Every ledger line behind the revenue bridge, price and volume and revenue by column' }); } }
 
   /* Working capital */
   if (W) {
@@ -6622,8 +6913,8 @@ function workbookModel(R, m) {
 
   /* the market as the documents present it: never part of the figures above */
   { const V = marketView(R); if (V.any) { const rows = [];
-    V.sizes.forEach(x => rows.push(['Market size', V.scW(x.scope), { v: x.value, k: 'usd' }, where(x.src)]));
-    V.grow.forEach(x => rows.push(['Market growth (a year)', V.scW(x.scope), { v: x.pct, k: 'pct' }, where(x.src)]));
+    V.sizes.forEach(x => rows.push(['Market size', V.scN(x), { v: x.value, k: 'usd' }, where(x.src)]));
+    V.grow.forEach(x => rows.push(['Market growth (a year)', V.scN(x), { v: x.pct, k: 'pct' }, where(x.src)]));
     V.share.forEach(x => rows.push(["Company's market share", V.scW(x.scope), { v: x.pct, k: 'pct' }, where(x.src)]));
     V.conc.filter(x => !x.fragmented).forEach(x => rows.push([`Share of the ${x.n} largest providers${x.qual ? ' (' + x.qual + ')' : ''}`, 'Overall market', { v: x.pct, k: 'pct' }, where(x.src)]));
     if (V.implied != null) rows.push(['Implied share (revenue / market size)', V.servedSize ? V.scW('served') : V.scW('total'), { v: V.implied, k: 'pct' }, 'Computed']);
@@ -6887,7 +7178,7 @@ const nc = v => v < -0.5 ? ' neg' : '';
 const sev = s => `<span class="chip ${s || 'Pass'}">${s || 'Pass'}</span>`;
 const docById = id => MD().docs.find(d => d.id === id);
 let CITES = [];
-function cite(a) { if (!a) return ''; const d = docById(a.d); if (!d) return ''; CITES.push(a); return `<button class="cite" data-ci="${CITES.length - 1}" title="${esc(d.name)}">${a.d} ${esc(anchorLabel(a))}</button>`; }
+function cite(a) { if (!a) return ''; const d = docById(a.d); if (!d) return ''; CITES.push(a); const sc = scannedPage(a); return `<button class="cite${sc ? ' scan' : ''}" data-ci="${CITES.length - 1}" title="${esc(d.name)}${sc ? ': read from a scanned page with text recognition; check the figure against the page' : ''}">${a.d} ${esc(anchorLabel(a))}</button>`; }
 function qChip(q) { return q.status === 'Answered' ? '<span class="chip ok">Answered</span>' : q.status === 'Answered: concerns' ? '<span class="chip warn">Concerns</span>' : q.status === 'Partly answered' ? '<span class="chip ok">Partly answered</span>' : '<span class="chip dim">Can&rsquo;t answer yet</span>'; }
 function qAnswer(q, max) {
   let t = q.answer || ''; if (max && t.length > max) t = t.slice(0, t.lastIndexOf(' ', max)) + '…';
@@ -7093,9 +7384,9 @@ function criteriaPanel() {
 function benchFor(m) { const others = allDeals().filter(d => d.id !== m.id && !d.sample && !d.archived).map(d => d.summary || {}); return benchmarks(m.summary || summarizeRecord(R, m), others); }
 function benchPanel() {
   const b = benchFor(MD()); const n = allDeals().filter(d => d.id !== MD().id && !d.sample && !d.archived && d.summary && d.summary.verdict).length;
-  const f = (k, v) => /Pct|margin|Customer/.test(k) ? pc(v) : Math.round(v);
+  const f = (k, v) => k === 'revenue' ? K(v) : k === 'leverage' ? v.toFixed(1) + 'x' : /Pct|margin|Margin|Customer|Growth/.test(k) ? pc(v) : Math.round(v);
   return `<section class="sec"><div class="sechead"><h2>Against your other deals</h2><span class="aside">${n} deal${n === 1 ? '' : 's'} in the pipeline</span></div>
-    ${b.length ? `<div class="tbl"><table><thead><tr><th>Measure</th><th class="n">This deal</th><th class="n">Median</th><th>Reading</th></tr></thead><tbody>${b.map(x => `<tr><td>${esc(x.label)}</td><td class="n">${f(x.key, x.value)}</td><td class="n">${f(x.key, x.median)}</td><td>${x.flag === 'worse' ? '<span class="chip bad">Weaker than most</span>' : x.flag === 'better' ? '<span class="chip go">Stronger than most</span>' : '<span class="chip dim">Typical</span>'}</td></tr>`).join('')}</tbody></table></div>`
+    ${b.length ? `<div class="tbl"><table><thead><tr><th>Measure</th><th class="n">This deal</th><th class="n">Median</th><th class="n">Range</th><th>Reading</th></tr></thead><tbody>${b.map(x => `<tr><td>${esc(x.label)}<br><span class="muted" style="font-size:11px">against ${x.n} other deal${x.n === 1 ? '' : 's'}</span></td><td class="n">${f(x.key, x.value)}</td><td class="n">${f(x.key, x.median)}</td><td class="n" style="white-space:nowrap">${f(x.key, x.min)} to ${f(x.key, x.max)}</td><td>${x.highest ? `<span class="chip ${x.flag === 'better' ? 'go' : x.flag === 'worse' ? 'bad' : 'dim'}">Highest of ${x.n + 1}</span>` : x.lowest ? `<span class="chip ${x.flag === 'better' ? 'go' : x.flag === 'worse' ? 'bad' : 'dim'}">Lowest of ${x.n + 1}</span>` : x.flag === 'worse' ? '<span class="chip bad">Weaker than most</span>' : x.flag === 'better' ? '<span class="chip go">Stronger than most</span>' : '<span class="chip dim">Typical</span>'}</td></tr>`).join('')}</tbody></table></div><p class="muted" style="font-size:11.5px;margin-top:6px">Compared only with this workspace's own deals. Each figure is the one shown on that deal's pages; deals saved before a measure existed are left out of it until they are opened again.</p>`
       : `<p class="lede" style="font-size:13px">Benchmarks appear once three or more other deals have been screened. Every deal you add makes the comparison sharper.</p>`}</section>`;
 }
 const OUTCOMES = ['Open', 'Passed', 'LOI submitted', 'LOI signed', 'Closed', 'Broke after LOI'];
@@ -7180,6 +7471,7 @@ function vSources() {
   <section class="sec"><div class="drop" id="drop"><h3>Add source documents</h3><p class="lede" style="font-size:13px">Drop in anything from the data room: CIMs and statements as PDF, Excel (xlsx, xls, xlsm, ods), Word, PowerPoint, SEC filings as HTML with their XBRL tags read directly, CSV or TSV ledgers, JSON, Markdown, text, RTF, emails (.eml) and whole .zip data rooms. Files are read in this browser and every figure keeps a link to its page, cell, row, slide, paragraph or XBRL tag. Scanned PDFs are read with text recognition in this browser; image files (PNG, JPG) are not read.</p>
     <div class="row"><label class="btn red" for="upl">Choose files</label><input id="upl" type="file" multiple hidden></div>${MD().id === 'sample' ? '<p class="muted" style="font-size:12.5px;margin:6px 0 0">This is the fictional sample deal. Files you add here open a new deal of their own.</p>' : ''}
     ${msgs.upload ? `<div class="msg ${msgs.upload.err ? 'err' : 'ok'}">${esc(msgs.upload.text)}</div>` : ''}</div></section>
+  ${reviewHTML()}
   <section class="sec"><div class="sechead"><h2>Document register</h2><span class="aside">${m.docs.length} document${m.docs.length === 1 ? '' : 's'}</span></div>
     ${m.docs.length ? `<div class="tbl"><table><thead><tr><th>ID</th><th>Document</th><th>Read as</th><th>Anchors</th><th class="n">Items</th><th>Hash</th><th></th></tr></thead><tbody>
     ${m.docs.map(d => { const lg = X.docLog[d.id] || { roles: [], items: 0, notes: [] }; return `<tr class="${d.supersededBy ? 'dim' : ''}"><td class="mono">${d.id}</td><td style="min-width:180px"><span class="dtype">${d.type.toUpperCase()}</span> ${esc(d.name)}${d.supersededBy ? `<br><span class="chip dim">Replaced by ${esc(d.supersededBy)}</span>` : ''}${d.versionOf ? `<br><span class="chip ok">New version of ${esc(d.versionOf)}</span> <a href="#versions" class="muted" style="font-size:12px">${(d.changes || []).length} change${(d.changes || []).length === 1 ? '' : 's'}</a>` : ''}${lg.notes.length ? `<br><span class="neg" style="font-size:12px">${esc(lg.notes.join(' '))}</span>` : ''}</td><td>${lg.roles.map(esc).join('<br>')}${R.docUnits && R.docUnits[d.id] ? `<br><label class="muted" style="font-size:12px">Figures in ${unitsSelect(d.id)}</label>` : ''}${curSelect(d)}</td><td class="muted" style="white-space:nowrap">${docStats(d)}</td><td class="n">${lg.items.toLocaleString('en-US')}</td><td class="mono muted">${d.hash}</td>
@@ -7273,6 +7565,7 @@ function vQoE() {
       ${rowsH.map(([l, f, pct]) => `<tr class="${pct ? 'qpct' : l === 'EBITDA' ? 'total' : ''}"><td>${esc(l.trim())}</td>${P.map((p, i) => { const x = f(p, i); return `<td class="n">${x == null ? '' : qoeK(x, !!pct)}</td>`; }).join('')}</tr>`).join('')}
       </tbody></table></div></section>`;
   }
+  html += segmentBridgeHTML(R);
   if (L) {
     const Cu = L.customers, top = Cu.list.slice(0, 10), mx = Cu.list[0] ? Cu.list[0].share : 1;
     DRAW.rev = el => barChart(el, { labels: L.ttm.map(ml), tipLabels: L.ttm.map(monthLabel), series: [{ name: 'Prior year', values: L.ttm.map((x, i) => L.prior[i] ? L.pl[L.prior[i]].Revenue : null), color: 'var(--rule2)' }, { name: 'TTM', values: L.ttm.map(x => L.pl[x].Revenue), color: 'var(--ink)' }], aria: 'Monthly revenue TTM vs prior' });
@@ -7283,13 +7576,79 @@ function vQoE() {
       <div class="tbl"><table><thead><tr><th>Customer</th><th class="n">TTM</th><th>Share</th><th class="n">Cumulative</th><th class="n">Growth</th></tr></thead><tbody>
       ${top.map((c, i) => `<tr><td>${esc(c.name)}</td><td class="n">${$(c.ttm)}</td><td><div class="share"><i class="${i === 0 && c.share > 0.15 ? 'top' : ''}" style="width:${(c.share / mx * 90).toFixed(1)}px"></i><span class="num">${pc(c.share)}</span></div></td><td class="n">${pc(c.cum)}</td><td class="n${c.growth != null && c.growth < 0 ? ' neg' : ''}">${c.growth == null ? 'New' : (c.growth >= 0 ? '+' : '') + pc(c.growth)}</td></tr>`).join('')}
       </tbody></table></div></section>`;
+    html += revenueAnalyticsHTML(R);
     html += `<section class="sec"><div class="sechead"><h2>Earnings and revenue findings</h2></div><div class="flags">${R.fired.filter(f => f.category === 'Earnings quality' || f.category === 'Revenue quality').map(flagRow).join('')}</div></section>`;
   } else if (M) html += `<section class="sec"><div class="sechead"><h2>Earnings and revenue findings</h2></div><div class="flags">${R.fired.filter(f => f.category === 'Earnings quality' || f.category === 'Revenue quality').map(flagRow).join('') || '<p class="lede">None fired.</p>'}</div></section>`;
   return html;
 }
+/* ---------- revenue analytics on the QoE page ---------- */
+/* evidence for a figure made of ledger lines: each line as it is in the file; an earlier period's lines are the ones subtracted */
+const raEv = rows => rows.map(r => ({ date: r.date, id: r.entry_id, account: r.account + ' ' + r.account_name, desc: (r.flip ? 'Earlier period (subtracted): ' : '') + (r.description || ''), cp: r.counterparty, amount: r.flip ? -r.amount : r.amount, src: r.src || null }));
+const raEvD = (rows, what) => rows && rows.length ? evDetails(raEv(rows), `${rows.length} ledger line${rows.length === 1 ? '' : 's'}${what ? ' ' + what : ''}`) : '';
+function revenueAnalyticsHTML(R) {
+  const A = R.RA; if (!A) return ''; let h = '';
+  const sg = v => (v >= 0 ? '+' : '−') + $(Math.abs(v));
+  const bk = A.bridges[A.bridges.length - 1];
+  if (bk) h += `<section class="sec"><div class="sechead"><h2>Revenue bridge by customer</h2><span class="aside">${esc(bk.fromLabel)} to ${esc(bk.toLabel)}; from the ledger</span></div>
+    <p class="lede">How revenue moved between the two periods, customer by customer. Each line adds up the ledger lines behind it, and the lines add up to the ledger's revenue.</p>
+    <section class="kpis">${kpi('Net revenue retention', bk.nrr != null ? pc(bk.nrr) : '–', `revenue kept from the ${bk.startCustomers} customers buying in ${esc(bk.fromLabel)}, including growth`)}${kpi('Gross revenue retention', bk.grr != null ? pc(bk.grr) : '–', 'the same, counting no customer above its earlier revenue')}${kpi('Customers lost', String(bk.lostCustomers), `of ${bk.startCustomers}`)}${kpi('New customers', String(bk.newCustomers), 'first sale in the later period')}</section>
+    <div class="tbl"><table><thead><tr><th></th><th class="n">Customers</th><th class="n">Revenue</th><th>Ledger lines</th></tr></thead><tbody>
+    <tr class="sub"><td>Revenue, ${esc(bk.fromLabel)}</td><td></td><td class="n">${$(bk.start)}</td><td></td></tr>
+    ${bk.lines.filter(l => l.customers || l.amount).map(l => `<tr><td>${esc(l.label)}</td><td class="n">${l.customers == null ? '' : l.customers}</td><td class="n${l.amount < 0 ? ' neg' : ''}">${sg(l.amount)}</td><td>${raEvD(l.rows)}</td></tr>`).join('')}
+    <tr class="total"><td>Revenue, ${esc(bk.toLabel)}</td><td></td><td class="n">${$(bk.end)}</td><td></td></tr></tbody></table></div>
+    ${A.bridges.length > 1 ? `<p class="muted" style="font-size:12px;margin-top:6px">Earlier years: ${A.bridges.slice(0, -1).map(b => `${esc(b.fromLabel)} to ${esc(b.toLabel)}, net revenue retention ${b.nrr != null ? pc(b.nrr) : '–'}, gross ${b.grr != null ? pc(b.grr) : '–'}`).join('; ')}.</p>` : ''}</section>`;
+  if (A.cohorts.length) h += `<section class="sec"><div class="sechead"><h2>Customer cohorts</h2><span class="aside">Revenue by the period customers first bought</span></div>
+    <p class="lede">Each row is the customers whose first sale in the ledger fell in that period, followed through the later periods. The ledger's first period holds every customer already buying when it starts.</p>
+    <div class="tbl"><table><thead><tr><th>Cohort</th><th class="n">Customers</th>${A.blocks.map(b => `<th class="n">${esc(b.label)}</th>`).join('')}</tr></thead><tbody>
+    ${A.cohorts.map(c => `<tr><td>${esc(c.label)}</td><td class="n">${c.customers == null ? '' : c.customers}</td>${A.blocks.map((b, k) => `<td class="n">${c.rev[k] == null ? '' : `${$(c.rev[k])}${c.active[k] != null && c.customers ? `<br><span class="muted" style="font-size:11px">${c.active[k]} buying</span>` : ''}`}</td>`).join('')}</tr>`).join('')}
+    <tr class="total"><td>Total revenue</td><td class="n">${A.customers}</td>${A.totalRev.map(v => `<td class="n">${$(v)}</td>`).join('')}</tr></tbody></table></div>
+    <details class="ev"><summary>Ledger lines by cohort and period</summary>${A.cohorts.map(c => A.blocks.map((b, k) => c.rows[k] && c.rows[k].length ? `<p style="margin:8px 0 2px;font-size:12px"><b>${esc(c.label)}, ${esc(b.label)}</b></p>${evTable(raEv(c.rows[k]))}` : '').join('')).join('')}</details></section>`;
+  A.pvm.slice(-1).forEach(p => { h += `<section class="sec"><div class="sechead"><h2>Price and volume</h2><span class="aside">${esc(p.fromLabel)} to ${esc(p.toLabel)}; by ${esc(p.by.toLowerCase())}, from the ledger's quantities</span></div>
+    <p class="lede">For each ${esc(p.by.toLowerCase())} sold in both periods, volume is the change in quantity at the earlier price, and price is the change in price on the later quantity.</p>
+    <div class="tbl"><table><tbody><tr class="sub"><td>Revenue, ${esc(p.fromLabel)}</td><td class="n">${$(p.start)}</td></tr><tr><td>Volume</td><td class="n${p.volume < 0 ? ' neg' : ''}">${sg(p.volume)}</td></tr><tr><td>Price</td><td class="n${p.price < 0 ? ' neg' : ''}">${sg(p.price)}</td></tr>
+    ${p.added ? `<tr><td>Sold only in the later period</td><td class="n">${sg(p.added)}</td></tr>` : ''}${p.dropped ? `<tr><td>Sold only in the earlier period</td><td class="n neg">${sg(p.dropped)}</td></tr>` : ''}${p.noQty ? `<tr><td>Revenue with no quantity recorded</td><td class="n${p.noQty < 0 ? ' neg' : ''}">${sg(p.noQty)}</td></tr>` : ''}
+    <tr class="total"><td>Revenue, ${esc(p.toLabel)}</td><td class="n">${$(p.end)}</td></tr></tbody></table></div>
+    <div class="tbl" style="margin-top:10px"><table><thead><tr><th>${esc(p.by)}</th><th class="n">Quantity</th><th class="n">Average price</th><th class="n">Volume</th><th class="n">Price</th><th>Ledger lines</th></tr></thead><tbody>
+    ${p.items.slice(0, 15).map(it => `<tr><td>${esc(it.item)}</td><td class="n">${Math.round(it.qtyP).toLocaleString('en-US')} → ${Math.round(it.qtyC).toLocaleString('en-US')}</td><td class="n">${it.priceP != null ? $(it.priceP) : '–'} → ${it.priceC != null ? $(it.priceC) : '–'}</td><td class="n">${sg(it.volume)}</td><td class="n">${sg(it.price)}</td><td>${raEvD(it.rows)}</td></tr>`).join('')}</tbody></table></div></section>`; });
+  A.cuts.forEach(c => { h += `<section class="sec"><div class="sechead"><h2>Revenue${c.withGP ? ' and gross margin' : ''} by ${esc(c.dim.toLowerCase())}</h2><span class="aside">${esc(A.blocks[A.blocks.length - 1].label)}; from the ledger's ${esc(c.dim)} column</span></div>
+    <div class="tbl"><table><thead><tr><th>${esc(c.dim)}</th><th class="n">Revenue</th><th class="n">Share</th>${c.totalPrev != null ? `<th class="n">Earlier 12 months</th><th class="n">Growth</th>` : ''}${c.withGP ? `<th class="n">Cost of revenue</th><th class="n">Gross profit</th><th class="n">Gross margin</th>` : ''}<th>Ledger lines</th></tr></thead><tbody>
+    ${c.rows.map(r => `<tr><td>${esc(r.value)}</td><td class="n">${$(r.revC)}</td><td class="n">${r.share != null ? pc(r.share) : ''}</td>${c.totalPrev != null ? `<td class="n">${$(r.revP)}</td><td class="n${r.growth != null && r.growth < 0 ? ' neg' : ''}">${r.growth != null ? (r.growth >= 0 ? '+' : '') + pc(r.growth) : r.revC ? 'New' : ''}</td>` : ''}${c.withGP ? `<td class="n">${$(r.cogs)}</td><td class="n">${$(r.gp)}</td><td class="n">${r.gm != null ? pc(r.gm) : '–'}</td>` : ''}<td>${raEvD([...r.revRows, ...r.cogsRows])}</td></tr>`).join('')}
+    <tr class="total"><td>Total</td><td class="n">${$(c.totalRev)}</td><td class="n">100.0%</td>${c.totalPrev != null ? `<td class="n">${$(c.totalPrev)}</td><td class="n">${c.totalPrev ? (c.totalRev / c.totalPrev - 1 >= 0 ? '+' : '') + pc(c.totalRev / c.totalPrev - 1) : ''}</td>` : ''}${c.withGP ? `<td class="n">${$(c.totalCogs)}</td><td class="n">${$(c.totalRev - c.totalCogs)}</td><td class="n">${c.totalRev ? pc((c.totalRev - c.totalCogs) / c.totalRev) : '–'}</td>` : ''}<td></td></tr></tbody></table></div>
+    ${c.rows.some(r => r.value === 'Not tagged') ? `<p class="muted" style="font-size:12px;margin-top:6px">"Not tagged" is ledger lines with no ${esc(c.dim.toLowerCase())} recorded.</p>` : ''}${c.withGP ? '' : `<p class="muted" style="font-size:12px;margin-top:6px">Cost of revenue is not recorded by ${esc(c.dim.toLowerCase())} in the ledger, so gross margin is not shown for it.</p>`}</section>`; });
+  (A.marginBridges || []).filter(m => m && m.by).forEach(m => { const bp = x => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + ' pts';
+    h += `<section class="sec"><div class="sechead"><h2>Gross margin bridge by ${esc(m.by.toLowerCase())}</h2><span class="aside">${esc(m.fromLabel)} to ${esc(m.toLabel)}</span></div>
+    <p class="lede">The change in gross margin split into rate (each ${esc(m.by.toLowerCase())}'s own margin moving) and mix (revenue shifting between ${esc(m.by.toLowerCase())}s with different margins). The parts add exactly to the change.</p>
+    <div class="tbl"><table><thead><tr><th>${esc(m.by)}</th><th class="n">Share of revenue</th><th class="n">Gross margin</th><th class="n">Mix</th><th class="n">Rate</th></tr></thead><tbody>
+    <tr class="sub"><td>Gross margin, ${esc(m.fromLabel)}</td><td></td><td class="n">${pc(m.gmP)}</td><td></td><td></td></tr>
+    ${m.parts.map(p => `<tr><td>${esc(p.value)}</td><td class="n">${pc(p.wP)} → ${pc(p.wC)}</td><td class="n">${p.mP != null ? pc(p.mP) : '–'} → ${p.mC != null ? pc(p.mC) : '–'}</td><td class="n">${bp(p.mix)}</td><td class="n">${bp(p.rate)}</td></tr>`).join('')}
+    <tr><td>Total</td><td></td><td></td><td class="n">${bp(m.mix)}</td><td class="n">${bp(m.rate)}</td></tr>
+    <tr class="total"><td>Gross margin, ${esc(m.toLabel)}</td><td></td><td class="n">${pc(m.gmC)}</td><td></td><td></td></tr></tbody></table></div>
+    <p class="muted" style="font-size:12px;margin-top:6px">Points are rounded to one decimal, so a column can differ from its total by 0.1. The ledger lines behind each share and margin are under "Revenue and gross margin by ${esc(m.by.toLowerCase())}" above.</p></section>`; });
+  return h;
+}
+/* revenue by segment as the documents state it, and what changed */
+function segmentBridgeHTML(R) {
+  const S = R.segBridge || []; if (!S.length) return '';
+  return S.map(b => `<section class="sec"><div class="sechead"><h2>Revenue change by segment</h2><span class="aside">${esc(b.fromLabel)} to ${esc(b.toLabel)}; as stated in ${esc(((R.docs || []).find(d => d.id === b.doc) || {}).name || 'the documents')}</span></div>
+    <div class="tbl"><table><thead><tr><th>Segment</th><th class="n">${esc(b.fromLabel)}</th><th class="n">${esc(b.toLabel)}</th><th class="n">Change</th><th class="n">Growth</th><th class="n">Share of growth</th></tr></thead><tbody>
+    ${b.lines.map(l => `<tr><td>${esc(l.label)}</td><td class="n">${$(l.from)} ${cite(l.fromSrc)}</td><td class="n">${$(l.to)} ${cite(l.toSrc)}</td><td class="n${l.change < 0 ? ' neg' : ''}">${$(l.change)}</td><td class="n">${l.from ? pc(l.to / l.from - 1) : '–'}</td><td class="n">${b.end - b.start ? pc(l.change / (b.end - b.start)) : '–'}</td></tr>`).join('')}
+    <tr class="total"><td>Total revenue</td><td class="n">${$(b.start)} ${cite(b.startSrc)}</td><td class="n">${$(b.end)} ${cite(b.endSrc)}</td><td class="n">${$(b.end - b.start)}</td><td class="n">${b.start ? pc(b.end / b.start - 1) : '–'}</td><td class="n">100.0%</td></tr></tbody></table></div>
+    <p class="muted" style="font-size:12px;margin-top:6px">The segments add up to total revenue in every period the table shows.</p></section>`).join('');
+}
+/* the list of what needs a person's look, grouped by document */
+function reviewHTML(compact) {
+  const L0 = (R && R.review) || []; if (!L0.length) return compact ? '' : `<section class="sec"><div class="sechead"><h2>Needs your review</h2><span class="aside">Nothing to check</span></div><p class="lede" style="font-size:13px">Every figure was read from a text layer, and the statements tie where they can be checked.</p></section>`;
+  const lv = { check: '<span class="chip warn">Check</span>', decided: '<span class="chip dim">Decided for you</span>', info: '<span class="chip dim">How it was read</span>' };
+  const docs = MD().docs; const groups = {}; L0.forEach(it => { const k = it.doc || ''; (groups[k] = groups[k] || []).push(it); });
+  const n = L0.filter(i => i.level === 'check').length;
+  if (compact) return `<section class="sec"><div class="sechead"><h2>Needs your review</h2><button class="btn sm ghost" data-nav="sources">Open the list</button></div><p class="lede" style="font-size:13px">${n} item${n === 1 ? '' : 's'} to check${L0.length > n ? ` and ${L0.length - n} note${L0.length - n === 1 ? '' : 's'} on how the documents were read` : ''}, listed under Sources with the place to look.</p></section>`;
+  return `<section class="sec"><div class="sechead"><h2>Needs your review</h2><span class="aside">${n} to check · ${L0.length - n} note${L0.length - n === 1 ? '' : 's'}</span></div>
+    <p class="lede" style="font-size:13px">Anything read with less than full certainty: figures that don't tie or are stated two ways, units or layouts the platform had to decide, and figures read from scanned pages. Each item cites where to look.</p>
+    ${Object.entries(groups).map(([k, items]) => { const d = docs.find(x => x.id === k); return `<h3 class="h3" style="margin:12px 0 6px">${d ? `${esc(d.id)} · ${esc(d.name)}` : 'Across the documents'}</h3><div class="tbl"><table><tbody>${items.map(it => `<tr><td style="width:120px">${lv[it.level] || ''}</td><td style="font-size:13px">${esc(it.text)}</td><td style="white-space:nowrap">${cites(it.cites, 4)}</td></tr>`).join('')}</tbody></table></div>`; }).join('')}</section>`;
+}
 function flagRow(f) {
   const cs = f.cites.length ? f.cites : f.evidence.map(e => e.src).filter(Boolean);
-  return `<div class="flag ${f.severity || ''}"><div class="body"><div class="top">${sev(f.severity)}<span class="chip id">${f.id}</span><h3>${esc(f.title)}</h3></div><p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p>${f.firm ? `<p class="muted" style="font-size:12px">${esc(f.firm)}</p>` : ''}${f.verify && f.verify.note ? `<p class="muted" style="font-size:12px">${esc(f.verify.note)}</p>` : ''}${cites(cs, 5)}</div><span class="metric">${esc(f.metric)}</span>${evDetails(f.evidence)}</div>`;
+  return `<div class="flag ${f.severity || ''}"><div class="body"><div class="top">${sev(f.severity)}<span class="chip id">${f.id}</span><h3>${esc(f.title)}</h3></div><p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p>${f.firm ? `<p class="muted" style="font-size:12px">${esc(f.firm)}</p>` : ''}${f.verify && f.verify.note ? `<p class="muted" style="font-size:12px">${esc(f.verify.note)}</p>` : ''}${f.scan ? `<p class="muted" style="font-size:12px">Some figures behind this were read from a scanned page with text recognition; check them against the page before relying on it.</p>` : ''}${cites(cs, 5)}</div><span class="metric">${esc(f.metric)}</span>${evDetails(f.evidence)}</div>`;
 }
 
 /* ======================= Working capital ======================= */
@@ -7444,8 +7803,8 @@ function vMarket() {
   ${V.fired.length ? `<section class="sec"><div class="sechead"><h2>Checks against the company's plan and size</h2></div>${V.fired.map(f => `<div class="find"><div class="row" style="gap:8px;align-items:center">${sev(f.severity)} <b>${esc(f.title)}</b> <span class="muted mono" style="font-size:11px">${f.id}</span></div><p style="margin:6px 0 0">${esc(f.text)} ${cites(f.cites)}</p></div>`).join('')}</section>` : ''}
   ${V.sizes.length || V.grow.length || V.conc.length || V.share.length ? `<section class="sec"><div class="sechead"><h2>Market size, growth and structure</h2><span class="aside">As stated in the documents</span></div>
     <div class="tbl"><table><thead><tr><th>Measure</th><th>Market</th><th class="n">As stated</th><th>Source</th></tr></thead><tbody>
-    ${V.sizes.map(x => `<tr><td>Market size${x.year ? ' (' + esc(x.year) + ')' : ''}</td><td>${V.scW(x.scope)}</td><td class="n">${K(x.value)}</td><td>${cite(x.src)}</td></tr>`).join('')}
-    ${V.grow.map(x => `<tr><td>Market growth</td><td>${V.scW(x.scope)}</td><td class="n">${pc(x.pct)} a year</td><td>${cite(x.src)}</td></tr>`).join('')}
+    ${V.sizes.map(x => `<tr><td>Market size${x.year ? ' (' + esc(x.year) + ')' : ''}</td><td>${esc(V.scN(x))}</td><td class="n">${K(x.value)}</td><td>${cite(x.src)}</td></tr>`).join('')}
+    ${V.grow.map(x => `<tr><td>Market growth</td><td>${esc(V.scN(x))}</td><td class="n">${pc(x.pct)} a year</td><td>${cite(x.src)}</td></tr>`).join('')}
     ${V.share.map(x => `<tr><td>Company's market share</td><td>${V.scW(x.scope)}</td><td class="n">${pc(x.pct)}</td><td>${cite(x.src)}</td></tr>`).join('')}
     ${V.conc.filter(x => !x.fragmented).map(x => `<tr><td>Share held by the ${x.n} largest providers</td><td>Overall market</td><td class="n">${x.qual ? esc(x.qual) + ' ' : ''}${pc(x.pct)}</td><td>${cite(x.src)}</td></tr>`).join('')}
     ${V.conc.some(x => x.fragmented) ? `<tr><td>Described as fragmented</td><td>Overall market</td><td class="n">${V.conc.filter(x => x.fragmented).length} mention${V.conc.filter(x => x.fragmented).length === 1 ? '' : 's'}</td><td>${cites(V.conc.filter(x => x.fragmented).map(x => x.src), 3)}</td></tr>` : ''}
@@ -7595,6 +7954,7 @@ function vReadout() {
   const D = readoutData();
   return `${head('Deal Intelligence', 'Committee Readout')}
   <p class="lede">Built from the live record. Partners read the same evidence chain the analysts used; nothing is retyped.</p>
+  ${reviewHTML(true)}
   <section class="sec"><div class="sechead"><h2>Financial due diligence report</h2><span class="aside">Word or PDF, every figure footnoted</span></div>
     <p class="lede" style="font-size:13px">The full report in the layout diligence providers use: important notice, scope and basis of preparation, executive summary, quality of earnings with each adjustment numbered and explained, historical performance, revenue, net working capital by month, the debt tie-out and net debt, proof of cash and cash flow, then the findings register, information requests and sources.</p>
     <div class="row"><button class="btn red" data-report="fdd:docx">Download Word</button><button class="btn ghost" data-report="fdd:pdf">Download PDF</button><button class="btn ghost" data-xlsx="databook">Download databook (Excel)</button></div>
@@ -8007,6 +8367,38 @@ async function lib(k) {
 const OCR_LIB = { js: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js', worker: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', core: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1', lang: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int' };
 const OCR_MAX = 120;
 function uploadProgress(text) { msgs.upload = { err: false, text }; const el = document.querySelector('#drop .msg'); if (el) el.textContent = text; else if (view === 'sources') render(); }
+/* a page scanned at a slight tilt: the tilt that lines the text up best (the sharpest row profile) is measured and taken out */
+function ocrDeskew(cv) { const W = cv.width, H = cv.height; const ctx = cv.getContext('2d'); const px = ctx.getImageData(0, 0, W, H).data; const pts = [];
+  const st = Math.max(2, Math.round(Math.min(W, H) / 700)); for (let y = 0; y < H; y += st) for (let x = 0; x < W; x += st) { const i = (y * W + x) * 4; if (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] < 120) pts.push(x, y); }
+  if (pts.length < 200) return cv; let best = 0, bestScore = -1;
+  for (let a = -3; a <= 3.0001; a += 0.2) { const t = Math.tan(a * Math.PI / 180); const hist = new Map(); for (let k = 0; k < pts.length; k += 2) { const b = Math.round((pts[k + 1] - pts[k] * t) / st); hist.set(b, (hist.get(b) || 0) + 1); }
+    let sc = 0; hist.forEach(v => { sc += v * v; }); if (sc > bestScore) { bestScore = sc; best = a; } }
+  if (Math.abs(best) < 0.2) return cv;
+  const out = document.createElement('canvas'); out.width = W; out.height = H; const o = out.getContext('2d'); o.fillStyle = '#fff'; o.fillRect(0, 0, W, H);
+  o.translate(W / 2, H / 2); o.rotate(-best * Math.PI / 180); o.drawImage(cv, -W / 2, -H / 2); cv.width = cv.height = 0; return out; }
+/* light text on a dark band (a table's header row, a shaded total) is invisible to text recognition: such bands are
+   turned to dark text on light before the page is read */
+function ocrInvertDark(ctx, W, H) { const bands = []; const img = ctx.getImageData(0, 0, W, H); const px = img.data; const lum = i => 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+  const rowDark = new Array(H); for (let y = 0; y < H; y++) { let d = 0, x0 = -1, x1 = -1; for (let x = 0; x < W; x++) { if (lum((y * W + x) * 4) < 100) { d++; if (x0 < 0) x0 = x; x1 = x; } } rowDark[y] = { d, x0, x1 }; }
+  let y = 0; while (y < H) { const r = rowDark[y]; const span = r.x1 - r.x0 + 1; if (r.d > W * 0.25 && span > 0 && r.d / span > 0.6) { let y2 = y; while (y2 + 1 < H && rowDark[y2 + 1].d > W * 0.25 && rowDark[y2 + 1].d / (rowDark[y2 + 1].x1 - rowDark[y2 + 1].x0 + 1) > 0.5) y2++;
+      if (y2 - y >= 6) { const xa = Math.min(...rowDark.slice(y, y2 + 1).map(q => q.x0)), xb = Math.max(...rowDark.slice(y, y2 + 1).map(q => q.x1)); bands.push({ left: xa, top: y, width: xb - xa + 1, height: y2 - y + 1 }); const ls = []; for (let yy = y; yy <= y2; yy += 2) for (let x = xa; x <= xb; x += 3) ls.push(lum((yy * W + x) * 4)); ls.sort((a, b) => a - b); const bg = 255 - ls[Math.floor(ls.length / 2)];
+        /* inverted, then stretched so the band's background is white and its text dark, keeping the strokes' soft edges */
+        for (let yy = y; yy <= y2; yy++) for (let x = xa; x <= xb; x++) { const i = (yy * W + x) * 4; const v = Math.max(0, Math.min(255, Math.round(255 * (255 - lum(i)) / Math.max(1, bg)))); px[i] = px[i + 1] = px[i + 2] = v; } }
+      y = y2 + 1; } else y++; }
+  ctx.putImageData(img, 0, 0); return bands; }
+/* what text recognition commonly prints for a table's marks: a dash as "=" or "~", a dollar sign as "¢" or "S" before digits */
+const ocrFix = (t, conf) => { let s = String(t).replace(/¢(?=\s?in\b|\d)/g, '$').replace(/^S(?=\d[\d,]*(?:\.\d+)?$)/, '$');
+  s = s.replace(/^[“”"'‘’|\[\]{}]+(?=\S)/, '').replace(/(?<=\S)[“”"'‘’|\[\]{}]+$/, '');                          // quotes and bars a speck turned into
+  if (/^[=~_—–-]{1,2}$/.test(s)) return '–';
+  if (/^\d$/.test(s) && conf < 80) return '–';                                                              // a dash read as a lone digit
+  if (s.length === 1 && !/[\d$%()–]/.test(s) && conf < 90) return '';                                        // a speck read as "i", ":", "+" or "|"
+  if (/^[|:;+.,'`]+$/.test(s)) return '';
+  s = s.replace(/^(Total|Net|Gross|Adjusted)(?=[a-z]{3})/, '$1 ');                                           // "Totaladjustments"
+  s = s.replace(/^(LTM|TTM|YTD)(?=(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))/i, '$1 ').replace(/^Fy(?=\d{2,4}\b)/, 'FY');
+  s = s.replace(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)(\d{1,2}),(\d{4})$/, '$1 $2, $3');      // "Sep30,2025"
+  if (/^\(?\d{1,3}\.\d{3}\)?$/.test(s)) s = s.replace('.', ',');                                              // "9.910" for 9,910
+  s = s.replace(/(\d%)\.$/, '$1');                                                                            // "13.2%."
+  return s; };
 async function ocrPages(pdf, pages, idx, name) {
   if (!window.Tesseract) await loadScript(OCR_LIB.js);
   const todo = idx.slice(0, OCR_MAX); const conf = {}; const done = [];
@@ -8018,16 +8410,28 @@ async function ocrPages(pdf, pages, idx, name) {
     for (const [n, i] of todo.entries()) {
       uploadProgress(`${name}: reading scanned page ${n + 1} of ${todo.length} with text recognition\u2026`);
       const pg = await pdf.getPage(i + 1); const scale = 2.5; const vp = pg.getViewport({ scale });
-      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-      const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      let cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      let ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
       await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+      cv = ocrDeskew(cv); ctx = cv.getContext('2d');
+      const bands = ocrInvertDark(ctx, cv.width, cv.height);
       const { data } = await worker.recognize(cv);
+      /* each shaded band (a header row) is read again on its own, which reads its few words far more reliably than as part of the page */
+      for (const bd of bands) { try { const pad = 24, k = 1.5; const bc = document.createElement('canvas'); bc.width = Math.round((bd.width + 2 * pad) * k); bc.height = Math.round((bd.height + 2 * pad) * k);
+          const bx = bc.getContext('2d'); bx.fillStyle = '#fff'; bx.fillRect(0, 0, bc.width, bc.height); bx.imageSmoothingQuality = 'high'; bx.drawImage(cv, bd.left, bd.top, bd.width, bd.height, pad * k, pad * k, bd.width * k, bd.height * k);
+          const r0 = await worker.recognize(bc); bc.width = bc.height = 0;
+          /* back to page coordinates */
+          const map = w => ({ ...w, bbox: { x0: bd.left + w.bbox.x0 / k - pad, x1: bd.left + w.bbox.x1 / k - pad, y0: bd.top + w.bbox.y0 / k - pad, y1: bd.top + w.bbox.y1 / k - pad } });
+          const r = { data: { words: (r0.data.words || []).map(map) } }; const inB = w => { const cx = (w.bbox.x0 + w.bbox.x1) / 2, cy = (w.bbox.y0 + w.bbox.y1) / 2; return cx >= bd.left && cx <= bd.left + bd.width && cy >= bd.top && cy <= bd.top + bd.height; };
+          const bw = (r.data.words || []).filter(w => w.text && w.text.trim()); if (!bw.length) continue;
+          const keep = l => ({ ...l, words: (l.words || []).filter(w => !inB(w)) });
+          data.lines = (data.lines || []).map(keep).filter(l => l.words.length); data.lines.push({ words: bw }); } catch (e) { } } 
       /* each recognized line is one printed row, even on a slightly tilted scan: its words share the line's baseline */
       const lines = (data.lines && data.lines.length ? data.lines : (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => p.lines || []))) || [];
       const items = []; lines.forEach(l => { const ws = (l.words || []).filter(w => w.text && w.text.trim() && w.confidence > 20); if (!ws.length) return;
-        const hh = Math.max(...ws.map(w => w.bbox.y1 - w.bbox.y0)) / scale; const y = (vp.height - Math.max(...ws.map(w => w.bbox.y1))) / scale;
-        ws.forEach(w => items.push({ str: w.text, x: w.bbox.x0 / scale, y, w: (w.bbox.x1 - w.bbox.x0) / scale, h: hh })); });
-      if (!items.length) (data.words || []).filter(w => w.text && w.text.trim() && w.confidence > 20).forEach(w => items.push({ str: w.text, x: w.bbox.x0 / scale, y: (vp.height - w.bbox.y1) / scale, w: (w.bbox.x1 - w.bbox.x0) / scale, h: (w.bbox.y1 - w.bbox.y0) / scale }));
+        const hs0 = ws.map(w => w.bbox.y1 - w.bbox.y0).sort((a, b) => a - b); const hh = hs0[Math.floor(hs0.length / 2)] / scale; /* the line's typical height: one tall speck must not make every gap look small */ const y = (vp.height - Math.max(...ws.map(w => w.bbox.y1))) / scale;
+        ws.forEach(w => { const t = ocrFix(w.text, w.confidence); if (t) items.push({ str: t, x: w.bbox.x0 / scale, y, w: (w.bbox.x1 - w.bbox.x0) / scale, h: hh, conf: Math.round(w.confidence) }); }); });
+      if (!items.length) (data.words || []).filter(w => w.text && w.text.trim() && w.confidence > 20).forEach(w => items.push({ str: ocrFix(w.text, w.confidence), x: w.bbox.x0 / scale, y: (vp.height - w.bbox.y1) / scale, w: (w.bbox.x1 - w.bbox.x0) / scale, h: (w.bbox.y1 - w.bbox.y0) / scale }));
       pages[i].items = items;
       conf[i] = Math.round(data.confidence || 0); done.push(i); cv.width = cv.height = 0;
     }
@@ -8292,7 +8696,7 @@ function mandateToRecord(m) {
   while (json.length > 240000 && rec.rv.activity.length > 20) { rec.rv.activity = rec.rv.activity.slice(Math.floor(rec.rv.activity.length / 2)); json = JSON.stringify(rec); }
   return JSON.parse(json);
 }
-const PARSE_V = 12; /* raise when the readers change: stored documents are read again from their originals */
+const PARSE_V = 13; /* raise when the readers change: stored documents are read again from their originals */
 async function persistDoc(d, file) {
   d.parseV = PARSE_V;
   const up = await store.assets.upload(new Blob([JSON.stringify(d)], { type: 'application/json' }), { type: 'application/json' });
