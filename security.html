@@ -41,8 +41,8 @@
 <h2>1. How documents are processed</h2>
 <ul><li><b>In your browser.</b> When you upload a file, it is read on your own computer by the DealBasis code running in the page. PDFs, spreadsheets, Word files and CSVs are turned into text and figures there, before anything is saved.</li>
 <li><b>By fixed rules, not AI.</b> Every figure and finding comes from tested rules. The same documents always give the same answer, and every figure links to the page, line, cell or row it came from. No AI model reads your documents, and they are not used to train one.</li>
-<li><b>Scanned pages.</b> A PDF page with no text layer is read with open-source text recognition (Tesseract), also in your browser. Figures read this way are marked as coming from a scan so they can be checked against the page.</li>
-<li><b>Code libraries.</b> The page loads open-source libraries for reading files (pdf.js, SheetJS, ExcelJS, JSZip, docx, jsPDF and Tesseract) from public content networks. They run in your browser; your documents are not sent to those networks.</li></ul>
+<li><b>Scanned pages and pictures of tables.</b> A PDF page with no text layer, or a table pasted into a PDF as a picture, is read with open-source text recognition (Tesseract), also in your browser. Figures read this way are marked as coming from a scan and listed for review, so they can be checked against the page.</li>
+<li><b>Code libraries.</b> The page loads open-source libraries from public content networks: pdf.js, SheetJS, ExcelJS, Mammoth, JSZip and Tesseract to read files, and docx, jsPDF and PptxGenJS to build the reports you download. They run in your browser; your documents are not sent to those networks.</li></ul>
 
 <h2>2. Where data is stored</h2>
 <ul><li><b>Supabase</b> holds the database, file storage and sign-in. <b>Vercel</b> serves the website and platform.</li>
