@@ -1073,21 +1073,41 @@ function revenueAnalytics(L) {
 
 /* revenue by segment as the documents state it (a table whose segment lines add up to its revenue line), and the change
    in each segment between the two latest periods it covers: every figure cites its cell */
+/* revenue broken down in a document table (by segment, end market, product or geography) that adds up to revenue in every
+   period: the change between the latest two years, line by line. A table counts only when its total is revenue: a "Revenue" or
+   "Total revenue" line, or a bare "Total" under a heading that names revenue. A line printed as the sum of the lines indented
+   under it (Data Center = Compute + Networking) is kept with its parts shown beneath it, and the parts are not counted twice. */
+const SEG_KIND = t => /geograph|countr|region|location/i.test(t) ? 'geography' : /end market|market platform|specialized market|\bmarkets?\b/i.test(t) ? 'end market' : /product|service line|category|categories/i.test(t) ? 'product' : /segment/i.test(t) ? 'segment' : null;
 function segmentBridge(X) {
   const out = [];
-  (X.blocks || []).forEach(b => { if (b.isBS || b.xbrl) return; const tot = b.rows.find(r => r.metric === 'revenue' && !r.pct); if (!tot) return;
-    const ti = b.rows.indexOf(tot); const segs = b.rows.slice(0, ti).filter(r => !r.pct && !r.metric && r.values.some(v => v != null));
-    if (segs.length < 2) return;
-    const H = b.periods.map((p, i) => ({ p, i })).filter(({ p, i }) => p.type === 'H' && tot.values[i] != null && segs.every(r => r.values[i] != null));
-    const ties = H.filter(({ i }) => Math.abs(segs.reduce((a, r) => a + r.values[i], 0) - tot.values[i]) <= Math.max(1, Math.abs(tot.values[i]) * 0.0005));
-    if (ties.length < 2 || ties.length < H.length) return;
-    const yrs = ties.filter(({ p }) => p.key !== 'LTM'); const pair = yrs.length >= 2 ? yrs.slice(-2) : ties.slice(-2);
+  (X.blocks || []).forEach(b => { if (b.isBS || b.xbrl) return;
+    const head = String(b.near || '').replace(/\(?\$?\s*in (thousands|millions|billions)[^)]*\)?|\(in (thousands|millions|billions)\)/gi, ' ');
+    let tot = b.rows.find(r => r.metric === 'revenue' && !r.pct);
+    if (!tot && /\b(revenue|net sales|sales)\b/i.test(head) && !/\b(operating income|income|expense|expenses|cost|costs|margin|profit|ebitda)\b/i.test(head.replace(/\b(revenue|net sales|sales)\b.*$/i, ''))) tot = b.rows.find(r => /^total$/i.test(String(r.label).trim()) && !r.pct);
+    if (!tot) return;
+    const ti = b.rows.indexOf(tot); const rows = b.rows.slice(0, ti).filter(r => !r.pct && !r.metric && r.values.some(v => v != null));
+    if (rows.length < 2) return;
+    const H = b.periods.map((p, i) => ({ p, i })).filter(({ p, i }) => p.type === 'H' && tot.values[i] != null && rows.every(r => r.values[i] != null));
+    if (H.length < 2) return;
+    const close = (x, y) => Math.abs(x - y) <= Math.max(1, Math.abs(y) * 0.0005);
+    /* a line equal to the lines right under it, in every period, is a subtotal of them */
+    const sub = new Set(); const parentOf = new Map();
+    for (let i = 0; i < rows.length; i++) { if (sub.has(i)) continue;
+      for (let k = 2; i + k < rows.length; k++) { const kids = rows.slice(i + 1, i + 1 + k);
+        if (H.every(({ i: c }) => close(kids.reduce((a, r) => a + r.values[c], 0), rows[i].values[c]))) { for (let j = 1; j <= k; j++) { sub.add(i + j); parentOf.set(i + j, i); } break; } } }
+    const segs = rows.filter((r, i) => !sub.has(i)); if (segs.length < 2) return;
+    const ties = H.filter(({ i }) => close(segs.reduce((a, r) => a + r.values[i], 0), tot.values[i]));
+    if (ties.length < H.length) return;
+    /* the latest two years, in time order whichever way the columns run */
+    const ord = ties.slice().sort((x, y) => (x.p.key === 'LTM' ? 1e5 : (x.p.year || 0) * 12 + (x.p.date ? +x.p.date.slice(5, 7) : 0)) - (y.p.key === 'LTM' ? 1e5 : (y.p.year || 0) * 12 + (y.p.date ? +y.p.date.slice(5, 7) : 0)));
+    const yrs = ord.filter(({ p }) => p.key !== 'LTM'); const pair = yrs.length >= 2 ? yrs.slice(-2) : ord.slice(-2);
     const [a, z] = pair; const u = b.units || 1; const src = (r, i) => (r.srcs && r.srcs[i]) || r.src;
-    out.push({ fromLabel: a.p.label, toLabel: z.p.label, start: tot.values[a.i] * u, end: tot.values[z.i] * u, startSrc: src(tot, a.i), endSrc: src(tot, z.i),
-      lines: segs.map(r => ({ label: r.label, from: r.values[a.i] * u, to: r.values[z.i] * u, change: (r.values[z.i] - r.values[a.i]) * u, fromSrc: src(r, a.i), toSrc: src(r, z.i) })), doc: b.doc, src: b.src });
+    const tm = String(b.near || '').replace(/\([^)]*\)/g, ' ').match(/\b(?:total\s+)?(?:net\s+)?(?:revenues?|sales)\s+(?:disaggregated\s+)?by\s+[A-Za-z][A-Za-z &-]{2,40}?(?=\s+(?:was|were|is|are|for|as|based|in)\b|[.:;,]|$)/gi); const title = tm ? tm[tm.length - 1].trim() : '';
+    out.push({ fromLabel: a.p.label, toLabel: z.p.label, start: tot.values[a.i] * u, end: tot.values[z.i] * u, startSrc: src(tot, a.i), endSrc: src(tot, z.i), kind: SEG_KIND(head) || 'segment', title,
+      lines: rows.map((r, i) => ({ label: r.label, sub: sub.has(i), from: r.values[a.i] * u, to: r.values[z.i] * u, change: (r.values[z.i] - r.values[a.i]) * u, fromSrc: src(r, a.i), toSrc: src(r, z.i) })), doc: b.doc, src: b.src });
   });
-  /* the same segment table printed twice (a summary page and the financials) is shown once */
-  return out.filter((x, i) => out.findIndex(y => y.fromLabel === x.fromLabel && y.toLabel === x.toLabel && Math.abs(y.start - x.start) < 1 && Math.abs(y.end - x.end) < 1) === i);
+  /* the same table printed twice (a summary page and the financials) is shown once */
+  return out.filter((x, i) => out.findIndex(y => y.kind === x.kind && y.fromLabel === x.fromLabel && y.toLabel === x.toLabel && Math.abs(y.start - x.start) < 1 && Math.abs(y.end - x.end) < 1 && y.lines.length === x.lines.length) === i);
 }
 
 /* ---------- formatting shared with the UI ---------- */
@@ -1209,7 +1229,7 @@ function docFromPdfItems(name, pagesItems) {
       }
       const cp = cells.map(x => ({ ...x, text: x.text.replace(/\s+/g, ' ').trim() })).filter(x => x.text);
       const r1 = v => Math.round(v * 10) / 10;
-      return { n: li + 1, cp, h: r1(l.h), box: [r1(Math.min(...l.items.map(i => i.x))), r1(l.y), r1(Math.max(...l.items.map(i => i.x + (i.w || 0)))), r1(l.h)] };
+      return { n: li + 1, cp, h: r1(l.h), box: [r1(Math.min(...l.items.map(i => i.x))), r1(l.y), r1(Math.max(...l.items.map(i => i.x + (i.w || 0)))), r1(l.h)], ...(l.items.some(i => i.o) ? { ocr: 1 } : {}) };
     }).filter(l => l.cp.length);
     /* a column heading wrapped inside its cell ("LTM Jun-" over "26", printed above and below the other headings, or
        its second half on the next line) is one heading on the heading line */
@@ -1285,7 +1305,8 @@ function docFromDocxHtml(name, html) {
 /* ---------- anchors ---------- */
 /* the number printed on a PDF page, where it is not the page's place in the file */
 /* a PDF page read with text recognition: its figures are marked so they're checked against the page image */
-function scannedPage(a) { try { const d = a && a.t === 'pdf' && typeof MD === 'function' ? docById(a.d) : null; const pg = d && d.pages && d.pages[a.p - 1]; return !!(pg && pg.ocr); } catch (e) { return false; } }
+const pageLineScan = (pg, a) => !!(pg && (pg.ocr || (pg.ocrPics && (pg.lines || []).some(l => l.n === a.l && l.ocr))));
+function scannedPage(a) { try { const d = a && a.t === 'pdf' && typeof MD === 'function' ? docById(a.d) : null; const pg = d && d.pages && d.pages[a.p - 1]; return pageLineScan(pg, a); } catch (e) { return false; } }
 function printedPage(a) { try { const d = typeof MD === 'function' ? docById(a.d) : null; const pg = d && d.pages && d.pages[a.p - 1]; return pg && pg.label && pg.label !== String(a.p) ? pg.label : null; } catch (e) { return null; } }
 function anchorLabel(a) {
   if (!a) return '';
@@ -1486,7 +1507,8 @@ function columnPeriods(cells, projCtx, near) {
   const MON = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?$/i;
   const ctxYear = (String(near || '').match(/\b(19\d{2}|20\d{2})\b/g) || []).pop();
   let keep = 0, skip = 0, unknown = 0; const cols = cs.map(c => { let m;
-    if (/^(variance|var\.?|change|chg\.?|%.*|.*%|% of .*|b\/\(w\)|fav.*|unfav.*|diff.*)$/i.test(c)) { skip++; return { skip: true }; }
+    if (/^(variance|var\.?|change|chg\.?|%.*|.*%|% of .*|b\/\(w\)|fav.*|unfav.*|diff.*|\$\s*(?:change|chg\.?|variance|var\.?|increase|inc\.?|\(?decrease\)?|increase\s*\/?\s*\(decrease\)))$/i.test(c)) { skip++; return { skip: true }; }
+    if ((m = c.match(new RegExp(`^${MONTHS_RE}\\s+(\\d{1,2}),?\\s+(\\d{4})$`, 'i')))) { const y = +m[3]; keep++; return { key: y + 'A', label: 'FY' + y, type: 'H', year: y, date: y + '-' + String(MON_N(m[1])).padStart(2, '0') }; }
     if ((m = c.match(/^(?:budget|plan|forecast|fcst|target|bud\.?|prior year|py)\b.*?(19\d{2}|20\d{2})?$/i))) { skip++; return { skip: true }; }
     if ((m = c.match(/^(?:q[1-4]|[1-4]q|h[12]|ytd|qtd|mtd)\b[\s'-]*(\d{2,4})?$/i)) || (m = c.match(/^(19\d{2}|20\d{2})\s*q[1-4]$/i))) { skip++; return { skip: true }; }
     if (MON.test(c) || /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-' ]\d{2,4}$/i.test(c) && cs.filter(x => /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(x)).length >= 4) { skip++; return { skip: true }; }
@@ -1531,6 +1553,7 @@ function titlePeriod(text) { const t = String(text || ''); const M = '(jan|feb|m
 function amountHeader(cells, ctxText) { const c = cells.length === 2 && /^(financial row|account|accounts|description|particulars|line item|item|name)$/i.test(String(cells[0]).trim()) ? cells.slice(1) : cells; if (c.length !== 1 || !/^(total|amount|balance|actual|ytd total)$/i.test(String(c[0]).trim())) return null; return titlePeriod(ctxText); }
 function singlePeriod(cells) {
   if (cells.length !== 1) return null; const t = String(cells[0]).trim(); let m;
+  if (/^\d{1,3}$/.test(t)) return null;
   /* one column headed with a period range or a fiscal year: "Jan - Dec 25", "Jan - Dec 2025", "FY2025", "YE Dec-25" */
   { const h = hdrCell(t); if (h !== t || /^(fy|cy)/i.test(t)) { const mh = MONTH_HDR(h); const y = (h.match(/^(?:FY|CY)?'?(19\d{2}|20\d{2})$/i) || [])[1] || (mh && /^(ye|fye|.*end)/i.test(t) ? mh.slice(0, 4) : null);
     if (y) { const out = [{ key: y + 'A', label: 'FY' + y, type: 'H', year: +y }]; out.single = true; return out; } } }
@@ -1579,7 +1602,7 @@ function headerPeriodsRaw(cells, projCtx) {
 }
 function rowValues(cells) {
   cells = cells.flatMap(c => /(\.\s?){3,}|…{2,}|_{3,}/.test(String(c)) ? String(c).split(/\s*(?:(?:\.\s?){3,}|…{2,}|_{3,})\s*/).filter(Boolean) : [c]);
-  cells = cells.map(c => String(c).replace(/^(\D*?)(\d{1,3}(?: \d{3})+(?:\.\d+)?)(\D*)$/, (m0, a, b, z) => a + b.replace(/ /g, '') + z).replace(/(\d)[\u00a0\u202f\u2009](?=\d{3}(\D|$))/g, '$1').replace(/(\d)\s+\((?:[a-z]|[ivx]{1,4}|\d)\)$/i, '$1'));
+  cells = cells.map(c => String(c).replace(/^(\D*?)(\d{1,3}(?: \d{3})+(?:\.\d+)?)(\D*)$/, (m0, a, b, z) => a + b.replace(/ /g, '') + z).replace(/(\d)[\u00a0\u202f\u2009](?=\d{3}(\D|$))/g, '$1').replace(/(\d)\s+\((?:[a-z]|[ivx]{1,4}|\d)\)$/i, '$1').replace(/(\d)\s+%$/, '$1%'));
   let end = cells.length - 1;
   while (end > 1 && !parseNum(cells[end]) && /[a-z]/i.test(cells[end]) && cells.slice(1, end).some(c => parseNum(c) && !parseNum(c).dash)) end--;
   const vals = []; let i = end;
@@ -1676,7 +1699,7 @@ function tablesFromLines(lines, ctx, out) {
     { const cm = cells.length === 2 && cells[0].match(/^(?:(top)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)|(largest|top))\s+(?:single\s+)?customers?$/i); const pv = cm ? parseNum(cells[1]) : null;
       if (cm && pv && pv.pct && pv.v > 0 && pv.v < 100) { const n = cm[2] ? (WORDN[cm[2].toLowerCase()] || +cm[2]) : 1; out.facts.push(n === 1 ? { kind: 'largest', name: null, pct: pv.v / 100, text: txt, src: ln.src, table: true } : { kind: 'topN', n, pct: pv.v / 100, text: txt, src: ln.src, table: true }); } }
     /* a footnote marker printed on its own ("(a)", a superscript one line up or down from its row) */
-    if (/^\(?(?:[a-z]|\d{1,2})\)$/i.test(txt)) { prevCells = pc0; use(ln); return; }
+    if (/^\(?(?:[a-z]|\d{1,2})\)$/i.test(txt) || (ctx.ocr && /^\(?[a-z©®]{1,2}\s*\)$|^\([a-z©®]{1,2}\s*\)?$/i.test(txt))) { prevCells = pc0; use(ln); return; }
     /* the second line of a wrapped row name ("Summit Alarm pre-acquisition" / "EBITDA (g)") */
     if (block && lastRow && cells.length === 1 && txt.length <= 45 && !/\d/.test(txt.replace(/\s*\((?:[a-z]|\d{1,2})\)\s*$/i, '')) && (/^[a-z]/.test(txt) || /\s\((?:[a-z]|\d{1,2})\)\s*$/i.test(txt) || /(?:&|,|\band|\bof|\bfor|\bthe|-)\s*$/i.test(lastRow.label || ''))) {
       lastRow.label += ' ' + txt; lastRow.text = (lastRow.text || '') + ' ' + txt; use(ln); return; }
@@ -1692,6 +1715,8 @@ function tablesFromLines(lines, ctx, out) {
     if (hp) { use(ln); lastRow = null; block = { periods: hp, rows: [], cur: (unitsOf(near) || /\b(000s?|thousands|millions|currency)\b/i.test(near + ' ' + cells.join(' ')) ? currencyOf(near + ' ' + cells.join(' ')) : null) || ctx.cur || null, units: unitsOf(near + ' ' + cells.join(' ')) || ctx.units, unitsNear: !!unitsOf(near + ' ' + cells.join(' ')), src: ln.src, doc: ctx.doc, isBS: BS_HINT.test(near + ' ' + (ctx.bsHint || '')),
       debtSchedule: /\b(net debt|funded debt|capitali[sz]ation table|capitali[sz]ation|debt summary|debt schedule|indebtedness)\b/i.test(near) && !BS_HINT.test(near), near }; out.blocks.push(block); recent.length = 0; return; }
     let row = block ? parseRow(cells, block.periods.cols ? block.periods.cols.length : block.periods.length) : null;
+    if (!row && block && block.periods.cols && !block.periods.groups) { const C = block.periods.cols; const k = C.lastIndexOf(true) + 1;
+      if (k > 0 && k < C.length) { const r2 = parseRow(cells, k); if (r2) { const pad = C.length - k; r2.values = r2.values.concat(Array(pad).fill(null)); r2.scales = r2.scales.concat(Array(pad).fill(null)); if (r2.dash) r2.dash = r2.dash.concat(Array(pad).fill(false)); row = r2; } } }
     /* in a spreadsheet each figure cites its own cell (or, for a year added up from months, the cells it adds) */
     let cellCols = null;
     if (row && ln.cols && ln.src && ln.src.t === 'xlsx' && cells.length === ln.cells.length) { const n0 = row.values.length; const tail = cells.slice(-n0);
@@ -2676,7 +2701,7 @@ function extractAll(docs) {
           if (prev && prev.labelOnly && /^[a-z(]/.test(first) && hasNum(l.cells)) { joined[joined.length - 1] = { cells: [prev.cells[0] + ' ' + first, ...l.cells.slice(1)], text: prev.text + ' ' + l.text, src: prev.src, also: [l.src] }; return; }
           joined.push({ ...l, labelOnly: (l.cells || []).length === 1 && /^[A-Z]/.test(first) && !/\d/.test(first) && first.length > 25 && !/:$/.test(first) }); });
         const used = new Set();
-        if (!xn) tablesFromLines(joined, { units: pageUnitsOf(p) || docUnits, pageUnits: pageUnitsOf(p), proj: PROJ_CTX.test(pageText), doc: d.id, asOf: asOfIn(pageText), used }, out);
+        if (!xn) tablesFromLines(joined, { units: pageUnitsOf(p) || docUnits, pageUnits: pageUnitsOf(p), proj: PROJ_CTX.test(pageText), doc: d.id, asOf: asOfIn(pageText), used, ocr: !!p.ocr }, out);
         const pageBS = out.blocks.slice(pb).some(b => b.isBS);
         if (!xn && !pageBS && /balance sheet/i.test(pageText) && /total (current )?assets[^a-z]{0,40}\d/i.test(pageText) && /total (current )?liabilities[^a-z]{0,40}\d/i.test(pageText)) {
           const dm = pageText.match(/as of ([A-Z][a-z]+)\.? (\d{1,2}), (\d{4})/);
@@ -4243,7 +4268,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   return R;
 }
 /* a citation on a PDF page that was read with text recognition */
-function srcIsScan(docs, a) { if (!a || a.t !== 'pdf') return false; const d = (docs || []).find(x => x.id === a.d); const pg = d && d.pages && d.pages[a.p - 1]; return !!(pg && pg.ocr); }
+function srcIsScan(docs, a) { if (!a || a.t !== 'pdf') return false; const d = (docs || []).find(x => x.id === a.d); const pg = d && d.pages && d.pages[a.p - 1]; return pageLineScan(pg, a); }
 /* ---------- what needs a person's review, for each upload ----------
    One list of everything read with less than full certainty: figures that don't tie, figures stated two ways, units the
    platform had to decide, tables read in a particular way, and figures read from scanned pages. Each item cites where to look. */
@@ -4258,6 +4283,9 @@ function reviewList(R, docs) {
     (R.M ? R.M.addbacks : []).forEach(a => { if (srcIsScan(docs, a.src) && a.src.d === d.id) key.push(a.src); });
     (R.bsItems || []).forEach(i => { if (i.src && i.src.d === d.id && srcIsScan(docs, i.src) && ['Cash', 'Debt', 'Debt-like'].includes(i.cls)) key.push(i.src); });
     add(d.id, 'check', `${d.name}: page${d.ocr.pages.length === 1 ? '' : 's'} ${d.ocr.pages.length > 10 ? d.ocr.pages.slice(0, 10).join(', ') + '…' : d.ocr.pages.join(', ')} ${d.ocr.pages.length === 1 ? 'is a scan' : 'are scans'}, read with text recognition (average confidence ${d.ocr.confidence}%${low.length ? `; lowest on page${low.length === 1 ? '' : 's'} ${low.join(', ')}` : ''}). Text recognition can misread a digit or drop a line, so check the figures marked "scan" against the page. The key ones are cited here.`, key); });
+  (docs || []).filter(d => d.ocrPics && d.ocrPics.pages && d.ocrPics.pages.length).forEach(d => {
+    const cs = []; d.pages.filter(p => p.ocrPics).forEach(p => p.lines.filter(l => l.ocr && /\d/.test(l.text)).slice(0, 3).forEach(l => cs.push({ d: d.id, t: 'pdf', p: p.n, l: l.n })));
+    add(d.id, 'check', `${d.name}: a table on page${d.ocrPics.pages.length === 1 ? '' : 's'} ${d.ocrPics.pages.join(', ')} is a picture rather than text, and was read with text recognition (average confidence ${d.ocrPics.confidence}%). Text recognition can misread a digit or drop a line, so check the figures marked "scan" against the page.`, cs); });
   /* figures that don't tie, disagree between places, or were adjusted to fit */
   (R.dataChecks || []).forEach(c => { if (c.status !== 'warn' && c.status !== 'fixed') return; if (/read with text recognition/.test(c.text)) return;
     add(c.doc || docOf(c.src), c.status === 'fixed' ? 'decided' : 'check', c.text, [c.src, ...(c.srcs || [])]); });
@@ -5524,7 +5552,7 @@ function memoModel(R, m, opts) {
     /* revenue bridge, cohorts, price and volume, cuts and margin bridges from the ledger; segment change as stated */
     if (has('revenue') && (R.RA || (R.segBridge || []).length)) { const A = R.RA, b = []; const sgn = v => v == null ? '' : (v < 0 ? '(' + th(-v) + ')' : th(v)); const pts = x => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + ' pts';
       const ledgerNote = { small: 'Each figure from the ledger adds up the ledger lines behind it; every line, with its row in the file, is listed in the workbook (Revenue analytics lines).' };
-      (R.segBridge || []).forEach(sb => { b.push({ h: `Revenue change by segment, ${sb.fromLabel} to ${sb.toLabel} (as stated)` }, { table: { unit: curUnit('thousands'), head: ['Segment', sb.fromLabel, sb.toLabel, 'Change', 'Growth'], rows: [...sb.lines.map(l => [l.label, th(l.from), th(l.to), sgn(l.change), l.from ? pc(l.to / l.from - 1) : '–']), ['Total revenue', th(sb.start), th(sb.end), sgn(sb.end - sb.start), sb.start ? pc(sb.end / sb.start - 1) : '–']], align: ['l', 'r', 'r', 'r', 'r'], widths: [0.36, 0.16, 0.16, 0.16, 0.16], notes: note([...sb.lines.flatMap(l => [l.fromSrc, l.toSrc]), sb.startSrc, sb.endSrc]) } }); });
+      (R.segBridge || []).forEach(sb => { b.push({ h: `Revenue change by ${sb.kind || 'segment'}, ${sb.fromLabel} to ${sb.toLabel} (as stated)` }, { table: { unit: curUnit('thousands'), head: [(sb.kind || 'segment').replace(/^./, c => c.toUpperCase()), sb.fromLabel, sb.toLabel, 'Change', 'Growth'], rows: [...sb.lines.map(l => [(l.sub ? '  of which ' : '') + l.label, th(l.from), th(l.to), sgn(l.change), l.from ? pc(l.to / l.from - 1) : '–']), ['Total revenue', th(sb.start), th(sb.end), sgn(sb.end - sb.start), sb.start ? pc(sb.end / sb.start - 1) : '–']], align: ['l', 'r', 'r', 'r', 'r'], widths: [0.36, 0.16, 0.16, 0.16, 0.16], notes: note([...sb.lines.flatMap(l => [l.fromSrc, l.toSrc]), sb.startSrc, sb.endSrc]) } }); });
       const bk = A && A.bridges[A.bridges.length - 1];
       if (bk) b.push({ h: `Revenue bridge by customer, ${bk.fromLabel} to ${bk.toLabel}` }, { p: `Net revenue retention was ${bk.nrr != null ? pc(bk.nrr) : 'n/a'} and gross revenue retention ${bk.grr != null ? pc(bk.grr) : 'n/a'} across the ${bk.startCustomers} customers buying in ${bk.fromLabel}; ${bk.lostCustomers} of them stopped buying and ${bk.newCustomers} new customers bought for the first time.` },
         { table: { unit: curUnit('thousands'), head: ['', 'Customers', 'Revenue'], rows: [[`Revenue, ${bk.fromLabel}`, '', th(bk.start)], ...bk.lines.filter(l => l.customers || l.amount).map(l => [l.label, l.customers == null ? '' : String(l.customers), sgn(l.amount)]), [`Revenue, ${bk.toLabel}`, '', th(bk.end)]], align: ['l', 'r', 'r'], widths: [0.6, 0.15, 0.25] } });
@@ -6878,7 +6906,7 @@ function workbookModel(R, m) {
     add('Cost allocations', ['Cost / line', ...Array.from({ length: np }, (_, i) => AL.every(a => a.periods[i] === AL[0].periods[i]) ? AL[0].periods[i] || '' : ''), 'Source'], rows, { widths: [44, ...Array(np).fill(16), 60], note: 'As stated in the documents. These costs are already inside the income statement lines and are not counted again' }); } }
   /* revenue analytics: the tables, and every ledger line behind them with its row in the file */
   { const A = R.RA; const usd = v => v == null ? '' : { v, k: 'usd' };
-    (R.segBridge || []).forEach((sb, k) => add(k ? `Segment change ${k + 1}` : 'Segment change', ['Segment', sb.fromLabel, sb.toLabel, 'Change', 'Source (earlier)', 'Source (later)'], [...sb.lines.map(l => [l.label, usd(l.from), usd(l.to), usd(l.change), where(l.fromSrc), where(l.toSrc)]), ['Total revenue', usd(sb.start), usd(sb.end), usd(sb.end - sb.start), where(sb.startSrc), where(sb.endSrc)]], { widths: [34, 16, 16, 16, 40, 40], note: 'As stated in the documents; the segments add up to total revenue' }));
+    (R.segBridge || []).forEach((sb, k) => add(k ? `Segment change ${k + 1}` : 'Segment change', [(sb.kind || 'segment').replace(/^./, c => c.toUpperCase()), sb.fromLabel, sb.toLabel, 'Change', 'Source (earlier)', 'Source (later)'], [...sb.lines.map(l => [(l.sub ? '  of which ' : '') + l.label, usd(l.from), usd(l.to), usd(l.change), where(l.fromSrc), where(l.toSrc)]), ['Total revenue', usd(sb.start), usd(sb.end), usd(sb.end - sb.start), where(sb.startSrc), where(sb.endSrc)]], { widths: [34, 16, 16, 16, 40, 40], note: 'As stated in the documents; the lines add up to total revenue (lines marked "of which" are parts of the line above and are not counted again)' }));
     if (A) { const lines = [];
       const push = (analysis, comp, rows) => rows.forEach(r => lines.push([analysis, comp, r.date, r.entry_id, `${r.account} ${r.account_name}`.trim(), r.counterparty || '', usd(r.flip ? -r.amount : r.amount), r.flip ? 'Subtracted (earlier period)' : 'Added', where(r.src)]));
       const bk = A.bridges[A.bridges.length - 1];
@@ -7629,11 +7657,12 @@ function revenueAnalyticsHTML(R) {
 /* revenue by segment as the documents state it, and what changed */
 function segmentBridgeHTML(R) {
   const S = R.segBridge || []; if (!S.length) return '';
-  return S.map(b => `<section class="sec"><div class="sechead"><h2>Revenue change by segment</h2><span class="aside">${esc(b.fromLabel)} to ${esc(b.toLabel)}; as stated in ${esc(((R.docs || []).find(d => d.id === b.doc) || {}).name || 'the documents')}</span></div>
-    <div class="tbl"><table><thead><tr><th>Segment</th><th class="n">${esc(b.fromLabel)}</th><th class="n">${esc(b.toLabel)}</th><th class="n">Change</th><th class="n">Growth</th><th class="n">Share of growth</th></tr></thead><tbody>
-    ${b.lines.map(l => `<tr><td>${esc(l.label)}</td><td class="n">${$(l.from)} ${cite(l.fromSrc)}</td><td class="n">${$(l.to)} ${cite(l.toSrc)}</td><td class="n${l.change < 0 ? ' neg' : ''}">${$(l.change)}</td><td class="n">${l.from ? pc(l.to / l.from - 1) : '–'}</td><td class="n">${b.end - b.start ? pc(l.change / (b.end - b.start)) : '–'}</td></tr>`).join('')}
+  const KN = { segment: 'Segment', 'end market': 'End market', product: 'Product', geography: 'Geography' };
+  return S.map(b => { const top = b.lines.filter(l => !l.sub); return `<section class="sec"><div class="sechead"><h2>Revenue change by ${esc(b.kind || 'segment')}</h2><span class="aside">${esc(b.fromLabel)} to ${esc(b.toLabel)}; ${b.title ? `"${esc(b.title)}", ` : ''}as stated in ${esc(((R.docs || []).find(d => d.id === b.doc) || {}).name || 'the documents')}</span></div>
+    <div class="tbl"><table><thead><tr><th>${KN[b.kind] || 'Segment'}</th><th class="n">${esc(b.fromLabel)}</th><th class="n">${esc(b.toLabel)}</th><th class="n">Change</th><th class="n">Growth</th><th class="n">Share of growth</th></tr></thead><tbody>
+    ${b.lines.map(l => `<tr${l.sub ? ' class="muted"' : ''}><td${l.sub ? ' style="padding-left:22px"' : ''}>${l.sub ? 'of which ' : ''}${esc(l.label)}</td><td class="n">${$(l.from)} ${cite(l.fromSrc)}</td><td class="n">${$(l.to)} ${cite(l.toSrc)}</td><td class="n${l.change < 0 ? ' neg' : ''}">${$(l.change)}</td><td class="n">${l.from ? pc(l.to / l.from - 1) : '–'}</td><td class="n">${b.end - b.start ? pc(l.change / (b.end - b.start)) : '–'}</td></tr>`).join('')}
     <tr class="total"><td>Total revenue</td><td class="n">${$(b.start)} ${cite(b.startSrc)}</td><td class="n">${$(b.end)} ${cite(b.endSrc)}</td><td class="n">${$(b.end - b.start)}</td><td class="n">${b.start ? pc(b.end / b.start - 1) : '–'}</td><td class="n">100.0%</td></tr></tbody></table></div>
-    <p class="muted" style="font-size:12px;margin-top:6px">The segments add up to total revenue in every period the table shows.</p></section>`).join('');
+    <p class="muted" style="font-size:12px;margin-top:6px">The ${top.length} ${KN[b.kind] ? KN[b.kind].toLowerCase() : 'segment'} lines add up to total revenue in every period the table shows${top.length < b.lines.length ? '; lines marked "of which" are parts of the line above them and are not counted again' : ''}.</p></section>`; }).join('');
 }
 /* the list of what needs a person's look, grouped by document */
 function reviewHTML(compact) {
@@ -8387,7 +8416,8 @@ function ocrInvertDark(ctx, W, H) { const bands = []; const img = ctx.getImageDa
       y = y2 + 1; } else y++; }
   ctx.putImageData(img, 0, 0); return bands; }
 /* what text recognition commonly prints for a table's marks: a dash as "=" or "~", a dollar sign as "¢" or "S" before digits */
-const ocrFix = (t, conf) => { let s = String(t).replace(/¢(?=\s?in\b|\d)/g, '$').replace(/^S(?=\d[\d,]*(?:\.\d+)?$)/, '$');
+const ocrFix = (t, conf) => { if (/^\(?[©®@][)!|1l]?$/.test(String(t).trim())) return '';                                 // a small raised footnote letter read as "©)" or "©!"
+  let s = String(t).replace(/\(©\)?/g, '(c)').replace(/¢(?=\s?in\b|\d)/g, '$').replace(/^S(?=\d[\d,]*(?:\.\d+)?$)/, '$');
   s = s.replace(/^[“”"'‘’|\[\]{}]+(?=\S)/, '').replace(/(?<=\S)[“”"'‘’|\[\]{}]+$/, '');                          // quotes and bars a speck turned into
   if (/^[=~_—–-]{1,2}$/.test(s)) return '–';
   if (/^\d$/.test(s) && conf < 80) return '–';                                                              // a dash read as a lone digit
@@ -8399,9 +8429,21 @@ const ocrFix = (t, conf) => { let s = String(t).replace(/¢(?=\s?in\b|\d)/g, '$'
   if (/^\(?\d{1,3}\.\d{3}\)?$/.test(s)) s = s.replace('.', ',');                                              // "9.910" for 9,910
   s = s.replace(/(\d%)\.$/, '$1');                                                                            // "13.2%."
   return s; };
-async function ocrPages(pdf, pages, idx, name) {
+const OCR_PICS = 12;
+/* large pictures on a page, in page coordinates, with no text printed over them (a picture behind text is a background) */
+async function pdfPictureBoxes(pg, W, H, items) { try { const ol = await pg.getOperatorList(); const O = pdfjsLib.OPS; let m = [1, 0, 0, 1, 0, 0]; const st = []; const out = [];
+    const T = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+    for (let k = 0; k < ol.fnArray.length; k++) { const f = ol.fnArray[k], a = ol.argsArray[k];
+      if (f === O.save) st.push(m); else if (f === O.restore) m = st.pop() || m; else if (f === O.transform) m = T(m, a);
+      else if (f === O.paintFormXObjectBegin) { st.push(m); if (a && a[0]) m = T(m, a[0]); } else if (f === O.paintFormXObjectEnd) m = st.pop() || m;
+      else if (f === O.paintImageXObject || f === O.paintInlineImageXObject || f === O.paintImageXObjectRepeat) { const ps = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+        const xs = ps.map(q => q[0]), ys = ps.map(q => q[1]); out.push({ x0: Math.max(0, Math.min(...xs)), x1: Math.min(W, Math.max(...xs)), y0: Math.max(0, Math.min(...ys)), y1: Math.min(H, Math.max(...ys)) }); } }
+    return out.filter(b => { const w = b.x1 - b.x0, h = b.y1 - b.y0; if (w < W * 0.25 || h < 60 || w * h < W * H * 0.06) return false;
+      return items.filter(i => i.str && i.str.trim() && i.x + (i.w || 0) / 2 > b.x0 && i.x + (i.w || 0) / 2 < b.x1 && i.y > b.y0 && i.y < b.y1).length < 3; });
+  } catch (e) { return []; } }
+async function ocrPages(pdf, pages, idx, name, regions) {
   if (!window.Tesseract) await loadScript(OCR_LIB.js);
-  const todo = idx.slice(0, OCR_MAX); const conf = {}; const done = [];
+  const todo = idx.slice(0, OCR_MAX); const conf = {}; const done = []; const picsDone = []; const isPic = i => !!(regions && regions[i] && pages[i].items.length);
   uploadProgress(`${name}: ${idx.length} scanned page${idx.length === 1 ? '' : 's'}. Loading text recognition\u2026`);
   const worker = await Promise.race([Tesseract.createWorker('eng', 1, { workerPath: OCR_LIB.worker, corePath: OCR_LIB.core, langPath: OCR_LIB.lang, logger: () => { } }),
     new Promise((_, rej) => setTimeout(() => rej(new Error('text recognition took too long to load')), 90000))]);
@@ -8413,7 +8455,12 @@ async function ocrPages(pdf, pages, idx, name) {
       let cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
       let ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
       await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-      cv = ocrDeskew(cv); ctx = cv.getContext('2d');
+      const reg = isPic(i) ? regions[i] : null;
+      /* a picture on a text page: only the picture is read (the rest of the page is blanked out) */
+      if (reg) { const ph = vp.height / scale; const cw = document.createElement('canvas'); cw.width = cv.width; cw.height = cv.height; const wx = cw.getContext('2d'); wx.fillStyle = '#fff'; wx.fillRect(0, 0, cw.width, cw.height);
+        reg.forEach(b => { const sx = Math.max(0, Math.floor(b.x0 * scale)), sy = Math.max(0, Math.floor((ph - b.y1) * scale)), sw = Math.min(cv.width - sx, Math.ceil((b.x1 - b.x0) * scale)), sh = Math.min(cv.height - sy, Math.ceil((b.y1 - b.y0) * scale)); if (sw > 0 && sh > 0) wx.drawImage(cv, sx, sy, sw, sh, sx, sy, sw, sh); });
+        cv.width = cv.height = 0; cv = cw; } else cv = ocrDeskew(cv);
+      ctx = cv.getContext('2d');
       const bands = ocrInvertDark(ctx, cv.width, cv.height);
       const { data } = await worker.recognize(cv);
       /* each shaded band (a header row) is read again on its own, which reads its few words far more reliably than as part of the page */
@@ -8426,32 +8473,69 @@ async function ocrPages(pdf, pages, idx, name) {
           const bw = (r.data.words || []).filter(w => w.text && w.text.trim()); if (!bw.length) continue;
           const keep = l => ({ ...l, words: (l.words || []).filter(w => !inB(w)) });
           data.lines = (data.lines || []).map(keep).filter(l => l.words.length); data.lines.push({ words: bw }); } catch (e) { } } 
+      /* a table row read as figures with no name ("150)  (210)" for "Gain on sale of vehicles (f)  –  (150)  (210)") is read again
+         as one line, from the page's left edge to its last figure; the second reading is used only when it finds the row's name and
+         at least the same figures */
+      try { const W = cv.width; const ls0 = data.lines || []; const fixes = [];
+        for (const l of ls0) { const ws = (l.words || []).filter(w => w.text && w.text.trim()); if (!ws.length) continue;
+          /* the run of figures that starts the line (a notes column to its right may share the line) */
+          const sw0 = ws.filter(w => w.confidence > 20 && /[A-Za-z0-9–—]/.test(w.text)).sort((p, q) => p.bbox.x0 - q.bbox.x0); if (!sw0.length) continue; const isFig = t => /^[\s$(–—-]*[\d,.]+[)%]?$|^[–—-]$/.test(t.trim());
+          let e = 0; while (e < sw0.length && isFig(sw0[e].text)) e++; const run = sw0.slice(0, e);
+          if (run.filter(w => /\d/.test(w.text)).length < 1 || run.length < 2 || sw0[0].bbox.x0 < W * 0.2) continue;
+          const y0 = Math.min(...run.map(w => w.bbox.y0)), y1 = Math.max(...run.map(w => w.bbox.y1)), x1 = Math.max(...run.map(w => w.bbox.x1)); const pad = Math.round((y1 - y0) * 0.6), k = 1.5;
+          const sx = 0, sy = Math.max(0, y0 - pad), sw = Math.min(W, x1 + pad), sh = Math.min(cv.height - sy, y1 - y0 + 2 * pad);
+          const sc = document.createElement('canvas'); sc.width = Math.round(sw * k); sc.height = Math.round(sh * k); const sxc = sc.getContext('2d'); sxc.fillStyle = '#fff'; sxc.fillRect(0, 0, sc.width, sc.height); sxc.imageSmoothingQuality = 'high'; sxc.drawImage(cv, sx, sy, sw, sh, 0, 0, sw * k, sh * k);
+          /* single line for the re-read, then back to Tesseract.js's default (one uniform block) for the rest of the pages */ await worker.setParameters({ tessedit_pageseg_mode: '7' }); const r1 = await worker.recognize(sc); await worker.setParameters({ tessedit_pageseg_mode: '6' }); sc.width = sc.height = 0;
+          const nw = (r1.data.words || []).filter(w => w.text && w.text.trim()).map(w => ({ ...w, bbox: { x0: sx + w.bbox.x0 / k, x1: sx + w.bbox.x1 / k, y0: sy + w.bbox.y0 / k, y1: sy + w.bbox.y1 / k } }));
+          const nums = t => (t.match(/\d[\d,.]*/g) || []).map(x => x.replace(/[,.]$/, ''));
+          const before = run.flatMap(w => nums(w.text)), after = nw.flatMap(w => nums(w.text));
+          if (nw.some(w => /[A-Za-z]{3,}/.test(w.text)) && before.every(x => after.includes(x))) fixes.push({ l, nw, box: { x0: sx, x1: sx + sw, y0: sy, y1: sy + sh } }); }
+        fixes.forEach(f => { const inS = w => { const cx = (w.bbox.x0 + w.bbox.x1) / 2, cy = (w.bbox.y0 + w.bbox.y1) / 2; return cx >= f.box.x0 && cx <= f.box.x1 && cy >= f.box.y0 + 2 && cy <= f.box.y1 - 2; };
+          data.lines = (data.lines || []).map(l => ({ ...l, words: (l.words || []).filter(w => !inS(w)) })).filter(l => l.words.length); data.lines.push({ words: f.nw, reread: true }); });
+      } catch (e) { try { await worker.setParameters({ tessedit_pageseg_mode: '6' }); } catch (e2) { } }
       /* each recognized line is one printed row, even on a slightly tilted scan: its words share the line's baseline */
       const lines = (data.lines && data.lines.length ? data.lines : (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => p.lines || []))) || [];
       const items = []; lines.forEach(l => { const ws = (l.words || []).filter(w => w.text && w.text.trim() && w.confidence > 20); if (!ws.length) return;
         const hs0 = ws.map(w => w.bbox.y1 - w.bbox.y0).sort((a, b) => a - b); const hh = hs0[Math.floor(hs0.length / 2)] / scale; /* the line's typical height: one tall speck must not make every gap look small */ const y = (vp.height - Math.max(...ws.map(w => w.bbox.y1))) / scale;
         ws.forEach(w => { const t = ocrFix(w.text, w.confidence); if (t) items.push({ str: t, x: w.bbox.x0 / scale, y, w: (w.bbox.x1 - w.bbox.x0) / scale, h: hh, conf: Math.round(w.confidence) }); }); });
       if (!items.length) (data.words || []).filter(w => w.text && w.text.trim() && w.confidence > 20).forEach(w => items.push({ str: ocrFix(w.text, w.confidence), x: w.bbox.x0 / scale, y: (vp.height - w.bbox.y1) / scale, w: (w.bbox.x1 - w.bbox.x0) / scale, h: (w.bbox.y1 - w.bbox.y0) / scale }));
+      if (reg) { /* kept only when the picture reads as a table: at least two rows with a name and two or more figures */
+        const rowsOf = {}; items.forEach(it => { const k = Math.round(it.y); (rowsOf[k] = rowsOf[k] || []).push(it); });
+        /* a table row: a name, then two or more figures (or dashes) after it and nothing else, not just years */
+        const isNum = t => /^[\s$(–—-]*\d[\d,.]*[)%]?$|^[–—-]$/.test(t);
+        const tabRow = r => { const q = r.slice().sort((x, y) => x.x - y.x); let li = -1; q.forEach((it, k) => { if (/[A-Za-z]{2,}/.test(it.str)) li = k; });
+          const tail = q.slice(li + 1); return li >= 0 && tail.length >= 2 && tail.every(it => isNum(it.str)) && tail.some(it => /\d/.test(it.str) && !/^(19|20)\d{2}$/.test(it.str.trim())); };
+        const tabRows = Object.values(rowsOf).filter(tabRow).length;
+        if (tabRows >= 3) { const inR = it => reg.some(b => it.x + (it.w || 0) / 2 > b.x0 && it.x + (it.w || 0) / 2 < b.x1 && it.y > b.y0 && it.y < b.y1);
+          pages[i].items = pages[i].items.filter(it => !inR(it)).concat(items.map(it => ({ ...it, o: 1 }))); conf[i] = Math.round(data.confidence || 0); picsDone.push(i); }
+        cv.width = cv.height = 0; continue; }
       pages[i].items = items;
       conf[i] = Math.round(data.confidence || 0); done.push(i); cv.width = cv.height = 0;
     }
   } finally { try { await worker.terminate(); } catch (e) { } }
-  return { done, conf, skipped: Math.max(0, idx.length - todo.length) };
+  return { done, conf, pics: picsDone, skipped: Math.max(0, idx.filter(i => !isPic(i)).length - todo.filter(i => !isPic(i)).length) };
 }
 async function readAny(name, getBuf, getText) {
   const bad = unreadableReason(name); if (bad) throw new Error(bad);
   const ext = name.split('.').pop().toLowerCase(); const kind = READERS[ext];
   if (kind === 'pdf') { await lib('pdf'); const doc = await pdfjsLib.getDocument({ data: new Uint8Array(await getBuf()), disableFontFace: true, isEvalSupported: false }).promise; const pages = [];
-    for (let p = 1; p <= doc.numPages; p++) { const pg = await doc.getPage(p); const vp = pg.getViewport({ scale: 1 }); const tc = await pg.getTextContent(); pages.push({ w: vp.width, h: vp.height, items: tc.items.map(i => ({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width, h: Math.abs(i.transform[3]) || i.height })) }); }
-    /* pages with no text layer are scans: read them with text recognition */
+    const pics = {};
+    for (let p = 1; p <= doc.numPages; p++) { const pg = await doc.getPage(p); const vp = pg.getViewport({ scale: 1 }); const tc = await pg.getTextContent(); pages.push({ w: vp.width, h: vp.height, items: tc.items.map(i => ({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width, h: Math.abs(i.transform[3]) || i.height })) });
+      if (pages[p - 1].items.map(it => it.str).join('').replace(/\s/g, '').length >= 20) { const bx = await pdfPictureBoxes(pg, vp.width, vp.height, pages[p - 1].items); if (bx.length) pics[p - 1] = bx; } }
+    /* pages with no text layer are scans: read them with text recognition; so are large pictures on a page with text (a table
+       pasted in as an image), kept only when what they hold reads as a table */
     const scanned = pages.map((pg, i) => pg.items.map(it => it.str).join('').replace(/\s/g, '').length < 20 ? i : -1).filter(i => i >= 0);
-    let ocr = null; if (scanned.length) { try { ocr = await ocrPages(doc, pages, scanned, name); } catch (e) { ocr = { error: e && e.message || String(e), done: [] }; } }
+    const picIdx = Object.keys(pics).map(Number).filter(i => !scanned.includes(i)).slice(0, OCR_PICS);
+    let ocr = null; if (scanned.length || picIdx.length) { try { ocr = await ocrPages(doc, pages, [...scanned, ...picIdx], name, pics); } catch (e) { ocr = { error: e && e.message || String(e), done: [], pics: [] }; } }
     const d = docFromPdfItems(name, pages);
+    if (ocr && ocr.pics && ocr.pics.length) { ocr.pics.forEach(i => { if (d.pages[i]) d.pages[i].ocrPics = true; });
+      d.ocrPics = { pages: ocr.pics.map(i => i + 1), confidence: Math.round(ocr.pics.reduce((a, i) => a + (ocr.conf[i] || 0), 0) / ocr.pics.length) }; }
     if (ocr && ocr.done.length) { ocr.done.forEach(i => { if (d.pages[i]) { d.pages[i].ocr = true; d.pages[i].conf = ocr.conf[i]; } });
       const avg = Math.round(ocr.done.reduce((a, i) => a + (ocr.conf[i] || 0), 0) / ocr.done.length);
       d.ocr = { pages: ocr.done.map(i => i + 1), confidence: avg };
       d.notice = `${ocr.done.length} of ${pages.length} page${pages.length === 1 ? ' is a scan' : 's are scans'} and ${ocr.done.length === 1 ? 'was' : 'were'} read with text recognition (average confidence ${avg}%).${ocr.skipped ? ` ${ocr.skipped} more scanned pages were not read; split the file to read them.` : ''} Check figures from ${ocr.done.length === 1 ? 'that page' : 'those pages'} against the page itself.`; }
-    else if (ocr && ocr.error) d.notice = `${scanned.length} page${scanned.length === 1 ? ' is a scan' : 's are scans'} and text recognition could not run here (${ocr.error}). Upload a text-based PDF or the source spreadsheet.`;
+    else if (ocr && ocr.error && scanned.length) d.notice = `${scanned.length} page${scanned.length === 1 ? ' is a scan' : 's are scans'} and text recognition could not run here (${ocr.error}). Upload a text-based PDF or the source spreadsheet.`;
+    if (d.ocrPics) d.notice = (d.notice ? d.notice + ' ' : '') + `A table on page${d.ocrPics.pages.length === 1 ? '' : 's'} ${d.ocrPics.pages.join(', ')} is a picture and was read with text recognition (average confidence ${d.ocrPics.confidence}%); check figures from it against the page.`;
     return [d]; }
   if (kind === 'sheet') { await lib('xlsx'); const wb = XLSX.read(await getBuf(), { type: 'array', cellDates: true });
     return [docFromSheets(name, wb.SheetNames.map(n => { const ws = wb.Sheets[n]; if (!ws['!ref']) return { name: n, rows: [] }; const r = XLSX.utils.decode_range(ws['!ref']); return { name: n, rows: XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '', blankrows: true, range: { s: { r: 0, c: 0 }, e: r.e } }) }; }))]; }
