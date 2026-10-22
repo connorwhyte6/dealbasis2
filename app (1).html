@@ -3248,12 +3248,19 @@ const NEXT_STEP = {
   X06: 'Reconcile stated concentration to revenue by customer.'
 };
 
-/* Conditions to proceed: the high-severity findings. When there are none (a 50-74 score
-   from medium findings alone), use the medium-severity findings, so a conditional
-   recommendation always lists its conditions. */
+/* Conditions to proceed: every high- and medium-severity finding, highs first, so the
+   recommendation lists all of the conditions. Low findings stay in the risk sections. */
 function condFindings(R) {
-  const h = R.highs || [];
-  return h.length ? h : (R.fired || []).filter(f => f.severity === 'Medium');
+  const rank = { High: 0, Medium: 1 };
+  return (R.fired || []).filter(f => f.severity in rank).sort((a, b) => rank[a.severity] - rank[b.severity]);
+}
+/* each condition is the action required before moving forward (not the risk itself); findings that call for the
+   same action are listed once */
+function condItems(R) {
+  const out = [], seen = new Map();
+  condFindings(R).forEach(f => { const t = NEXT_STEP[f.id] || `Resolve ${f.title.charAt(0).toLowerCase() + f.title.slice(1)} before signing.`;
+    if (seen.has(t)) seen.get(t).fs.push(f); else { const c = { t, fs: [f] }; seen.set(t, c); out.push(c); } });
+  return out;
 }
 function memoModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
@@ -3303,7 +3310,7 @@ function memoModel(R, m, opts) {
   else if (R.verdict === 'Proceed with conditions') { rec.headline = 'Proceed to letter of intent, subject to conditions'; rec.ask = `The deal team requests approval to submit a non-binding letter of intent in the range of ${mn(lo)} to ${mn(base)} enterprise value (${xm(mult - 0.5)} to ${xm(mult)} diligence-adjusted EBITDA of ${mn(dil)}), conditional on resolving the items below before exclusivity.`; }
   else if (R.verdict === 'Limited evidence') { rec.headline = 'Not enough evidence to recommend a letter of intent'; rec.ask = `The documents on file support only ${R.risk.length} of the six risk areas${dil == null && R.reported == null ? ' and no EBITDA figure' : ''}. The deal team requests time to obtain management's EBITDA bridge, financial statements or a general ledger before a recommendation is made${ok(base) ? `; on the figures available, value is indicated at about ${mn(base)}` : ''}.`; }
   else { rec.headline = 'Do not proceed to letter of intent at this time'; rec.ask = `The deal team does not recommend submitting a letter of intent until the conditions below are resolved. On current evidence, value is indicated at ${mn(lo)} to ${mn(base)} enterprise value (${xm(mult - 0.5)} to ${xm(mult)} diligence-adjusted EBITDA of ${mn(dil)})${ok(mg) ? `, against ${mn(mg * mult)} implied by management's Adjusted EBITDA` : ''}.`; }
-  rec.conditions = condFindings(R).map(f => ({ t: `${f.title}. ${NEXT_STEP[f.id] || ''}`.trim(), notes: fcite(f) }));
+  rec.conditions = condItems(R).map(c => ({ t: c.t, notes: c.fs.flatMap(fcite) }));
 
   const S = []; const sec = (title, blocks) => { if (blocks && blocks.length) S.push({ title, blocks }); };
   const RC = live && typeof returnsCase === 'function' ? returnsCase(R, m) : null; const B = RC && RC.base;
@@ -4047,7 +4054,7 @@ function deckModel(R, m, opts) {
   ] });
   if (!live) { S('Recommendation', 'No source documents have been analyzed for this mandate', [txt(X0, BODY, W, 1, 'Upload the CIM, financial statements, ledger and balance sheets in Sources to generate the committee pack.', { size: 14 })]); return { slides, meta: { project: m.name, target: m.target, date: longDate } }; }
 
-  const nCond = condFindings(R).length;
+  const nCond = condItems(R).length;
   const recTitle = R.verdict === 'Go' ? `We recommend proceeding to an LOI at up to ${mn(hi)} enterprise value`
     : R.verdict === 'Proceed with conditions' ? `We recommend an LOI at ${mn(lo)} to ${mn(base)}, subject to ${nCond} condition${nCond === 1 ? '' : 's'}`
     : R.verdict === 'Limited evidence' ? 'Not enough evidence yet to recommend an LOI'
@@ -4262,13 +4269,40 @@ function deckModel(R, m, opts) {
     ], `${ans} of ${q.length} questions are answered. ${q.map(x => `${x.text} ${x.answer || x.why || ''}`).join(' ')} Outstanding requests: ${acts.join('; ') || 'none'}.`, '');
   }
 
-  /* 17 the ask */
-  slides.push({ dark: true, section: 'Recommendation', title: '', notes: `To close: ${rec_ask(R, mult, dil, mg, lo, base, hi, RC)}`, els: [
-    { t: 'rect', x: 0, y: 0, w: 10, h: 5.625, fill: C.ink },
-    txt(X0, 0.7, W, 0.3, 'RECOMMENDATION AND APPROVAL SOUGHT', { size: 10, bold: true, color: C.brand, charSpace: 2 }),
-    txt(X0, 1.1, W, 1.6, rec_ask(R, mult, dil, mg, lo, base, hi, RC), { size: 19, bold: true, color: C.white }),
-    ...(R.highs.length ? [txt(X0, 3.0, W, 0.3, 'CONDITIONS', { size: 9, bold: true, color: C.brand, charSpace: 1.5 }), txt(X0, 3.3, W, 1.7, R.highs.slice(0, 6).map(f => f.title), { size: 11, color: 'DDDDDD', numbered: true, paraAfter: 3, columns: R.highs.length > 3 ? 2 : 1 })] : [])
-  ] });
+  /* 17 the ask: the decision, the figures behind it, then the conditions to move forward */
+  {
+    const cond = condItems(R).map(c => c.t), shown = cond.slice(0, 6), more = cond.length - shown.length;
+    const headline = R.verdict === 'Go' ? 'Proceed to a letter of intent' : R.verdict === 'Proceed with conditions' ? 'Proceed to a letter of intent, subject to conditions'
+      : R.verdict === 'Limited evidence' ? 'Not enough evidence for a recommendation' : 'Do not proceed to a letter of intent yet';
+    const ask = rec_ask(R, mult, dil, mg, lo, base, hi, null);
+    const figs = [
+      ['Enterprise value', R.verdict === 'Go' ? `Up to ${mn(hi)}` : ok(lo) ? `${mn(lo)} – ${mn(base)}` : null],
+      ['Diligence EBITDA', ok(dil) ? mn(dil) : null],
+      ['Base case IRR', RC && RC.base && ok(RC.base.irr) ? pc(RC.base.irr) : null],
+      ['MOIC', RC && RC.base && ok(RC.base.moic) ? RC.base.moic.toFixed(2) + 'x' : null]
+    ].filter(f => f[1]);
+    /* the enterprise value range is the longest figure, so its column is wider */
+    const gap = 0.3, evW = figs.length > 1 && figs[0][0] === 'Enterprise value' ? 3.1 : null;
+    const fw = evW ? (W - evW - gap * (figs.length - 1)) / (figs.length - 1) : (W - gap * (figs.length - 1)) / Math.max(1, figs.length);
+    const fx = k => X0 + (evW && k > 0 ? evW + gap + (k - 1) * (fw + gap) : k * (fw + gap)), fwk = k => evW && k === 0 ? evW : fw;
+    slides.push({ dark: true, section: 'Recommendation', title: '', notes: `To close: ${rec_ask(R, mult, dil, mg, lo, base, hi, RC)}${cond.length ? ' Conditions: ' + cond.join(' ') : ''}`, els: [
+      { t: 'rect', x: 0, y: 0, w: 10, h: 5.625, fill: C.ink },
+      { t: 'rect', x: X0, y: 0.42, w: 0.9, h: 0.022, fill: C.brand },
+      txt(X0, 0.52, W, 0.28, 'RECOMMENDATION AND APPROVAL SOUGHT', { size: 9.5, bold: true, color: C.brand, charSpace: 2 }),
+      txt(X0, 0.85, W, 0.5, headline, { size: 24, bold: true, color: C.white }),
+      txt(X0, 1.4, W, 0.62, ask, { size: 11.5, color: 'CCCCCC' }),
+      ...figs.flatMap((f, k) => [
+        txt(fx(k), 2.15, fwk(k), 0.22, f[0].toUpperCase(), { size: 8, bold: true, color: '999999', charSpace: 1 }),
+        txt(fx(k), 2.37, fwk(k), 0.42, f[1], { size: 17, bold: true, color: C.white })
+      ]),
+      ...(cond.length ? [
+        { t: 'rect', x: X0, y: 2.98, w: W, h: 0.012, fill: '555555' },
+        txt(X0, 3.12, W, 0.26, `${R.verdict === 'Proceed with conditions' || R.verdict === 'Go' ? 'CONDITIONS TO PROCEED' : 'CONDITIONS TO RESOLVE FIRST'} (${cond.length})`, { size: 9, bold: true, color: C.brand, charSpace: 1.5 }),
+        txt(X0, 3.45, W, more ? 1.6 : 1.85, shown, { size: 10.5, color: 'E6E6E6', numbered: true, paraAfter: 7, columns: shown.length > 3 ? 2 : 1 }),
+        ...(more ? [txt(X0, 5.1, W, 0.25, `${more} more condition${more === 1 ? '' : 's'} in the investment memo`, { size: 9, color: '999999' })] : [])
+      ] : [])
+    ] });
+  }
 
   /* appendix */
   S('Appendix', 'Scoring methodology', [
