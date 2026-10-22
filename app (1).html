@@ -4043,13 +4043,12 @@ function deckModel(R, m, opts) {
 
   /* 1 title */
   slides.push({ dark: true, section: '', title: '', notes: `Good morning. This is ${m.name}, ${m.dealType ? 'a proposed ' + m.dealType.toLowerCase() + ' of ' : ''}${m.target}. The pack is generated from the DealBasis diligence record; every number on every page traces to a source document.`, els: [
-    { t: 'rect', x: 0, y: 0, w: 10, h: 5.625, fill: C.ink },
     ...[0, 1, 2, 3].map(i => ({ t: 'rect', x: X0, y: 0.75 + i * 0.09, w: i === 3 ? 0.9 : 1.4, h: 0.022, fill: C.brand })),
     txt(X0, 1.4, 9, 0.3, 'INVESTMENT COMMITTEE', { size: 10, bold: true, color: C.brand, charSpace: 2 }),
-    txt(X0, 1.75, 9, 0.9, m.name, { size: 40, bold: true, color: C.white }),
-    txt(X0, 2.65, 9, 0.5, m.target || '', { size: 18, color: 'E6E6E6' }),
-    txt(X0, 3.2, 9, 0.35, [m.dealType, m.stage].filter(Boolean).join('  ·  '), { size: 12, color: 'BBBBBB' }),
-    txt(X0, 4.45, 5.5, 0.6, `${longDate}\nDeal team: ${['analyst', 'manager', 'partner'].map(r => m.owners[r]).filter(Boolean).join(', ') || 'Not set'}`, { size: 10, color: 'BBBBBB' }),
+    txt(X0, 1.75, 9, 0.9, m.name, { size: 40, bold: true, color: C.ink }),
+    txt(X0, 2.65, 9, 0.5, m.target || '', { size: 18, color: '333333' }),
+    txt(X0, 3.2, 9, 0.35, [m.dealType, m.stage].filter(Boolean).join('  ·  '), { size: 12, color: '666666' }),
+    txt(X0, 4.45, 5.5, 0.6, `${longDate}\nDeal team: ${['analyst', 'manager', 'partner'].map(r => m.owners[r]).filter(Boolean).join(', ') || 'Not set'}`, { size: 10, color: '666666' }),
     txt(5.5, 4.75, 4, 0.3, 'STRICTLY CONFIDENTIAL', { size: 9, bold: true, color: C.brand, align: 'right', charSpace: 1.5 })
   ] });
   if (!live) { S('Recommendation', 'No source documents have been analyzed for this mandate', [txt(X0, BODY, W, 1, 'Upload the CIM, financial statements, ledger and balance sheets in Sources to generate the committee pack.', { size: 14 })]); return { slides, meta: { project: m.name, target: m.target, date: longDate } }; }
@@ -4286,20 +4285,19 @@ function deckModel(R, m, opts) {
     const fw = evW ? (W - evW - gap * (figs.length - 1)) / (figs.length - 1) : (W - gap * (figs.length - 1)) / Math.max(1, figs.length);
     const fx = k => X0 + (evW && k > 0 ? evW + gap + (k - 1) * (fw + gap) : k * (fw + gap)), fwk = k => evW && k === 0 ? evW : fw;
     slides.push({ dark: true, section: 'Recommendation', title: '', notes: `To close: ${rec_ask(R, mult, dil, mg, lo, base, hi, RC)}${cond.length ? ' Conditions: ' + cond.join(' ') : ''}`, els: [
-      { t: 'rect', x: 0, y: 0, w: 10, h: 5.625, fill: C.ink },
       { t: 'rect', x: X0, y: 0.42, w: 0.9, h: 0.022, fill: C.brand },
       txt(X0, 0.52, W, 0.28, 'RECOMMENDATION AND APPROVAL SOUGHT', { size: 9.5, bold: true, color: C.brand, charSpace: 2 }),
-      txt(X0, 0.85, W, 0.5, headline, { size: 24, bold: true, color: C.white }),
-      txt(X0, 1.4, W, 0.62, ask, { size: 11.5, color: 'CCCCCC' }),
+      txt(X0, 0.85, W, 0.5, headline, { size: 24, bold: true, color: C.ink }),
+      txt(X0, 1.4, W, 0.62, ask, { size: 11.5, color: '444444' }),
       ...figs.flatMap((f, k) => [
-        txt(fx(k), 2.15, fwk(k), 0.22, f[0].toUpperCase(), { size: 8, bold: true, color: '999999', charSpace: 1 }),
-        txt(fx(k), 2.37, fwk(k), 0.42, f[1], { size: 17, bold: true, color: C.white })
+        txt(fx(k), 2.15, fwk(k), 0.22, f[0].toUpperCase(), { size: 8, bold: true, color: '777777', charSpace: 1 }),
+        txt(fx(k), 2.37, fwk(k), 0.42, f[1], { size: 17, bold: true, color: C.ink })
       ]),
       ...(cond.length ? [
-        { t: 'rect', x: X0, y: 2.98, w: W, h: 0.012, fill: '555555' },
+        { t: 'rect', x: X0, y: 2.98, w: W, h: 0.012, fill: C.rule },
         txt(X0, 3.12, W, 0.26, `${R.verdict === 'Proceed with conditions' || R.verdict === 'Go' ? 'CONDITIONS TO PROCEED' : 'CONDITIONS TO RESOLVE FIRST'} (${cond.length})`, { size: 9, bold: true, color: C.brand, charSpace: 1.5 }),
-        txt(X0, 3.45, W, more ? 1.6 : 1.85, shown, { size: 10.5, color: 'E6E6E6', numbered: true, paraAfter: 7, columns: shown.length > 3 ? 2 : 1 }),
-        ...(more ? [txt(X0, 5.1, W, 0.25, `${more} more condition${more === 1 ? '' : 's'} in the investment memo`, { size: 9, color: '999999' })] : [])
+        txt(X0, 3.45, W, more ? 1.6 : 1.85, shown, { size: 10.5, color: '222222', numbered: true, paraAfter: 7, columns: shown.length > 3 ? 2 : 1 }),
+        ...(more ? [txt(X0, 5.1, W, 0.25, `${more} more condition${more === 1 ? '' : 's'} in the investment memo`, { size: 9, color: '777777' })] : [])
       ] : [])
     ] });
   }
@@ -4403,7 +4401,7 @@ function deckPptx(D, PptxGenJS) {
   const p = new PptxGenJS(); p.layout = 'LAYOUT_16x9'; p.author = 'DealBasis'; p.title = `${D.meta.project}: Investment Committee`;
   const F = 'Arial'; const total = D.slides.length;
   D.slides.forEach((s, si) => {
-    const sl = p.addSlide(); sl.background = { color: s.dark ? '111111' : 'FFFFFF' };
+    const sl = p.addSlide(); sl.background = { color: 'FFFFFF' };
     if (!s.dark) {
       sl.addText((s.section || '').toUpperCase(), { x: 0.5, y: 0.3, w: 6, h: 0.25, fontFace: F, fontSize: 8.5, bold: true, color: C.red, charSpacing: 1, margin: 0 });
       sl.addText(s.title, { x: 0.5, y: 0.55, w: 9, h: 0.8, fontFace: F, fontSize: 19, bold: true, color: C.ink, valign: 'top', margin: 0, fit: 'shrink' });
@@ -4535,7 +4533,7 @@ function deckSlideHTML(D, si) {
   const e = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const px = v => (v * IN).toFixed(1) + 'px'; const pt = v => (v * IN / 72).toFixed(2) + 'px';
   const box = (x, y, w, h) => `left:${px(x)};top:${px(y)};width:${px(w)};${h != null ? 'height:' + px(h) + ';' : ''}`;
-  let o = `<div class="slide" style="background:#${s.dark ? '111111' : 'FFFFFF'}">`;
+  let o = `<div class="slide" style="background:#FFFFFF">`;
   if (!s.dark) {
     o += `<div class="el" style="${box(0.5, 0.3, 6, 0.25)}font:700 ${pt(8.5)} Arial,Helvetica,sans-serif;color:#C4151A;letter-spacing:.12em">${e((s.section || '').toUpperCase())}</div>`;
     o += `<div class="el" style="${box(0.5, 0.55, 9, 0.8)}font:700 ${pt(19)}/1.18 Arial,Helvetica,sans-serif;color:#111">${e(s.title)}</div>`;
