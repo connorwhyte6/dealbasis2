@@ -5761,6 +5761,7 @@ function memoModel(R, m, opts) {
     if (live && opts.bench && opts.bench.length) { const fl = opts.bench.filter(x => x.flag !== 'typical');
       if (fl.length) b.push({ h: "Against the firm's prior deals" }, { bullets: fl.map(x => ({ t: `${x.label}: ${/Pct|margin|Customer/.test(x.key) ? (x.value * 100).toFixed(1) + '%' : Math.round(x.value)} against a median of ${/Pct|margin|Customer/.test(x.key) ? (x.median * 100).toFixed(1) + '%' : Math.round(x.median)} across ${x.n} deals; ${x.flag === 'worse' ? 'weaker than' : 'stronger than'} ${Math.round((x.flag === 'worse' ? (x.key === 'margin' || x.key === 'confidence' ? 1 - x.pct : x.pct) : (x.key === 'margin' || x.key === 'confidence' ? x.pct : 1 - x.pct)) * 100)}% of them.` })) }); }
     if (live) b.push({ h: 'Recommendation' }, { p: rec.ask });
+    if (live && rec.conditions.length) b.push({ h: R.verdict === 'Proceed with conditions' || R.verdict === 'Go' ? 'Conditions to proceed' : 'Conditions to resolve first' }, { bullets: rec.conditions, numbered: true });
     add('Executive summary', b);
   }
   // 2 company overview, with management
@@ -8058,6 +8059,7 @@ function vReadout() {
   <article class="memo">
     <div><span class="eyebrow">Investment committee readout</span><h2 style="margin-top:8px">${esc(D.title)}</h2><p class="muted" style="font-size:12.5px;margin-top:4px">${esc(D.sub)}</p></div>
     <h3>Recommendation</h3><div class="verdict"><b>${R.verdict}</b><span class="mono">${R.confidence}/100</span></div><p>${esc(D.rec)}</p>
+    ${(() => { const cs = condItems(R); return cs.length ? `<h3>${R.verdict === 'Proceed with conditions' || R.verdict === 'Go' ? 'Conditions to proceed' : 'Conditions to resolve first'}</h3><ol class="conds" style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">${cs.map(c => `<li>${esc(c.t)}</li>`).join('')}</ol>` : ''; })()}
     <h3>Deal economics</h3><div class="tbl"><table><tbody>${D.econ.map(([l, v]) => `<tr><td>${esc(l)}</td><td class="n${nc(v)}">${$(v)}</td></tr>`).join('')}</tbody></table></div>
     <h3>Earnings bridge</h3><div class="tbl"><table><tbody>${D.bridge.map(([l, v], i) => `<tr class="${i === 0 || i === D.bridge.length - 1 ? 'total' : ''}"><td>${esc(l)}</td><td class="n${nc(v)}">${$(v)}</td></tr>`).join('')}</tbody></table></div>
     <h3>Working capital</h3><p>${esc(D.nwc)}</p>
