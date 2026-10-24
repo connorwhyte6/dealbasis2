@@ -5353,6 +5353,10 @@ function condItems(R) {
   });
   return out;
 }
+/* the partner's sign-off on the committee recommendation: tied to the run fingerprint (documents, assumptions, decisions),
+   so it lapses by itself when any of those change after signing */
+function signoffOf(R, m) { const s = m && m.rv && m.rv.signoff; if (!s || !s.at) return null; return { ...s, current: !!R && s.fingerprint === R.fingerprint && s.verdict === R.verdict }; }
+function signDate(d) { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } }
 function memoModel(R, m, opts) {
   m = { name: 'Deal', target: '', docs: R.docs || [], dec: {}, rv: { activity: [] }, questions: [], ...(m || {}) }; m.owners = { analyst: '', manager: '', partner: '', ...((m && m.owners) || {}) };
   opts = opts || {};
@@ -5652,7 +5656,10 @@ function memoModel(R, m, opts) {
         { bullets: R.questions.map(q => ({ t: `${q.text} ${q.status === 'Cannot answer' ? 'Not yet answerable.' : q.status === 'Answered: concerns' ? 'Answered, with concerns.' : q.status + '.'} ${[q.answer, q.why].filter(Boolean).join(' ')}`.replace(/\s+/g, ' ').trim(), notes: note(q.cites || []) })), numbered: true }); }
     const acts = R.actions.filter(a => a.type === 'Send request' || a.type === 'Escalate to partner');
     if (acts.length) b.push({ h: 'Next steps' }, { bullets: acts.map(a => ({ t: a.text })), numbered: true });
-    b.push({ h: 'Approvals' }, { signoff: [['Prepared by', m.owners.analyst || ''], ['Reviewed by', m.owners.manager || ''], ['Partner sponsor', m.owners.partner || ''], ['Investment Committee', '']] });
+    { const so = signoffOf(R, m);
+      b.push({ h: 'Approvals' }, { signoff: [['Prepared by', m.owners.analyst || ''], ['Reviewed by', m.owners.manager || ''],
+        ['Partner sponsor', (so && so.current && so.name) || m.owners.partner || '', so && so.current ? 'Signed off in DealBasis' : '', so && so.current ? signDate(so.at) : ''], ['Investment Committee', '']] });
+      if (so && !so.current) b.push({ small: `${so.name || 'A partner'} signed off on an earlier version of this recommendation on ${signDate(so.at)}. The documents, assumptions or reviewer decisions have changed since, so it needs a new sign-off.` }); }
     sec('Diligence status and approvals', b);
   }
 
@@ -6059,7 +6066,7 @@ function memoModel(R, m, opts) {
   {
     const n = R.highs.length;
     const b = [{ p: live ? `${rec.headline}.${n ? ` Approval is conditional on resolving the ${n} high-severity finding${n === 1 ? '' : 's'}, led by ${areas.slice(0, 3).map(a => a.cat.toLowerCase()).join(', ')}, through the diligence set out in the risks section. The approval sought and the indicated value are stated in the executive summary.` : ' No high-severity findings are open.'}` : rec.ask }];
-    b.push({ h: 'Approvals' }, ...(ddS ? ddS.blocks.filter(x => x.signoff) : []));
+    b.push({ h: 'Approvals' }, ...(ddS ? ddS.blocks.filter(x => x.signoff || (x.small && /signed off on an earlier version/.test(x.small))) : []));
     add('Recommendation', b);
   }
   if (rkS) addA('Findings register', [{ table: { unit: 'Value at stake in $ thousands', head: ['#', 'Finding', 'Severity', 'Value', 'Required diligence'], rows: R.issues.filter(i => !i.gap).map((x, k) => { const f = x.finding; const v = impactVal(f); return [String(k + 1), `${f.title}. ${f.text}`, f.severity, v ? th(Math.abs(v)) : '–', NEXT_STEP[f.id] || '']; }), align: ['l', 'l', 'l', 'r', 'l'], widths: [0.05, 0.47, 0.1, 0.09, 0.29], sev: 2, notes: note(R.issues.flatMap(x => x.finding.cites)) } }]);
@@ -6101,7 +6108,7 @@ function memoMarkdown(M) {
     if (b.bullets) { b.bullets.forEach((x, i) => o.push(`${b.numbered ? (i + 1) + '.' : '-'} ${x.t}${fn(x.notes)}`)); o.push(''); }
     if (b.kv) { o.push('| | |', '|---|---|'); b.kv.forEach(([k, v, n]) => o.push(`| ${k} | ${v}${fn(n)} |`)); o.push(''); }
     if (b.table) { const t = b.table; if (t.unit) o.push(`_${t.unit}_${fn(t.notes)}`, ''); o.push(`| ${t.head.join(' | ')} |`, `|${t.align.map(a => a === 'r' ? '---:' : '---').join('|')}|`); t.rows.forEach((r, i) => { const bold = (t.totals || []).includes(i); o.push(`| ${r.map(c => (bold && c ? `**${c}**` : String(c).replace(/\|/g, '/'))).join(' | ')} |`); }); o.push(''); }
-    if (b.signoff) { o.push('| Role | Name | Signature | Date |', '|---|---|---|---|'); b.signoff.forEach(([r, n]) => o.push(`| ${r} | ${n} | | |`)); o.push(''); }
+    if (b.signoff) { o.push('| Role | Name | Signature | Date |', '|---|---|---|---|'); b.signoff.forEach(([r, n, sg, dt]) => o.push(`| ${r} | ${n} | ${sg || ''} | ${dt || ''} |`)); o.push(''); }
     if (b.notesList) { M.notes.forEach(n => o.push(`[^${n.n}]: ${n.label}`)); o.push(''); }
   });
   M.sections.forEach((s, i) => { o.push(`## ${i + 1}. ${s.title}`, ''); blocks(s.blocks); });
@@ -6117,7 +6124,7 @@ function memoHTML(M) {
   const tbl = t => `${t.unit ? `<div class="unit">${e(t.unit)}${fn(t.notes)}</div>` : ''}<table><colgroup>${(t.widths || t.head.map(() => 1 / t.head.length)).map(w => `<col style="width:${(w * 100).toFixed(1)}%">`).join('')}</colgroup><thead><tr>${t.head.map((h, j) => `<th class="${t.align[j]}">${e(h)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r, i) => `<tr class="${(t.totals || []).includes(i) ? 'tot' : ''} ${(t.emph || []).includes(i) ? 'emph' : ''} ${(t.sub || []).includes(i) ? 'sub' : ''}">${r.map((c, j) => `<td class="${t.align[j]}${t.hi && t.hi.row === i && t.hi.col === j ? ' hi' : ''}${t.sev === j ? ' sev-' + c : ''}">${e(String(c).replace(/^ {2}/, ''))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const blocks = bs => bs.map(b => b.h ? `<h3>${e(b.h)}</h3>` : b.p ? `<p>${e(b.p)}${fn(b.notes)}</p>` : b.small ? `<p class="small">${e(b.small)}</p>` : b.bullets ? `<${b.numbered ? 'ol' : 'ul'}>${b.bullets.map(x => `<li>${e(x.t)}${fn(x.notes)}</li>`).join('')}</${b.numbered ? 'ol' : 'ul'}>`
     : b.kv ? `<table class="kv">${b.kv.map(([k, v, n]) => `<tr><th>${e(k)}</th><td>${e(v)}${fn(n)}</td></tr>`).join('')}</table>` : b.table ? tbl(b.table)
-    : b.signoff ? `<table class="sign"><thead><tr><th>Role</th><th>Name</th><th>Signature</th><th>Date</th></tr></thead><tbody>${b.signoff.map(([r, n]) => `<tr><td>${e(r)}</td><td>${e(n)}</td><td></td><td></td></tr>`).join('')}</tbody></table>`
+    : b.signoff ? `<table class="sign"><thead><tr><th>Role</th><th>Name</th><th>Signature</th><th>Date</th></tr></thead><tbody>${b.signoff.map(([r, n, sg, dt]) => `<tr><td>${e(r)}</td><td>${e(n)}</td><td>${e(sg || '')}</td><td>${e(dt || '')}</td></tr>`).join('')}</tbody></table>`
     : b.notesList ? `<ol class="notes">${M.notes.map(n => `<li id="n${n.n}">${e(n.label)}</li>`).join('')}</ol>` : '').join('');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(M.meta.project)}: ${e(M.meta.title)}</title><style>
 body{font:15px/1.6 Georgia,'Times New Roman',serif;color:#111;margin:0;background:#fff}main{max-width:860px;margin:0 auto;padding:48px 28px 80px}
@@ -6186,7 +6193,7 @@ function memoDocx(M, X) {
       return [new X.Paragraph({ keepLines: true, spacing: { before: 80, after: 160 }, children: [new X.ImageRun({ data: png, transformation: { width: Math.round(wPt * 4 / 3), height: Math.round(hPt * 4 / 3) } })] })]; }
     if (b.signoff) { const ws = [2200, 2600, 2960, 1600]; return [new X.Table({ width: { size: TW, type: X.WidthType.DXA }, columnWidths: ws, rows: [
       new X.TableRow({ children: ['Role', 'Name', 'Signature', 'Date'].map((h, j) => cell(h, { w: ws[j], head: true, fill: FILL })) }),
-      ...b.signoff.map(([r, n]) => new X.TableRow({ height: { value: 560, rule: X.HeightRule.ATLEAST }, children: [r, n, '', ''].map((c, j) => cell(c, { w: ws[j] })) }))] })]; }
+      ...b.signoff.map(([r, n, sg, dt]) => new X.TableRow({ height: { value: 560, rule: X.HeightRule.ATLEAST }, children: [r, n, sg || '', dt || ''].map((c, j) => cell(c, { w: ws[j] })) }))] })]; }
     if (b.notesList) return M.notes.map(n => new X.Paragraph({ spacing: { after: 40 }, children: [run(`${n.n}.  `, { size: 16, bold: true, color: BRAND }), run(n.label, { size: 16, color: '333333' })] }));
     return [];
   });
@@ -6365,7 +6372,7 @@ function memoPdf(M, jsPDF) {
   const tableH = (t, maxRows) => { const ws = (t.widths || t.head.map(() => 1 / t.head.length)).map(f => f * CW);
     const rh = (cells, head) => { const s = head ? 7.2 : t.compact ? 8 : 8.6; return Math.max(...cells.map((c, j) => linesOf(head ? String(c).toUpperCase() : String(c), ws[j] - 9, s, head ? 'bold' : 'normal'))) * s * 1.32 + (t.compact ? 5 : 8); };
     let h = t.unit || t.num ? 13 : 0; if (t.head.some(Boolean)) h += rh(t.head, true); t.rows.slice(0, maxRows == null ? t.rows.length : maxRows).forEach(r => { h += rh(r, false); }); return h + 12; };
-  const asTable = b => b.table || (b.kv ? { head: ['', ''], rows: b.kv.map(([k, v, n]) => [k, v + refs(n)]), widths: [0.34, 0.66] } : b.signoff ? { head: ['Role', 'Name', 'Signature', 'Date'], rows: b.signoff.map(([r, n]) => [r, n || ' ', '\n\n', '']), widths: [0.24, 0.28, 0.32, 0.16] } : null);
+  const asTable = b => b.table || (b.kv ? { head: ['', ''], rows: b.kv.map(([k, v, n]) => [k, v + refs(n)]), widths: [0.34, 0.66] } : b.signoff ? { head: ['Role', 'Name', 'Signature', 'Date'], rows: b.signoff.map(([r, n, sg, dt]) => [r, n || ' ', sg || '\n\n', dt || '']), widths: [0.24, 0.28, 0.32, 0.16] } : null);
   const keepFor = b => { if (!b) return 0; const t = asTable(b); if (t) { const full = tableH(t); return full <= AV * (t.compact ? 0.99 : 0.92) ? full : tableH(t, 4); }
     if (b.bullets) return b.bullets.length ? paraH(b.bullets[0].t + refs(b.bullets[0].notes), { w: CW - 16, size: 9.6, after: 3 }) : 0;
     if (b.p) return Math.min(paraH(b.p + refs(b.notes)), 10 * 1.42 * 3);
@@ -6381,7 +6388,7 @@ function memoPdf(M, jsPDF) {
     if (b.kv) table({ head: ['', ''], rows: b.kv.map(([k, v, n]) => [k, v + refs(n)]), align: ['l', 'l'], widths: [0.34, 0.66] });
     if (b.table) table(b.table);
     if (b.chart) { const ch = b.chart.h || 170; ensure(ch + 10); drawChart(pdfPainter(doc), b.chart, ML, y, CW, ch); y += ch + 10; }
-    if (b.signoff) table({ head: ['Role', 'Name', 'Signature', 'Date'], rows: b.signoff.map(([r, n]) => [r, n || ' ', '\n\n', '']), align: ['l', 'l', 'l', 'l'], widths: [0.24, 0.28, 0.32, 0.16] });
+    if (b.signoff) table({ head: ['Role', 'Name', 'Signature', 'Date'], rows: b.signoff.map(([r, n, sg, dt]) => [r, n || ' ', sg || '\n\n', dt || '']), align: ['l', 'l', 'l', 'l'], widths: [0.24, 0.28, 0.32, 0.16] });
     if (b.notesList) M.notes.forEach(n => { ensure(12); font('bold', 8, BRAND); doc.text(`${n.n}.`, ML, y + 8); const sv = y; para(n.label, { x: ML + 22, w: CW - 22, size: 8, color: [51, 51, 51], after: 1 }); if (y === sv) y += 10; });
   });
 
@@ -6825,7 +6832,8 @@ function deckModel(R, m, opts) {
           txt(X0, 3.12, W, 0.26, `${R.verdict === 'Proceed with conditions' || R.verdict === 'Go' ? 'CONDITIONS TO PROCEED' : 'CONDITIONS TO RESOLVE FIRST'} (${cond.length})`, { size: 9, bold: true, color: C.brand, charSpace: 1.5 }),
           txt(X0, 3.45, W, more ? 1.6 : 1.85, shown, { size: 10.5, color: '222222', numbered: true, paraAfter: 7, columns: shown.length > 3 ? 2 : 1 }),
           ...(more ? [txt(X0, 5.1, W, 0.25, `${more} more condition${more === 1 ? '' : 's'} in the investment memo`, { size: 9, color: '777777' })] : [])
-        ] : [])
+        ] : []),
+        (() => { const so = signoffOf(R, m); return txt(X0 + W / 2, 0.52, W / 2, 0.28, so && so.current ? `Partner sign-off: ${so.name || 'Partner'}, ${signDate(so.at)}` : so ? 'Partner sign-off needed again: the record changed after signing' : 'Not yet signed off by a partner', { size: 9, bold: !!(so && so.current), color: so && so.current ? C.ink : '777777', align: 'right' }); })()
       ] });
   }
 
@@ -7871,7 +7879,7 @@ function vQoE() {
       ${stmtOnly ? '<p class="lede">No ledger in the record, so the diligence figure is built from this bridge. Rule defaults are shown; tick or untick to override.</p>' : '<p class="lede">Each add-back is classified by rule and traced to the ledger, with the reason it is accepted or excluded.</p>'}
       <div class="tbl"><table><thead><tr>${stmtOnly ? '<th></th>' : ''}<th>Add-back</th><th>Class</th><th class="n">Claimed</th>${L ? '<th>Ledger support</th><th class="n">Ledger</th>' : ''}<th>Rule view</th><th>Source</th></tr></thead><tbody>
       <tr class="sub"><td ${stmtOnly ? 'colspan="2"' : ''}>Reported EBITDA</td><td></td><td class="n">${$(M.reported)}</td>${L ? '<td></td><td></td>' : ''}<td></td><td>${cite(M.reportedSrc)}</td></tr>
-      ${M.addbacks.map(a => `<tr class="${a.accepted ? '' : 'dim'}">${stmtOnly ? `<td><input type="checkbox" data-ab="${a.key}" ${a.accepted ? 'checked' : ''} aria-label="Accept ${esc(a.label)}"></td>` : ''}<td>${esc(a.label)}</td><td><span class="chip id">${a.rule}</span> ${esc(a.cls)}</td><td class="n">${$(a.amount)}</td>
+      ${M.addbacks.map(a => `<tr class="${a.accepted ? '' : 'dim'}">${stmtOnly ? `<td><input type="checkbox" data-ab="${a.key}" ${a.accepted ? 'checked' : ''} ${can('manager') ? '' : 'disabled title="A Manager or Partner decides add-backs"'} aria-label="Accept ${esc(a.label)}"></td>` : ''}<td>${esc(a.label)}</td><td><span class="chip id">${a.rule}</span> ${esc(a.cls)}</td><td class="n">${$(a.amount)}</td>
         ${L ? `<td>${a.support.status === 'Supported' ? '<span class="chip ok">Supported</span>' : a.support.status === 'Not testable' ? '<span class="chip dim">Not testable</span>' : `<span class="chip ${a.support.status === 'Unsupported' ? 'bad' : 'warn'}">${a.support.status}</span>`}</td><td class="n">${a.support.amount != null ? $(a.support.amount) : '–'}</td>` : ''}
         <td style="font-size:12.5px;min-width:200px">${a.ruleAccept ? 'Accept' : '<b class="neg">Exclude</b>'}. ${esc(a.note)}</td><td>${cite(a.src)}${L && a.support && a.support.evidence.length ? evDetails(a.support.evidence, 'Ledger lines') : ''}</td></tr>`).join('')}
       <tr class="total"><td ${stmtOnly ? 'colspan="2"' : ''}>Adjusted EBITDA, computed</td><td></td><td class="n">${$(M.computed)}</td>${L ? '<td></td><td></td>' : ''}<td></td><td></td></tr>
@@ -8053,7 +8061,7 @@ function vDebt() {
   const dl = L ? L.debt.debtLike : (P.debtLikeItems || []);
   html += `<section class="sec"><div class="sechead"><h2>Debt-like items</h2><span class="aside">Ticked: deducted from the price and taken out of working capital. Unticked: stays in working capital</span></div>
     <div class="tbl"><table><thead><tr><th style="width:36px"></th><th>Item</th><th class="n">Balance</th><th>Source</th></tr></thead><tbody>
-    ${dl.map(d => `<tr class="${d.included ? '' : 'dim'}"><td><input type="checkbox" data-dl="${esc(d.line)}" ${d.included ? 'checked' : ''} aria-label="Include ${esc(d.line)}"></td><td>${esc(d.line)}${d.within ? `<br><span class="muted" style="font-size:12px">Part of ${esc(d.within.toLowerCase())}</span>` : ''}</td><td class="n">${$(d.amount)}</td><td>${cite(d.src)}</td></tr>`).join('') || '<tr><td colspan="4">None classified.</td></tr>'}
+    ${dl.map(d => `<tr class="${d.included ? '' : 'dim'}"><td><input type="checkbox" data-dl="${esc(d.line)}" ${d.included ? 'checked' : ''} ${can('manager') ? '' : 'disabled title="A Manager or Partner decides debt-like items"'} aria-label="Include ${esc(d.line)}"></td><td>${esc(d.line)}${d.within ? `<br><span class="muted" style="font-size:12px">Part of ${esc(d.within.toLowerCase())}</span>` : ''}</td><td class="n">${$(d.amount)}</td><td>${cite(d.src)}</td></tr>`).join('') || '<tr><td colspan="4">None classified.</td></tr>'}
     </tbody></table></div></section>`;
   const dm = R.facts.filter(f => f.kind === 'debtMention');
   if (dm.length) html += `<section class="sec"><div class="sechead"><h2>Debt mentioned in documents</h2><span class="aside">${dm.length}</span></div><div class="stack">${dm.map(f => `<div class="item"><p>"${esc(f.text)}"</p><div class="row" style="gap:8px">${cite(f.src)}${f.notRecorded ? '<span class="chip bad">Stated as not recorded</span>' : ''}</div></div>`).join('')}</div></section>`;
@@ -8272,7 +8280,7 @@ function vIssues() {
   <div class="flags">${list.map(i => { const f = i.finding; return `<div class="flag ${f.severity}"><div class="body"><div class="top">${sev(f.severity)}<span class="chip id">${i.id}</span><h3>${esc(f.title)}</h3><span class="muted" style="font-size:12px">${f.category}</span></div>
       <p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p>${f.gap ? `<p style="max-width:76ch;font-size:13px"><b>Request:</b> ${esc(f.ask)}</p>` : cites(f.cites.length ? f.cites : f.evidence.map(e => e.src), 5)}
       <div class="row" style="gap:8px;margin-top:4px">${ownerSelect(m, 'data-iowner', f.id, i.owner)}
-        <select class="inl" data-istatus="${f.id}" aria-label="Status">${['Open', 'In review', 'Escalated', 'Resolved'].map(s => `<option ${i.status === s ? 'selected' : ''} ${s === 'Escalated' && !can('manager') ? 'disabled' : ''}>${s}</option>`).join('')}</select>
+        <select class="inl" data-istatus="${f.id}" aria-label="Status">${['Open', 'In review', 'Escalated', 'Resolved'].map(s => `<option ${i.status === s ? 'selected' : ''} ${(s === 'Escalated' || s === 'Resolved') && !can('manager') && i.status !== s ? 'disabled' : ''}>${s}</option>`).join('')}</select>
         <input class="inl" data-inote="${f.id}" value="${esc(i.note)}" placeholder="Note" style="flex:1;min-width:160px"><button class="btn sm ghost" data-asksq="${f.id}">${f.gap ? 'In seller questions' : sellerQs(m).some(q => q.from === f.id) ? 'Asked seller' : 'Ask the seller'}</button></div>${commentsHTML(m, f.id)}</div><span class="metric">${esc(f.metric)}</span>${evDetails(f.evidence)}</div>`; }).join('') || '<p class="lede">Nothing here.</p>'}</div>`;
 }
 
@@ -8306,11 +8314,24 @@ function returnsHTML() {
 }
 let DECK = null;
 function getDeck() { const key = JSON.stringify(MD().unitsAbs || {}) + JSON.stringify(MD().fix || {}) + JSON.stringify(store.firm || {}) + R.fingerprint + JSON.stringify(MD().ic || {}) + MD().multiple + JSON.stringify(MD().owners) + MD().name + MD().target + MD().stage + MD().dealType + JSON.stringify(MD().rv); if (!DECK || DECK.key !== key) DECK = { key, D: deckModel(R, MD(), {}) }; return DECK.D; }
+/* partner sign-off on the committee recommendation: shown in the memo's approvals and on the recommendation slide */
+function signoffHTML() {
+  const m = MD(), so = signoffOf(R, m), okP = can('partner'), canAct = okP && (m.id === 'sample' || store.mode !== 'readonly');
+  const what = `${esc(R.verdict)} (${R.confidence}/100)`;
+  const body = so && so.current ? `<p class="lede" style="font-size:14px"><b>Signed off by ${esc(so.name || 'a partner')}</b> on ${esc(signDate(so.at))}: ${what}. The memo's approvals and the recommendation slide show it.</p>`
+    : so ? `<div class="msg err">${esc(so.name || 'A partner')} signed off on ${esc(signDate(so.at))}, but the documents, assumptions or reviewer decisions have changed since. The recommendation is now ${what} and needs a new sign-off.</div>`
+    : `<p class="lede" style="font-size:14px">Not signed off yet. Once a partner has reviewed the recommendation, ${what}, and its conditions, they sign off here. It lapses by itself if the documents, assumptions or decisions change afterwards.</p>`;
+  const btn = !canAct ? `<p class="muted" style="font-size:12.5px;margin:0">Only a Partner can sign off.</p>`
+    : so && so.current ? `<div class="row"><button class="btn sm ghost" data-signoff="withdraw">Withdraw sign-off</button></div>`
+    : `<div class="row"><button class="btn red" data-signoff="sign">Sign off on this recommendation</button></div>`;
+  return `<section class="sec"><div class="sechead"><h2>Partner sign-off</h2><span class="aside">${so && so.current ? 'Signed' : 'Needed before the committee'}</span></div>${body}${btn}</section>`;
+}
 function vReadout() {
   if (!hasData()) return `${head('Deal Intelligence', 'Committee Readout')}${emptyState('Nothing to read out yet')}`;
   const D = readoutData();
   return `${head('Deal Intelligence', 'Committee Readout')}
   <p class="lede">Built from the live record. Partners read the same evidence chain the analysts used; nothing is retyped.</p>
+  ${signoffHTML()}
   ${reviewHTML(true)}
   <section class="sec"><div class="sechead"><h2>Financial due diligence report</h2><span class="aside">Word or PDF, every figure footnoted</span></div>
     <p class="lede" style="font-size:13px">The full report in the layout diligence providers use: important notice, scope and basis of preparation, executive summary, quality of earnings with each adjustment numbered and explained, historical performance, revenue, net working capital by month, the debt tie-out and net debt, proof of cash and cash flow, then the findings register, information requests and sources.</p>
@@ -8542,7 +8563,7 @@ function setRole(id, role) {
 async function setRoleNow(id, role) {
   if (!auth.admin || !store.db || !ROLE_LABEL[role]) return;
   try { await store.db.doc('team/' + id).set({ role, by: auth.me.id, at: new Date().toISOString() }); toast(`Role changed to ${ROLE_LABEL[role]}`); }
-  catch (e) { toast('The role could not be changed. Only workspace admins (Editors of this page) can change roles.'); }
+  catch (e) { toast(e && /seat/i.test(e.message || '') ? e.message : 'The role could not be changed. Only workspace admins (Editors of this page) can change roles.'); }
 }
 
 /* ======================= Team & access ======================= */
@@ -8553,16 +8574,16 @@ function vTeam() {
     .sort((a, b) => (b.id === (auth.me || {}).id) - (a.id === (auth.me || {}).id) || String(a.p.name).localeCompare(String(b.p.name)));
   const roleOf = r => r.role || (r.id === (auth.me || {}).id && auth.admin ? 'partner' : 'analyst');
   const sel = r => auth.admin && !auth.demo ? `<select class="inl" data-setrole="${esc(r.id)}" aria-label="Role">${['viewer', 'analyst', 'manager', 'partner', 'removed'].map(k => `<option value="${k}" ${roleOf(r) === k ? 'selected' : ''}>${ROLE_LABEL[k]}</option>`).join('')}</select>` : `<span class="chip ${roleOf(r) === 'removed' ? 'bad' : 'dim'}">${ROLE_LABEL[roleOf(r)]}</span>`;
-  return `<header class="vh"><div class="eyebrow">Workspace</div><h1>Team &amp; Access</h1><div class="sub"><span>${ids.length} ${ids.length === 1 ? 'person' : 'people'}</span><span>${auth.admin ? 'You are a workspace admin' : 'Roles are set by workspace admins'}</span><button class="btn sm ghost" data-signout="1">${auth.demo || !auth.me || !auth.me.id ? 'Exit sample' : 'Sign out'}</button></div></header>
+  return `<header class="vh"><div class="eyebrow">Workspace</div><h1>Team &amp; Access</h1><div class="sub"><span>${ids.length} ${ids.length === 1 ? 'person' : 'people'}</span><span>${auth.admin ? 'You are a workspace admin' : 'Roles are set by workspace admins'}</span>${PLAN() && PLAN().seats ? `<span>${PLAN().seatsUsed} of ${PLAN().seats} editor seats in use · Viewers are free</span>` : ''}<button class="btn sm ghost" data-signout="1">${auth.demo || !auth.me || !auth.me.id ? 'Exit sample' : 'Sign out'}</button></div></header>
   ${confirmKey && confirmKey.startsWith('role:') ? `<div class="callout"><b>Change your own role?</b><p>You would lose partner approvals on deals. Workspace admin rights stay with your Editor access to this page.</p><div class="row"><button class="btn red" data-rolego="1">Change my role</button><button class="btn ghost" data-cancel="1">Cancel</button></div></div>` : ''}
   <section class="sec"><div class="sechead"><h2>People</h2><span class="aside">Who has signed in to this workspace</span></div>
     ${auth.demo || !store.db ? '<p class="lede">Sign in to see your team.</p>' : `<div class="tbl"><table><thead><tr><th>Person</th><th>Role</th><th>Last active</th></tr></thead><tbody>${rows.map(r => `<tr><td><div class="who sm"><img src="${esc(r.p.avatarUrl || '')}" alt=""><div><b data-pname="${esc(r.id)}"></b><span data-pmail="${esc(r.id)}"></span></div></div></td><td>${sel(r)}</td><td class="muted" style="white-space:nowrap">${r.seen ? esc(r.seen.slice(0, 10)) : '–'}</td></tr>`).join('')}</tbody></table></div>`}</section>
   <div class="cols">
     <section class="sec"><div class="sechead"><h2>Roles</h2></div><div class="tbl"><table><tbody>
-      <tr><td><b>Partner</b></td><td>Approves escalations and committee decisions, and everything a manager can do.</td></tr>
-      <tr><td><b>Manager</b></td><td>Approves add-backs, adjustments and issue resolutions.</td></tr>
-      <tr><td><b>Analyst</b></td><td>Opens deals, uploads documents, edits mandates and proposes adjustments.</td></tr>
-      <tr><td><b>Viewer</b></td><td>Reads deals, memos and decks. Cannot change anything.</td></tr>
+      <tr><td><b>Partner</b></td><td>Approves escalations to the partner and signs off on the committee recommendation, and everything a manager can do. Uses an editor seat.</td></tr>
+      <tr><td><b>Manager</b></td><td>Decides add-backs, adjustments and debt-like items, requests payoff letters, and escalates, resolves or reopens issues, plus everything an analyst can do. Uses an editor seat.</td></tr>
+      <tr><td><b>Analyst</b></td><td>Opens deals, uploads documents, edits mandates and proposes adjustments. Uses an editor seat.</td></tr>
+      <tr><td><b>Viewer</b></td><td>Reads deals, memos and decks. Cannot change anything. Free, and never uses a seat.</td></tr>
       <tr><td><b>No access</b></td><td>Cannot open the workspace.</td></tr></tbody></table></div></section>
     <section class="sec"><div class="sechead"><h2>Adding people</h2></div><p class="lede" style="font-size:13.5px">Invite people on the <a href="/admin">Admin page</a>: Members work on deals, Viewers read but never save, and Admins manage access and firm settings. You can also let anyone with a confirmed email at your firm\u2019s domain join. A new person appears here after they first sign in, as an Analyst, until an admin changes their role.</p>
       <p class="lede" style="font-size:13.5px">Setting No access here removes the person from the workspace at once; an admin can restore them by giving them a role again or inviting them.</p></section>
@@ -8681,13 +8702,32 @@ function renderRail() {
     + `<div class="row" style="gap:6px"><button class="btn sm ghost rl" data-signout="1">${auth.demo || !me || !me.id ? 'Exit sample' : 'Sign out'}</button><button class="btn sm ghost rl" data-nav="help">Help</button>${auth.demo || !me || !me.id ? '' : '<a class="btn sm ghost rl" href="/account">Security</a>'}</div><div id="savestate">${saveStateHTML()}</div><div>Run <b>${R.fingerprint}</b></div><div>Deterministic \u00b7 no models</div>`;
   const an = document.getElementById('acctname'); if (an && me) an.textContent = me.name || 'Signed in';
 }
+/* the workspace's plan (from the sign-in adapter): trial days left, or read-only once a trial or paid year has run out */
+const PLAN = () => (!SHOWCASE && !auth.demo && window.DEALBASIS_PLAN) || null;
+const planDate = d => { try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } };
+function planLapsedText(P) {
+  const how = P.admin ? 'Choose a plan on the admin page to keep editing.' : 'Ask your workspace admin to choose a plan to keep editing.';
+  if (P.status === 'trial') return `Your free trial ended on ${planDate(P.trialEndsAt)}. Every deal, file and report is still here to open and export. ${how}`;
+  if (P.status === 'canceled') return `This workspace's subscription has ended. Every deal, file and report is still here to open and export. ${how}`;
+  return `This workspace's subscription ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export. ${how}`;
+}
+function planBanner() {
+  const P = PLAN(); if (!P || !signedIn()) return '';
+  const link = P.admin ? ' <a href="/admin#plan">Choose a plan</a>' : '';
+  if (!P.active) return view === 'deals' ? '' : `<div class="callout"><b>Read-only.</b><p>${esc(planLapsedText(P))}${link}</p></div>`;
+  if (P.status === 'trial' && P.trialEndsAt) {
+    const days = Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5));
+    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Free trial: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}, every feature.${link.replace('Choose a plan', 'Change seats')}</p>`;
+  }
+  return '';
+}
 function render() {
   CITES = [];
   renderRail();
   if (!scopeOn((NAV.flatMap(g => g.items).find(i => i[0] === view) || [])[2])) view = 'workspace';
   if (!showcaseOk(view)) { view = 'qoe'; renderRail(); }
   const host = document.getElementById('view');
-  try { host.innerHTML = (RUN_ERR && !['team', 'activity', 'help', 'legal', 'deals', 'firm'].includes(view) ? `<div class="callout"><b>Part of this deal could not be processed.</b><p>${esc(RUN_ERR)}</p></div>` : '') + (RENDER[view] || vNotFound)(); if (view === 'team') afterTeam(); }
+  try { host.innerHTML = planBanner() + (RUN_ERR && !['team', 'activity', 'help', 'legal', 'deals', 'firm'].includes(view) ? `<div class="callout"><b>Part of this deal could not be processed.</b><p>${esc(RUN_ERR)}</p></div>` : '') + (RENDER[view] || vNotFound)(); if (view === 'team') afterTeam(); }
   catch (e) { try { console.error('DealBasis render', e); } catch (_) { }
     host.innerHTML = `<header class="vh"><div class="eyebrow">Something went wrong</div><h1>This page could not be shown</h1></header><div class="callout"><b>${esc(e.message || String(e))}</b><p>Your deal, documents and decisions are safe. Other pages still work.</p></div><div class="row"><button class="btn" data-nav="workspace">Go to the workspace</button><button class="btn ghost" data-nav="deals">Deal pipeline</button></div>`; }
   try { drawCharts(); } catch (e) { }
@@ -8967,7 +9007,7 @@ async function copyText(text, btn) {
 }
 document.addEventListener('click', e => {
   if (SHOWCASE) { const b = e.target.closest('button, [data-nav]'); if (b && b.closest('#view, #rail, #drawerhost, #present, .app') && !showcaseSafe(b) && !b.closest('.drawer .x, [data-close]')) { e.preventDefault(); return; } }
-  const t = e.target.closest('[data-fxreset],[data-addsq],[data-copysq],[data-delsq],[data-asksq],[data-revert],[data-xlsx],[data-auth],[data-signout],[data-rolego],[data-nav],[data-ci],[data-dmode],[data-close],[data-goto],[data-open],[data-rmdoc],[data-act],[data-adj],[data-export],[data-ifilter],[data-addq],[data-delq],[data-icreset],[data-asrole],[data-unfix],[data-oflag],[data-screen],[data-unset],[data-deal],[data-newdeal],[data-savesample],[data-arch],[data-deldeal],[data-dbcopy],[data-cancel],[data-memo],[data-present],[data-deck],[data-pv],[data-report]'); if (!t) return;
+  const t = e.target.closest('[data-signoff],[data-fxreset],[data-addsq],[data-copysq],[data-delsq],[data-asksq],[data-revert],[data-xlsx],[data-auth],[data-signout],[data-rolego],[data-nav],[data-ci],[data-dmode],[data-close],[data-goto],[data-open],[data-rmdoc],[data-act],[data-adj],[data-export],[data-ifilter],[data-addq],[data-delq],[data-icreset],[data-asrole],[data-unfix],[data-oflag],[data-screen],[data-unset],[data-deal],[data-newdeal],[data-savesample],[data-arch],[data-deldeal],[data-dbcopy],[data-cancel],[data-memo],[data-present],[data-deck],[data-pv],[data-report]'); if (!t) return;
   const m = MD();
   if (t.dataset.nav) return setView(t.dataset.nav);
   if (t.dataset.ci) return openDrawer(CITES[+t.dataset.ci]);
@@ -9003,6 +9043,13 @@ document.addEventListener('click', e => {
   if (t.dataset.unfix) { const m = MD(); m.fix = { ...(m.fix || {}) }; delete m.fix[t.dataset.unfix]; log(`Removed the correction to ${t.dataset.unfix}; using the document value`); DECK = null; return rerun(); }
   if (t.dataset.oflag) { const m = MD(); m.outcome = { ...(m.outcome || {}) }; m.outcome.flags = { ...(m.outcome.flags || {}) }; const v = t.dataset.v === '1'; m.outcome.flags[t.dataset.oflag] = m.outcome.flags[t.dataset.oflag] === v ? undefined : v; log(`Recorded ${t.dataset.oflag} as ${v ? 'confirmed' : 'not a problem'}`); return rerun(); }
   if (t.dataset.asrole) { actingAs = t.dataset.asrole; try { localStorage.setItem('sorai.role.v2', actingAs); } catch (_) { } log(`Switched to acting as ${actingAs}`); return render(); }
+  if (t.dataset.signoff) {
+    if (!can('partner')) return toast('Only a Partner can sign off.');
+    if (t.dataset.signoff === 'withdraw') { delete m.rv.signoff; log('Withdrew the partner sign-off'); return rerun(); }
+    const name = (auth.me && auth.me.id && !auth.demo && (auth.me.name || auth.me.email)) || m.owners.partner || 'Partner';
+    m.rv.signoff = { verdict: R.verdict, confidence: R.confidence, fingerprint: R.fingerprint, by: (auth.me && auth.me.id) || null, name, at: new Date().toISOString() };
+    log(`Signed off on the recommendation: ${R.verdict} (${R.confidence}/100)`); DECK = null; return rerun();
+  }
   if (t.dataset.act) {
     const a = R.actions.find(x => x.id === t.dataset.act); if (!a || !can(a.gate)) return; const yes = t.dataset.v === '1';
     if (a.decKey) { m.dec[a.decKey] = a.decVal === undefined ? yes : (yes ? a.decVal : !a.decVal); log(`${yes ? 'Approved' : 'Rejected'} ${a.type.toLowerCase()}: ${a.text}`); }
@@ -9057,6 +9104,7 @@ document.addEventListener('change', e => {
   if (t.dataset.outcome) { const m = MD(); m.outcome = { ...(m.outcome || {}), [t.dataset.outcome]: t.value }; log(`Recorded outcome: ${t.value}`); return rerun(); }
   if (t.dataset.icn) { const k = t.dataset.icn, f = +t.dataset.f; const v = t.value.trim(); m.ic = { ...(m.ic || {}) }; if (v === '') delete m.ic[k]; else { const n = parseFloat(v); if (!isFinite(n)) { t.value = ''; toast(`"${v}" is not a number.`); return; } const oor = outOfRange(k, n / f) || (n < 0 && !/growth/.test(k) ? 'Enter a value of 0 or more.' : null); if (oor) { t.value = m.ic[k] != null ? +(m.ic[k] * f).toFixed(2) : ''; toast(oor); return; } m.ic[k] = n / f; } return rerun(); }
   if (t.dataset.scope) { m.scope[t.dataset.scope] = t.checked; return rerun(); }
+  if ((t.dataset.ab || t.dataset.adjs1 || t.dataset.dl) && !can('manager')) { toast('Only a Manager or Partner can include or exclude add-backs, adjustments and debt-like items.'); return render(); }
   if (t.dataset.ab) { m.dec[t.dataset.ab] = t.checked; log(`${t.checked ? 'Included' : 'Excluded'} add-back`); return rerun(); }
   if (t.dataset.adjs1) { m.dec['adj:S1'] = t.checked; return rerun(); }
   if (t.dataset.dl) { m.dec['dl:' + t.dataset.dl] = t.checked; log(`${t.checked ? 'Included' : 'Excluded'} debt-like item ${t.dataset.dl}`); return rerun(); }
@@ -9071,7 +9119,8 @@ document.addEventListener('change', e => {
     if (t.dataset.sqstatus) { q.status = t.value; if (t.value === 'Answered') q.answeredAt = new Date().toISOString(); log(`Seller question marked ${t.value}`); }
     if (t.dataset.sqdue) q.due = t.value; if (t.dataset.sqanswer) { q.answer = t.value; if (q.answer && q.status !== 'Closed') q.status = 'Answered'; }
     return rerun(); }
-  if (t.dataset.istatus) { const k = 'iss:' + t.dataset.istatus; m.rv[k] = { ...(m.rv[k] || {}), status: t.value }; log(`Set ${t.dataset.istatus} to ${t.value}`); return rerun(); }
+  if (t.dataset.istatus) { const k = 'iss:' + t.dataset.istatus; const was = (m.rv[k] && m.rv[k].status) || 'Open';
+    if (!can('manager') && (['Escalated', 'Resolved'].includes(t.value) || ['Escalated', 'Resolved'].includes(was))) { toast('Only a Manager or Partner can escalate, resolve or reopen an issue.'); return render(); } m.rv[k] = { ...(m.rv[k] || {}), status: t.value }; log(`Set ${t.dataset.istatus} to ${t.value}`); return rerun(); }
   if (t.dataset.inote) { const k = 'iss:' + t.dataset.inote; m.rv[k] = { ...(m.rv[k] || {}), note: t.value }; return scheduleSave(); }
 });
 document.addEventListener('keydown', e => {
@@ -9353,6 +9402,7 @@ async function connectStore() {
     if (!db) { store.mode = 'off'; store.note = 'Sign in to save deals.'; render(); initIdentity(); return; }
     const w = user ? await user.can('data.write') : null;
     store.mode = w === false || !assets ? 'readonly' : 'ready';
+    const P = PLAN(); if (P && !P.active) store.saveErr = planLapsedText(P);
     db.collection('firm').onSnapshot(snap => { const d = (snap.docs || []).find(x => x.id === 'settings'); store.firm = d ? own(d.data()) : null; DECK = null; refresh(); }, () => { });
     initIdentity();
     db.collection('deals').onSnapshot(onDeals, e => { store.mode = 'off'; store.note = e && e.code === 'revoked' ? 'Access to the deal database ended.' : 'Lost the connection to the deal database. Reload the page.'; render(); });

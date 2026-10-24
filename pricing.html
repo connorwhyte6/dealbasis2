@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pricing | DealBasis</title>
+<meta name="description" content="DealBasis pricing: one yearly price per editor seat, with every feature, unlimited deals and free viewers. 14-day free trial.">
+<link rel="canonical" href="https://dealbasis.vercel.app/pricing">
+<meta name="theme-color" content="#ffffff">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DealBasis">
+<meta property="og:url" content="https://dealbasis.vercel.app/pricing">
+<meta property="og:title" content="Pricing | DealBasis">
+<meta property="og:description" content="DealBasis pricing: one yearly price per editor seat, with every feature, unlimited deals and free viewers. 14-day free trial.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Pricing | DealBasis">
+<meta name="twitter:description" content="DealBasis pricing: one yearly price per editor seat, with every feature, unlimited deals and free viewers. 14-day free trial.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/home.css">
+<style>
+.tiers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;max-width:1040px;margin:0 auto}
+.tier{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:28px 26px;display:flex;flex-direction:column;gap:6px}
+.tier.hi{border-color:var(--brand);box-shadow:var(--shadow)}
+.tier .seg{font-weight:600;font-size:15px;color:var(--ink2)}
+.tier .amt{font-size:42px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-top:6px}
+.tier .per{color:var(--ink3);font-size:14px}
+.tier .off{display:inline-block;align-self:flex-start;background:var(--brandsoft);color:var(--brand2);font-weight:600;font-size:13px;padding:3px 9px;border-radius:999px;margin-top:8px}
+.tier p{color:var(--ink2);font-size:15px;margin:10px 0 0}
+.calc{max-width:1040px;margin:28px auto 0;background:var(--soft);border-radius:var(--radius);padding:22px 26px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px}
+.calc label{font-weight:600}
+.calc input{font:inherit;width:96px;padding:10px 12px;border:1px solid var(--line2);border-radius:8px;background:#fff}
+.calc output{font-size:18px;font-weight:700}
+.calc .muted{color:var(--ink3);font-size:14px;flex-basis:100%}
+.incl{max-width:1040px;margin:0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 32px;padding:0;list-style:none}
+.incl li{padding-left:26px;position:relative;color:var(--ink2)}
+.incl li::before{content:"";position:absolute;left:4px;top:.55em;width:10px;height:6px;border-left:2px solid var(--green);border-bottom:2px solid var(--green);transform:rotate(-45deg)}
+.trial{max-width:1040px;margin:0 auto;border:1px solid var(--line);border-radius:var(--radius);padding:28px 26px;display:flex;flex-wrap:wrap;gap:18px 32px;align-items:center;justify-content:space-between}
+.trial h2{font-size:24px;margin:0}.trial p{color:var(--ink2);margin:6px 0 0;max-width:60ch}
+.trial .ctas{display:flex;gap:12px;flex-wrap:wrap}
+.h2c{text-align:center;font-size:clamp(24px,3vw,32px);font-weight:800;letter-spacing:-.02em;margin:0 0 24px}
+.psec{padding:clamp(36px,5vw,56px) 0 0}.psec:last-of-type{padding-bottom:clamp(56px,7vw,88px)}
+@media (max-width:820px){.tiers{grid-template-columns:1fr}.incl{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="/faq#faq-text">How it works</a></div>
+<header class="nav" id="nav"><div class="wrap">
+  <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
+  <nav class="links" aria-label="Main"><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/pricing" aria-current="page">Pricing</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a></nav>
+  <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-secondary btn-sm demo-btn" href="/demo">Request a demo</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
+</div>
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/pricing" aria-current="page">Pricing</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a><a href="/signin">Sign in</a><a href="/demo">Request a demo</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
+</header>
+
+<main id="main">
+<div class="pagehead"><div class="wrap"><span class="eyebrow">Pricing</span><h1>One price per editor</h1><p>Every feature and unlimited deals on every plan. Viewers are free. Billed yearly.</p></div></div>
+
+<section class="psec"><div class="wrap">
+  <div class="tiers">
+    <div class="tier"><span class="seg">1–2 editors</span><span class="amt">$1,500</span><span class="per">per editor seat, per year</span><p>A searcher or independent sponsor running deals end to end. One seat covers the whole deal: as Partner you can do every step yourself.</p></div>
+    <div class="tier hi"><span class="seg">3–9 editors</span><span class="amt">$1,275</span><span class="per">per editor seat, per year</span><span class="off">15% off</span><p>A full deal team, with an analyst, a manager and a partner each signing off in their own name.</p></div>
+    <div class="tier"><span class="seg">10 or more editors</span><span class="amt">$1,125</span><span class="per">per editor seat, per year</span><span class="off">25% off</span><p>Funds with several deal teams working on one firm-wide set of standards.</p></div>
+  </div>
+  <div class="calc"><label for="seats">Editor seats</label><input id="seats" type="number" min="1" max="999" value="3" inputmode="numeric"><output id="total" for="seats" aria-live="polite">$3,825 per year</output><span class="muted">The discount applies to every seat once you reach 3 or 10. Viewers are free and unlimited, whatever the plan.</span></div>
+</div></section>
+
+<section class="psec"><div class="wrap">
+  <h2 class="h2c">Every plan includes</h2>
+  <ul class="incl">
+    <li>Financial Diligence: quality of earnings, working capital, debt and cash conversion</li>
+    <li>Deal Intelligence: valuation, returns, risk score and the committee decision</li>
+    <li>Investment memo, committee deck, workbook and databook downloads</li>
+    <li>Seller questions and issues built from what the documents are missing</li>
+    <li>Firm settings, editable formulas and risk weights</li>
+    <li>Deal roles: analyst, manager and partner approvals</li>
+    <li>Unlimited deals and unlimited free viewers</li>
+    <li>Two-factor sign-in, an activity log and full workspace export</li>
+  </ul>
+</div></section>
+
+<section class="psec"><div class="wrap">
+  <div class="trial"><div><h2>Try it free for 14 days</h2><p>Every feature, for as many editor seats as you plan to buy (up to 50), and no card needed. Set the seats on your admin page, invite the team and run a real CIM through it. When the trial ends, your workspace stays open to read and export, and editing resumes as soon as you choose a plan.</p></div>
+    <div class="ctas"><a class="btn btn-primary" href="/signin">Start free trial</a><a class="btn btn-secondary" href="/demo">Request a demo</a></div></div>
+</div></section>
+
+<section class="psec"><div class="wrap">
+  <h2 class="h2c">Pricing questions</h2>
+  <div class="faq">
+    <details><summary>Who counts as an editor?</summary><p>Anyone who can upload, edit or approve: workspace Admins and Members, whatever deal role (analyst, manager or partner) they hold. Viewers, such as investment committee members and investors, read deals, memos and decks but can’t change anything, and they’re always free.</p></details>
+    <details><summary>Can one person run a whole deal on one seat?</summary><p>Yes. Deal roles build on each other: a Partner can do everything a Manager or Analyst can, so a solo searcher can take a deal from upload to committee decision alone. More seats are only needed when different people each sign off under their own name.</p></details>
+    <details><summary>What happens when the trial ends?</summary><p>Nothing is deleted. Your workspace becomes read-only: everyone can still open and export every deal, file and report, but nobody can upload or edit. Choose a plan on the admin page and editing comes back as soon as the invoice is paid. An admin can extend the trial once by 7 days. A workspace left without a plan for 30 days after its trial ends may be deleted, so export anything you want to keep.</p></details>
+    <details><summary>Can we add seats during the year?</summary><p>Yes. Request them on the admin page, and added seats are prorated to your renewal date. Moving past 3 or 10 seats lowers the price of every seat at your next renewal.</p></details>
+    <details><summary>Do you offer pilots for larger firms?</summary><p>Yes. Firms that need a signed agreement and a data processing addendum before uploading documents can run a 60-day pilot. <a href="/demo">Request a demo</a> and we’ll set it up.</p></details>
+    <details><summary>How do we pay?</summary><p>By invoice, yearly in advance. Plans renew each year unless canceled before the renewal date.</p></details>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <div class="fgrid">
+    <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
+    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a><a href="/pricing" aria-current="page">Pricing</a></li><li><a href="/security">Security</a></li><li><a href="/faq">FAQ</a></li><li><a href="/about">About</a></li><li><a href="/team">Team</a></li></ul></div>
+    <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/demo">Request a demo</a></li><li><a href="/team#contact">Contact us</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
+  </div>
+  <p class="legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · DealBasis provides diligence analysis, not an audit, attestation or accounting firm’s quality of earnings report.<br>© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
+</div></footer>
+<script>
+(function () {
+  var i = document.getElementById('seats'), o = document.getElementById('total');
+  function price(n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; }
+  function upd() { var n = Math.floor(+i.value); o.textContent = n >= 1 && n <= 999 ? '$' + (n * price(n)).toLocaleString('en-US') + ' per year' + (n >= 3 ? ' ($' + price(n).toLocaleString('en-US') + ' per seat)' : '') : 'Enter 1 to 999 seats'; }
+  i.addEventListener('input', upd); upd();
+})();
+</script>
+<script src="/home.js"></script>
+</body>
+</html>

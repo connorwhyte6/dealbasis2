@@ -35,6 +35,32 @@ alter table public.workspaces add column if not exists idle_minutes int not null
 alter table public.workspaces drop constraint if exists workspaces_idle_check;
 alter table public.workspaces add constraint workspaces_idle_check check (idle_minutes between 5 and 480);
 
+-- Plan and seats. Pricing is per editor seat per year (Admins and Members); Viewers are free and unlimited.
+-- Every plan has every feature: the only thing a plan sets is how many editors the workspace can have.
+-- Only DealBasis changes these (SQL editor, see billing.sql); the app can read them but never write them.
+--   trial    : 14-day free trial for the number of editor seats the firm plans to buy (an admin sets it on the admin page,
+--              1 to 50); one 7-day extension an admin can take there too
+--   active   : paid; paid_until is the end of the paid year, with 14 days' grace after it
+--   comp     : complimentary (your own workspace, design partners); never expires
+--   canceled : ended
+-- When a trial or paid year runs out the workspace becomes read-only: everyone can still open and export
+-- every deal and file, but nobody can upload, edit or add editors until it is renewed.
+alter table public.workspaces add column if not exists plan_status    text;
+alter table public.workspaces add column if not exists seats          int  not null default 1;
+alter table public.workspaces alter column seats set default 1;
+alter table public.workspaces add column if not exists trial_ends_at  timestamptz not null default (now() + interval '14 days');
+alter table public.workspaces add column if not exists trial_extended boolean not null default false;
+alter table public.workspaces add column if not exists paid_until     timestamptz;
+alter table public.workspaces add column if not exists billing_email  text;
+-- workspaces from before plans existed start a 14-day trial today (comp your own in billing.sql)
+update public.workspaces set plan_status = 'trial' where plan_status is null;
+alter table public.workspaces alter column plan_status set default 'trial';
+alter table public.workspaces alter column plan_status set not null;
+alter table public.workspaces drop constraint if exists workspaces_plan_check;
+alter table public.workspaces add constraint workspaces_plan_check check (plan_status in ('trial', 'active', 'comp', 'canceled'));
+alter table public.workspaces drop constraint if exists workspaces_seats_check;
+alter table public.workspaces add constraint workspaces_seats_check check (seats between 1 and 10000);
+
 -- Who belongs to which workspace. Each person belongs to one workspace.
 create table if not exists public.members (
   user_id    uuid primary key references auth.users (id) on delete cascade,
@@ -170,11 +196,41 @@ language sql stable security definer set search_path = public as $$
   where m.user_id = auth.uid() and (not w.require_mfa or public.signed_in_with_mfa())
 $$;
 
--- The signed-in person's workspace, for the app: id, name, role and whether it has files from before workspaces.
+-- Whether a workspace's plan is in force. When it isn't, the workspace is read-only (see can_write and the file rules).
+create or replace function public.ws_active(w uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select case x.plan_status
+      when 'comp'   then true
+      when 'trial'  then x.trial_ends_at > now()
+      when 'active' then x.paid_until is null or x.paid_until + interval '14 days' > now()
+      else false end
+    from public.workspaces x where x.id = w), false)
+$$;
+
+-- Editor seats in use: Admins and Members, plus pending invites for those roles (an invite holds its seat).
+-- skip_user / skip_email leave out the person being added, so they are not counted against themselves.
+create or replace function public.seats_used(w uuid, skip_user uuid default null, skip_email text default null) returns int
+language sql stable security definer set search_path = public as $$
+  select (select count(*) from public.members m where m.workspace_id = w and m.role in ('admin', 'member')
+            and m.user_id is distinct from skip_user)::int
+       + (select count(*) from public.invites i where i.workspace_id = w and i.role in ('admin', 'member')
+            and lower(i.email) <> lower(coalesce(skip_email, ''))
+            and not exists (select 1 from public.members m2 where m2.workspace_id = w and lower(m2.email) = lower(i.email) and m2.role in ('admin', 'member')))::int
+$$;
+
+create or replace function public.seat_free(w uuid, skip_user uuid default null, skip_email text default null) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.seats_used(w, skip_user, skip_email) < (select x.seats from public.workspaces x where x.id = w)
+$$;
+
+-- The signed-in person's workspace, for the app: id, name, role, security settings and plan.
 create or replace function public.my_workspace() returns json
 language sql stable security definer set search_path = public as $$
   select json_build_object('id', w.id, 'name', w.name, 'role', m.role, 'legacyFiles', w.legacy_files, 'allowedDomain', w.allowed_domain,
-                           'requireMfa', w.require_mfa, 'idleMinutes', w.idle_minutes, 'mfa', public.signed_in_with_mfa())
+                           'requireMfa', w.require_mfa, 'idleMinutes', w.idle_minutes, 'mfa', public.signed_in_with_mfa(),
+                           'plan', json_build_object('status', w.plan_status, 'seats', w.seats, 'seatsUsed', public.seats_used(w.id),
+                             'trialEndsAt', w.trial_ends_at, 'trialExtended', w.trial_extended, 'paidUntil', w.paid_until,
+                             'active', public.ws_active(w.id)))
   from public.members m join public.workspaces w on w.id = m.workspace_id
   where m.user_id = auth.uid()
 $$;
@@ -185,13 +241,15 @@ alter table public.invites alter column workspace_id set default public.my_ws();
 alter table public.blocked alter column workspace_id set default public.my_ws();
 
 -- Who may write a record. Firm settings and team roles: admins. A person's own presence record: that person.
--- Deals: admins and members. Viewers never write.
+-- Deals: admins and members. Viewers never write. When the plan has lapsed nobody writes except their own presence record.
 create or replace function public.can_write(p text) returns boolean
 language sql stable security definer set search_path = public as $$
   select case
     when public.my_role() is null or public.my_role() = 'viewer' then false
+    when p = 'people/' || auth.uid()::text then true
+    when not public.ws_active(public.my_ws()) then false
     when p like 'team/%' or p like 'firm/%' then public.my_role() = 'admin'
-    when p like 'people/%' then public.my_role() = 'admin' or p = 'people/' || auth.uid()::text
+    when p like 'people/%' then public.my_role() = 'admin'
     else true
   end
 $$;
@@ -233,6 +291,7 @@ begin
          and not exists (select 1 from public.members m where m.workspace_id = cur and m.user_id <> uid)
          and not exists (select 1 from public.kv k where k.workspace_id = cur and k.collection like 'deals%')
          and not exists (select 1 from storage.objects o where o.bucket_id = 'assets' and split_part(o.name, '/', 1) = cur::text) then
+        if ir in ('admin', 'member') and not public.seat_free(w, uid, em) then ir := 'viewer'; end if;
         update public.members set workspace_id = w, role = ir where user_id = uid;
         delete from public.blocked where workspace_id = w and user_id = uid;
         delete from public.invites where lower(email) = lower(em) and workspace_id = w;
@@ -266,6 +325,8 @@ begin
     r := 'admin';
   end if;
 
+  -- every editor seat taken (the plan was lowered after the invite, say): they still get in, as a Viewer
+  if r in ('admin', 'member') and not public.seat_free(w, uid, em) then r := 'viewer'; end if;
   insert into public.members (user_id, email, role, workspace_id) values (uid, em, r, w);
   delete from public.invites where lower(email) = lower(em) and workspace_id = w;
   return r;
@@ -305,6 +366,100 @@ $$;
 drop trigger if exists kv_team_role on public.kv;
 create trigger kv_team_role after insert or update on public.kv
   for each row execute function public.sync_team_role();
+
+-- Deal roles, enforced by the database as well as the app. Each person's deal role is their Team & Access record
+-- (an admin with none is a Partner, anyone else an Analyst). When someone saves a deal, the parts their role may not
+-- change are kept as they were, so going around the app's buttons changes nothing:
+--   Analysts can't change reviewer decisions (add-backs, adjustments, debt-like items), request payoff letters,
+--   or escalate, resolve or reopen issues. Managers can do those, but can't approve escalations to the partner or
+--   sign off on the committee recommendation; only Partners can.
+create or replace function public.deal_rank(uid uuid, ws uuid) returns int
+language sql stable security definer set search_path = public as $$
+  select case coalesce((select k.data ->> 'role' from public.kv k where k.workspace_id = ws and k.path = 'team/' || uid::text),
+                       case when m.role = 'admin' then 'partner' else 'analyst' end)
+           when 'partner' then 2 when 'manager' then 1 when 'analyst' then 0 else -1 end
+  from public.members m where m.user_id = uid and m.workspace_id = ws
+$$;
+
+create or replace function public.protect_deal_roles() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  r   int;
+  od  jsonb;
+  orv jsonb;
+  nrv jsonb;
+  k   text;
+  os  text;
+  ns  text;
+begin
+  if new.collection <> 'deals' or auth.uid() is null then return new; end if;
+  r := coalesce(public.deal_rank(auth.uid(), new.workspace_id), -1);
+  if r >= 2 then return new; end if;
+  od  := case when tg_op = 'UPDATE' then old.data else '{}'::jsonb end;
+  orv := coalesce(od -> 'rv', '{}'::jsonb);
+  nrv := coalesce(new.data -> 'rv', '{}'::jsonb);
+  if r < 1 then new.data := jsonb_set(new.data, '{dec}', coalesce(od -> 'dec', '{}'::jsonb)); end if;
+  for k in select jsonb_object_keys(orv) union select jsonb_object_keys(nrv) loop
+    if (k like 'act:esc:%' or k = 'signoff' or (r < 1 and k = 'act:req:payoff')) then
+      if (orv -> k) is distinct from (nrv -> k) then
+        nrv := case when orv ? k then jsonb_set(nrv, array[k], orv -> k) else nrv - k end;
+      end if;
+    elsif r < 1 and k like 'iss:%' then
+      os := coalesce(orv -> k ->> 'status', 'Open');
+      ns := coalesce(nrv -> k ->> 'status', 'Open');
+      if os <> ns and (os in ('Escalated', 'Resolved') or ns in ('Escalated', 'Resolved')) then
+        if not (nrv ? k) then nrv := jsonb_set(nrv, array[k], orv -> k);
+        elsif orv -> k ? 'status' then nrv := jsonb_set(nrv, array[k, 'status'], orv -> k -> 'status');
+        else nrv := jsonb_set(nrv, array[k], (nrv -> k) - 'status');
+        end if;
+      end if;
+    end if;
+  end loop;
+  new.data := jsonb_set(new.data, '{rv}', nrv);
+  return new;
+end
+$$;
+drop trigger if exists kv_deal_roles on public.kv;
+create trigger kv_deal_roles before insert or update on public.kv
+  for each row execute function public.protect_deal_roles();
+revoke execute on function public.deal_rank(uuid, uuid) from public, anon, authenticated;
+
+-- Seat limits, enforced by the database for every route in: inviting, joining, changing a role on the admin page
+-- or the Team & Access page, and restoring someone. Viewers never need a seat.
+create or replace function public.check_member_seat() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if new.role not in ('admin', 'member') then return new; end if;
+  if tg_op = 'UPDATE' and old.role in ('admin', 'member') and old.workspace_id = new.workspace_id then return new; end if;
+  if not public.seat_free(new.workspace_id, new.user_id, new.email) then
+    select seats into n from public.workspaces where id = new.workspace_id;
+    raise exception '% Add a seat on the admin page, or give this person Viewer access, which is free.', case when n = 1 then 'Your plan''s 1 editor seat is in use.' else 'All ' || n || ' editor seats on your plan are in use.' end using errcode = 'P0001';
+  end if;
+  return new;
+end
+$$;
+drop trigger if exists members_seat on public.members;
+create trigger members_seat before insert or update of role, workspace_id on public.members
+  for each row execute function public.check_member_seat();
+
+create or replace function public.check_invite_seat() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare n int; u uuid;
+begin
+  if new.role not in ('admin', 'member') then return new; end if;
+  if tg_op = 'UPDATE' and old.role in ('admin', 'member') then return new; end if;
+  select m.user_id into u from public.members m where m.workspace_id = new.workspace_id and lower(m.email) = lower(new.email);
+  if not public.seat_free(new.workspace_id, u, new.email) then
+    select seats into n from public.workspaces where id = new.workspace_id;
+    raise exception '% Add a seat on the admin page, or invite this person as a Viewer, which is free.', case when n = 1 then 'Your plan''s 1 editor seat is in use.' else 'All ' || n || ' editor seats on your plan are in use.' end using errcode = 'P0001';
+  end if;
+  return new;
+end
+$$;
+drop trigger if exists invites_seat on public.invites;
+create trigger invites_seat before insert or update of role on public.invites
+  for each row execute function public.check_invite_seat();
 
 -- ---------------------------------------------------------------------------
 -- Access rules (row-level security): everything is limited to the signed-in person's own workspace
@@ -366,6 +521,8 @@ grant update (name, allowed_domain, require_mfa, idle_minutes) on public.workspa
 revoke all on public.settings from authenticated;
 grant select, update on public.profiles to authenticated;
 grant execute on function public.signed_in_with_mfa(), public.my_ws(), public.my_role(), public.my_workspace(), public.can_write(text), public.join_workspace() to authenticated;
+revoke execute on function public.seats_used(uuid, uuid, text), public.seat_free(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.ws_active(uuid) to authenticated;
 revoke all on public.kv, public.members, public.invites, public.settings, public.profiles, public.blocked, public.workspaces from anon;
 
 -- ---------------------------------------------------------------------------
@@ -470,6 +627,12 @@ begin
   if new.require_mfa is distinct from old.require_mfa then d := d || jsonb_build_object('require_mfa', new.require_mfa); end if;
   if new.idle_minutes is distinct from old.idle_minutes then d := d || jsonb_build_object('idle_minutes', new.idle_minutes); end if;
   if d <> '{}'::jsonb then perform public.audit(new.id, 'workspace.settings_changed', new.name, d); end if;
+  d := '{}'::jsonb;
+  if new.plan_status is distinct from old.plan_status then d := d || jsonb_build_object('status', new.plan_status); end if;
+  if new.seats is distinct from old.seats then d := d || jsonb_build_object('seats', new.seats); end if;
+  if new.trial_ends_at is distinct from old.trial_ends_at then d := d || jsonb_build_object('trial_ends_at', new.trial_ends_at); end if;
+  if new.paid_until is distinct from old.paid_until then d := d || jsonb_build_object('paid_until', new.paid_until); end if;
+  if d <> '{}'::jsonb then perform public.audit(new.id, 'workspace.plan_changed', new.name, d); end if;
   return null;
 end
 $$;
@@ -536,6 +699,42 @@ drop policy if exists support_read_own on public.support_requests;
 create policy support_insert_own on public.support_requests for insert
   with check (user_id = auth.uid() and workspace_id = public.my_ws() and status = 'open');
 create policy support_read_own on public.support_requests for select using (user_id = auth.uid());
+-- 'billing': seat and renewal requests from the admin page
+alter table public.support_requests drop constraint if exists support_requests_kind_check;
+alter table public.support_requests add constraint support_requests_kind_check check (kind in ('question', 'problem', 'feature', 'security', 'billing'));
+
+-- An admin can extend a free trial once, by 7 days, from the admin page.
+create or replace function public.extend_trial() returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare w uuid := public.my_ws(); t timestamptz;
+begin
+  if w is null or public.my_role() <> 'admin' then raise exception 'Only a workspace admin can extend the trial.' using errcode = '42501'; end if;
+  update public.workspaces set trial_ends_at = greatest(trial_ends_at, now()) + interval '7 days', trial_extended = true
+   where id = w and plan_status = 'trial' and not trial_extended
+   returning trial_ends_at into t;
+  if t is null then raise exception 'This trial has already been extended. Choose a plan on the admin page to keep editing.'; end if;
+  perform public.audit(w, 'workspace.trial_extended', null, jsonb_build_object('trial_ends_at', t));
+  return t;
+end
+$$;
+grant execute on function public.extend_trial() to authenticated;
+
+-- During a trial an admin chooses how many editor seats to try: the same number they would pay for.
+-- At least the seats already in use; above 50, DealBasis sets it up (billing.sql).
+create or replace function public.set_trial_seats(n int) returns int
+language plpgsql security definer set search_path = public as $$
+declare w uuid := public.my_ws(); u int; r int;
+begin
+  if w is null or public.my_role() <> 'admin' then raise exception 'Only a workspace admin can change seats.' using errcode = '42501'; end if;
+  u := public.seats_used(w);
+  if n is null or n < 1 or n > 50 then raise exception 'Choose between 1 and 50 seats for a trial. For more, contact DealBasis.'; end if;
+  if n < u then raise exception '% editor seats are in use. Change some people to Viewer or cancel invites first, or choose at least % seats.', u, u; end if;
+  update public.workspaces set seats = n where id = w and plan_status = 'trial' returning seats into r;
+  if r is null then raise exception 'Seats can be changed here only during a free trial. Request a seat change below instead.'; end if;
+  return r;
+end
+$$;
+grant execute on function public.set_trial_seats(int) to authenticated;
 revoke all on public.support_requests from anon, authenticated;
 grant select, insert on public.support_requests to authenticated;
 grant usage, select on sequence public.support_requests_id_seq to authenticated;
@@ -645,8 +844,8 @@ drop policy if exists dealbasis_assets_read on storage.objects;
 drop policy if exists dealbasis_assets_insert on storage.objects;
 drop policy if exists dealbasis_assets_delete on storage.objects;
 create policy dealbasis_assets_read   on storage.objects for select using (bucket_id = 'assets' and public.can_reach_file(name));
-create policy dealbasis_assets_insert on storage.objects for insert with check (bucket_id = 'assets' and public.my_role() in ('admin', 'member') and split_part(name, '/', 1) = public.my_ws()::text);
-create policy dealbasis_assets_delete on storage.objects for delete using (bucket_id = 'assets' and public.my_role() in ('admin', 'member') and public.can_reach_file(name));
+create policy dealbasis_assets_insert on storage.objects for insert with check (bucket_id = 'assets' and public.my_role() in ('admin', 'member') and public.ws_active(public.my_ws()) and split_part(name, '/', 1) = public.my_ws()::text);
+create policy dealbasis_assets_delete on storage.objects for delete using (bucket_id = 'assets' and public.my_role() in ('admin', 'member') and public.ws_active(public.my_ws()) and public.can_reach_file(name));
 
 -- uploads and deletions go in the audit log
 create or replace function public.audit_files() returns trigger

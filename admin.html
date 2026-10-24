@@ -31,8 +31,36 @@
   var me = null, ws = null, mfaOn = false, state = { members: [], invites: [], usage: null, log: [], logFilter: '' }, note = null, busy = false;
   document.getElementById('out').onclick = async function () { try { await sb.rpc('log_event', { act: 'auth.sign_out' }); } catch (e) { } await sb.auth.signOut(); location.replace('/'); };
   var ROLE = { admin: 'Admin', member: 'Member', viewer: 'Viewer' };
-  var ROLE_HINT = 'Admins manage this page, firm settings and team roles. Members open deals, upload and edit. Viewers read only. Deal roles (partner, manager, analyst) are set on the Team & Access page inside DealBasis.';
+  var ROLE_HINT = 'Admins manage this page, firm settings and team roles. Members open deals, upload and edit. Viewers read only. Admins and Members each use an editor seat; Viewers are free. Deal roles (partner, manager, analyst) are set on the Team & Access page inside DealBasis.';
   var IDLE = [15, 30, 60, 120, 240, 480];
+  /* pricing: per editor seat (Admin or Member) per year; Viewers are free; every plan has every feature */
+  function seatPrice(n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; }
+  function usd(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+  function quote(n) { var p = seatPrice(n); return n + ' editor seat' + (n === 1 ? '' : 's') + ' × ' + usd(p) + ' = ' + usd(n * p) + ' per year' + (n >= 10 ? ' (25% off)' : n >= 3 ? ' (15% off)' : ''); }
+  function longDate(d) { try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } }
+  function planSection() {
+    var P = ws.plan || {}; var used = P.seatsUsed || 0, seats = P.seats || 0;
+    var days = P.trialEndsAt ? Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5)) : 0;
+    var status = P.status === 'comp' ? 'Complimentary · no end date'
+      : P.status === 'trial' ? (P.active ? 'Free trial for ' + seats + ' editor seat' + (seats === 1 ? '' : 's') + ' · ' + (days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left') + ' (ends ' + longDate(P.trialEndsAt) + ')' : 'Free trial ended ' + longDate(P.trialEndsAt) + ' · read-only')
+      : P.status === 'active' ? (P.active ? 'Subscribed · paid through ' + longDate(P.paidUntil) : 'Subscription ended ' + longDate(P.paidUntil) + ' · read-only')
+      : 'Subscription ended · read-only';
+    var want = Math.max(used, seats || 1), trial = P.status === 'trial';
+    return '<section class="sec" id="plan"><div class="sechead"><h2>Plan and seats</h2><span class="aside">Every plan includes every feature and unlimited deals</span></div>' +
+      (P.active === false ? '<div class="msg err" role="status">This workspace is read-only. Everyone can still open and export every deal, file and report, but nobody can upload or edit until a plan is active.</div>' : '') +
+      '<div class="tbl"><table><tbody>' +
+        '<tr><td><b>Status</b></td><td>' + esc(status) + '</td></tr>' +
+        '<tr><td><b>Editor seats</b></td><td>' + used + ' of ' + seats + ' in use <span class="muted">(Admins, Members and pending invites for them)</span></td></tr>' +
+        '<tr><td><b>Viewers</b></td><td>Free and unlimited</td></tr></tbody></table></div>' +
+      (P.status === 'trial' && !P.trialExtended ? '<div class="row"><button class="btn ghost" id="extend">Extend the trial by 7 days</button><span class="small">You can do this once.</span></div>' : '') +
+      '<form id="buy" class="row" novalidate><div class="field" style="width:140px"><label for="bs">Editor seats</label><input id="bs" type="number" min="' + Math.max(1, used) + '" max="999" step="1" value="' + want + '"></div>' +
+        '<div class="field" style="flex:1;min-width:200px"><label for="be">Send the invoice to</label><input id="be" type="email" value="' + esc((me && me.email) || '') + '"></div>' +
+        (trial ? '<button type="button" class="btn ghost" id="settrial">Set trial seats</button>' : '') +
+        '<button class="btn">' + (P.status === 'active' ? 'Request seat change' : 'Request this plan') + '</button></form>' +
+      (trial ? '<p class="small">Your trial runs on the number of editor seats you plan to buy, so you can try it with the whole team. Change it any time during the trial (up to 50).</p>' : '') +
+      '<p class="lede" id="bq" style="font-size:14px;margin:0">' + esc(quote(want)) + '</p>' +
+      '<p class="small">Per editor seat, per year: 1–2 seats ' + usd(1500) + ', 3–9 seats ' + usd(1275) + ' (15% off), 10 or more ' + usd(1125) + ' (25% off). Billed yearly. DealBasis emails an invoice, and your seats update as soon as it’s paid. Seats added mid-year are prorated.</p></section>';
+  }
 
   /* ---------- files: this workspace's folder, plus files from before workspaces existed ---------- */
   async function listFolder(folder) {
@@ -82,6 +110,8 @@
       case 'member.left': return t + ' left the workspace';
       case 'invite.sent': return 'Invited ' + t + ' as ' + (ROLE[d.role] || d.role);
       case 'workspace.settings_changed': return 'Changed workspace settings: ' + Object.keys(d).map(function (k) { return ({ name: 'name', allowed_domain: 'firm domain', require_mfa: 'two-factor ' + (d[k] ? 'required' : 'optional'), idle_minutes: 'sign-out after ' + d[k] + ' min' })[k] || k; }).join(', ');
+      case 'workspace.plan_changed': return 'Plan updated: ' + Object.keys(d).map(function (k) { return k === 'seats' ? d[k] + ' editor seats' : k === 'status' ? ({ trial: 'free trial', active: 'subscribed', comp: 'complimentary', canceled: 'canceled' })[d[k]] || d[k] : k === 'paid_until' ? 'paid through ' + longDate(d[k]) : k === 'trial_ends_at' ? 'trial ends ' + longDate(d[k]) : k; }).join(', ');
+      case 'workspace.trial_extended': return 'Extended the free trial to ' + longDate(d.trial_ends_at);
       case 'workspace.exported': return 'Exported the whole workspace';
       case 'workspace.deleted': return 'Deleted the workspace';
       case 'file.uploaded': return 'Uploaded a file';
@@ -106,6 +136,7 @@
     main.innerHTML =
       '<header><div class="eyebrow">Workspace</div><h1>Admin</h1><p class="lede">' + esc(ROLE_HINT) + '</p></header>' +
       (note ? '<div class="msg ' + (note.err ? 'err' : 'ok') + '" role="status">' + esc(note.text) + '</div>' : '') +
+      planSection() +
       '<section class="sec"><div class="sechead"><h2>Workspace</h2><span class="aside">Private to your firm</span></div>' +
         '<form id="wsname" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="wn">Workspace name</label><input id="wn" maxlength="80" value="' + esc(ws.name) + '"></div><button class="btn">Save</button></form>' +
         '<p class="small">Only people in this workspace can see its deals, files and members. Other firms using DealBasis have their own workspaces and can never reach this one.</p></section>' +
@@ -116,7 +147,7 @@
           return '<tr><td>' + esc(x.email) + '</td><td>' + esc(ROLE[x.role]) + '</td><td class="muted">' + esc((x.created_at || '').slice(0, 10)) + '</td><td style="text-align:right"><button class="btn sm ghost" data-uninvite="' + esc(x.email) + '">Cancel invite</button></td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="small">No pending invites.</p>') +
         '<p class="small">Invited people get no email from this page: send them the site address and ask them to create an account with the invited email. Someone who already made their own empty workspace moves into yours when they next sign in.</p></section>' +
       '<section class="sec"><div class="sechead"><h2>Firm email domain</h2><span class="aside">Optional</span></div>' +
-        '<form id="dom" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="dd">Anyone with a confirmed email at this domain joins as a Member</label><input id="dd" placeholder="yourfirm.com" value="' + esc(ws.allowedDomain || '') + '"></div><button class="btn">Save</button></form>' +
+        '<form id="dom" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="dd">Anyone with a confirmed email at this domain joins as a Member (as a Viewer when every editor seat is in use)</label><input id="dd" placeholder="yourfirm.com" value="' + esc(ws.allowedDomain || '') + '"></div><button class="btn">Save</button></form>' +
         '<p class="small">Personal email domains like gmail.com can’t be used, and each domain can belong to only one workspace.</p></section>' +
       '<section class="sec"><div class="sechead"><h2>Members</h2><span class="aside">' + state.members.length + ' people</span></div><div class="tbl"><table><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Joined</th><th></th></tr></thead><tbody>' +
         state.members.map(function (x) { var self = me && x.user_id === me.id; var lastAdmin = x.role === 'admin' && admins <= 1;
@@ -158,6 +189,16 @@
       var q = await sb.from('invites').upsert({ workspace_id: ws.id, email: em, role: r, invited_by: me.id }, { onConflict: 'workspace_id,email' });
       note = q.error ? { err: true, text: q.error.message } : { err: false, text: 'Invited ' + em + ' as ' + ROLE[r] + '.' };
     }
+    if (e.target.id === 'buy') {
+      var n = Math.floor(+document.getElementById('bs').value), be = document.getElementById('be').value.trim(), P = ws.plan || {};
+      if (!(n >= 1 && n <= 999)) { note = { err: true, text: 'Enter how many editor seats you need.' }; return render(); }
+      if (n < (P.seatsUsed || 0)) { note = { err: true, text: (P.seatsUsed) + ' editor seats are in use. Change some people to Viewer or cancel invites first, or choose at least ' + P.seatsUsed + ' seats.' }; return render(); }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(be)) { note = { err: true, text: 'Enter the email the invoice should go to.' }; return render(); }
+      if (P.status === 'trial' && n !== P.seats && n <= 50) { var ts = await sb.rpc('set_trial_seats', { n: n }); if (ts.error) { note = { err: true, text: ts.error.message }; return render(); } }
+      var sr = await sb.from('support_requests').insert({ kind: 'billing', subject: 'Plan request: ' + n + ' editor seat' + (n === 1 ? '' : 's'), email: me.email || null, page: '/admin#plan',
+        message: 'Workspace: ' + ws.name + ' (' + ws.id + ')\nSeats: ' + quote(n) + '\nInvoice to: ' + be + '\nCurrent: ' + (P.status || '') + ', ' + (P.seats || 0) + ' seats, ' + (P.seatsUsed || 0) + ' in use' });
+      note = sr.error ? { err: true, text: 'The request wasn’t sent: ' + sr.error.message } : { err: false, text: 'Request sent for ' + quote(n) + '. The invoice will go to ' + be + '.' };
+    }
     if (e.target.id === 'dom') {
       var d = document.getElementById('dd').value.trim().replace(/^@/, '').toLowerCase();
       if (d && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) { note = { err: true, text: 'Enter a domain like yourfirm.com.' }; return render(); }
@@ -178,6 +219,7 @@
     }
     load();
   });
+  main.addEventListener('input', function (e) { if (e.target.id === 'bs') { var q = document.getElementById('bq'), n = Math.floor(+e.target.value); if (q) q.textContent = n >= 1 ? quote(n) : ''; } });
   main.addEventListener('change', async function (e) {
     var t = e.target; note = null;
     if (t.id === 'lf') { state.logFilter = t.value; return render(); }
@@ -196,7 +238,17 @@
     note = u.error ? { err: true, text: u.error.message } : { err: false, text: 'Access updated.' }; load();
   });
   main.addEventListener('click', async function (e) {
-    var b = e.target.closest('[data-uninvite],[data-remove],#export,#logcsv'); if (!b) return; note = null;
+    var b = e.target.closest('[data-uninvite],[data-remove],#export,#logcsv,#extend,#settrial'); if (!b) return; note = null;
+    if (b.id === 'settrial') {
+      var sn = Math.floor(+document.getElementById('bs').value), st = await sb.rpc('set_trial_seats', { n: sn });
+      note = st.error ? { err: true, text: st.error.message } : { err: false, text: 'Your trial now has ' + st.data + ' editor seat' + (st.data === 1 ? '' : 's') + '. At list price that is ' + quote(st.data) + '.' };
+      return load();
+    }
+    if (b.id === 'extend') {
+      var x = await sb.rpc('extend_trial');
+      note = x.error ? { err: true, text: x.error.message } : { err: false, text: 'Your trial now ends on ' + longDate(x.data) + '.' };
+      return load();
+    }
     if (b.id === 'logcsv') {
       var all = await allRows('audit_log', 'at, actor_email, action, target, detail', 'at');
       download(new Blob([csv([['When (UTC)', 'Who', 'Event', 'Description', 'Target', 'Detail']].concat(all.map(function (x) { return [x.at, x.actor_email || '', x.action, what(x), x.target || '', JSON.stringify(x.detail || {})]; })))], { type: 'text/csv' }), slug(ws.name) + '-activity-log.csv');

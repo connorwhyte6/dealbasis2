@@ -20,7 +20,7 @@
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   window.DEALBASIS_SB = sb;
   var never = new Promise(function () { });
-  var me = null, role = null, ws = null;
+  var me = null, role = null, ws = null, writable = true;
 
   var ready = (async function () {
     var got = await sb.auth.getSession();
@@ -33,6 +33,11 @@
     var w = await sb.rpc('my_workspace');
     if (w.error || !w.data || !w.data.id) { location.replace('/signin?access=error'); return never; }
     ws = w.data;
+    /* the plan: when a trial or paid year has run out, the workspace is read-only for everyone (the database enforces it too) */
+    var plan = ws.plan || { active: true };
+    window.DEALBASIS_PLAN = Object.freeze({ status: plan.status || null, seats: plan.seats || null, seatsUsed: plan.seatsUsed || 0, trialEndsAt: plan.trialEndsAt || null,
+      paidUntil: plan.paidUntil || null, active: plan.active !== false, admin: role === 'admin' });
+    if (plan.active === false) writable = false;
     /* two-factor: ask for the code, or set up an authenticator when the firm requires one */
     var G = window.DealBasisGuard;
     var step = G ? await G.mfaStep(sb, ws) : null;
@@ -209,7 +214,7 @@
     id: async function () { await ready; return me.id; },
     isOwner: function () { return role === 'admin'; },
     canEdit: function () { return role === 'admin'; },
-    can: async function (name) { await ready; return name === 'data.write' ? role !== 'viewer' : null; },
+    can: async function (name) { await ready; return name === 'data.write' ? role !== 'viewer' && writable : null; },
     profiles: async function (ids) {
       var out = {}; ids = (ids || []).filter(function (x) { return /^[0-9a-f-]{36}$/i.test(x); }); if (!ids.length) return out;
       var r = await sb.from('profiles').select('id, name, email, avatar_url').in('id', ids);
@@ -236,7 +241,7 @@
   window.claude = Object.freeze({
     use: async function (name) {
       await ready;
-      if (name === 'assets' && role === 'viewer') return null; /* viewers read; they never upload */
+      if (name === 'assets' && (role === 'viewer' || !writable)) return null; /* viewers read; they never upload, and nobody uploads on a lapsed plan */
       return caps[name] || null;
     }
   });
