@@ -111,6 +111,7 @@ tr.dim td{color:var(--ink3)}
 .chip.High,.chip.bad{background:var(--red);color:var(--onred)}
 .chip.Medium,.chip.warn{border-color:var(--red);color:var(--redtext)}
 .chip.Low,.chip.ok{border-color:var(--rule2);color:var(--ink2)}
+.chip.Info{border-color:var(--rule2);color:var(--ink3);border-style:dashed}
 .chip.Pass,.chip.dim{color:var(--ink3);border-color:var(--rule)}
 .chip.id{font-weight:500;color:var(--ink2);border-color:var(--rule2);letter-spacing:.03em}
 .chip.go{background:var(--ink);color:var(--bg)}
@@ -416,6 +417,22 @@ function nwcInDef(def, c, label, dec, cur) {
   if (c === 'Other') return cur === true || (cur == null && !NONCUR_ASSET.test(label));
   return def === 'accounting' && (c === 'Cash' || (c === 'Debt' && cur === true));
 }
+/* the balance sheet building blocks of working capital, from lines { label, cls, value, cur } (liabilities positive) */
+function nwcBlocks(items, dec, totals) {
+  const b = { cash: 0, trade_receivables: 0, inventory: 0, other_operating_assets: 0, non_operating_assets: 0, trade_payables: 0, other_operating_liabilities: 0, debt_like: 0, debt_like_kept: 0, current_debt: 0 };
+  items.forEach(i => { const c = i.cls, l = i.label, v = +i.value || 0; if (i.cur === false) return;
+    if (c === 'Cash') b.cash += v;
+    else if (c === 'NWC asset') { if (/inventor|work in progress|\bwip\b/i.test(l)) b.inventory += v; else if (/receivable|allowance|doubtful/i.test(l) && !/tax|owner|officer|related|employee|other receivable/i.test(l)) b.trade_receivables += v; else b.other_operating_assets += v; }
+    else if (c === 'Other') { if (i.cur === true || !NONCUR_ASSET.test(l)) b.non_operating_assets += v; }
+    else if (c === 'NWC liability') { if (TRADE_L.test(l) && !/accrued/i.test(l)) b.trade_payables += v; else b.other_operating_liabilities += v; }
+    else if (c === 'Debt-like') { b.debt_like += v; if (!dlIncluded(dec, l)) b.debt_like_kept += v; }
+    else if (c === 'Debt') { if (i.cur === true) b.current_debt += v; } });
+  b.total_current_assets = totals && totals.ca != null ? totals.ca : b.cash + b.trade_receivables + b.inventory + b.other_operating_assets + b.non_operating_assets;
+  b.total_current_liabilities = totals && totals.cl != null ? totals.cl : b.trade_payables + b.other_operating_liabilities + b.debt_like + b.current_debt;
+  return b;
+}
+/* the edited working capital formula for a definition, or null when the definition is as standard */
+function nwcEdited(S, def) { const f = S && S['nwcFormula:' + def]; if (!f || fxSame(f, NWC_FX_DEFAULT[def])) return null; try { fxFn(f, 'nwc'); return f; } catch (e) { return null; } }
 const dlIncluded = (dec, line) => { const k = 'dl:' + line; return dec && dec[k] !== undefined ? !!dec[k] : DL_DEFAULT.test(String(line)); };
 
 const DEFAULT_SETTINGS = {
@@ -427,7 +444,9 @@ const DEFAULT_SETTINGS = {
   multiple: 6.0,
   tieOutTolerance: 1000,
   pegMethod: 'ttm',
-  ebitdaBasis: 'adjusted'
+  ebitdaBasis: 'adjusted',
+  evFormula: 'ebitda * multiple',
+  equityFormula: 'ev - debt - debt_like + cash + nwc_adjustment + overlap'
 };
 
 /* ---------- small utilities ---------- */
@@ -794,7 +813,11 @@ function analyze(D, S, dec) {
   const nwcDefNote = nwcDef !== wantDef ? `Accounting working capital needs to know how much of ${unknownDebt.join(', ').toLowerCase()} is due within a year, and these balance sheets do not say, so the operating definition (the same, excluding cash and debt) is used.` : '';
   const nwcLines = lines.filter(l => nwcInDef(nwcDef, cls[l], l, dec, curOf(l)));
   const sign = l => nwcSign(cls[l]);
-  const nwcRaw = months.map(m => sum(nwcLines, l => sign(l) * at(l, m)));
+  let nwcRaw = months.map(m => sum(nwcLines, l => sign(l) * at(l, m)));
+  const nwcFx = nwcEdited(S, nwcDef); const itemsAt = (m, drop) => lines.filter(l => !drop || !drop(l)).map(l => ({ label: l, cls: cls[l], value: at(l, m), cur: curOf(l) }));
+  /* an edited formula changes the standard figure by the difference between the edited and standard formulas */
+  const nwcG = nwcFx ? (() => { const fn = fxFn(nwcFx, 'nwc'), f0 = fxFn(NWC_FX_DEFAULT[nwcDef], 'nwc'); return B => fn(B) - f0(B); })() : null;
+  if (nwcG) nwcRaw = nwcRaw.map((v, i) => v + nwcG(nwcBlocks(itemsAt(months[i]), dec)));
   // normalization: invoices booked at month end and reversed after it (A7) are not real receivables at that date
   const a7 = adj.find(a => a.id === 'A7');
   const normalizations = [];
@@ -935,9 +958,12 @@ function analyze(D, S, dec) {
   const basisE = S.ebitdaBasis === 'reported' ? T.EBITDA : adjEBITDA;
   const ev_ = basisE * S.multiple;
   /* what the selected definition already holds inside working capital is not added or deducted again */
-  const cashIn = nwcDef === 'accounting' ? cash : 0;
-  const debtIn = nwcDef === 'accounting' ? sum(debtRows.filter(r => curDebt(r.line)), r => r.conf != null ? r.conf : r.bs) : 0;
-  const dlIn = nwcDef === 'operating' || nwcDef === 'accounting' ? debtLikeTotal : 0;
+  let cashIn = nwcDef === 'accounting' ? cash : 0;
+  let debtIn = nwcDef === 'accounting' ? sum(debtRows.filter(r => curDebt(r.line)), r => r.conf != null ? r.conf : r.bs) : 0;
+  let dlIn = nwcDef === 'operating' || nwcDef === 'accounting' ? debtLikeTotal : 0;
+  /* with an edited formula, what it holds of cash, current debt and debt-like items is measured by taking each out */
+  if (nwcG) { const v0 = nwcG(nwcBlocks(itemsAt(last), dec)); const w = drop => nwcG(nwcBlocks(itemsAt(last, drop), dec));
+    cashIn += v0 - w(l => cls[l] === 'Cash'); debtIn += w(l => curDebt(l)) - v0; dlIn += w(l => cls[l] === 'Debt-like' && dlIncluded(dec, l)) - v0; }
   const overlap = debtIn + dlIn - cashIn;
   const equity = ev_ - fundedDebt - debtLikeTotal + cash + nwcAdj + overlap;
 
@@ -946,7 +972,7 @@ function analyze(D, S, dec) {
   return {
     S, months, ttm, prior, last, pl, T, P, bsv, cls, lines, srcAt, gl: inPer, ttmEntries: tE, revGrowth, accounts, glCount: gl.length, subsCount: subs.length,
     adj, adjTotal, adjEBITDA,
-    nwc: { def: nwcDef, wantDef, defNote: nwcDefNote, unknownDebt, lines: nwcLines.map(l => ({ line: l, cls: cls[l], sign: sign(l), values: months.map(m => at(l, m)), srcs: months.map(m => srcAt(l, m)) })), monthly: nwcM, reported: nwcRaw, normalizations, peg, pegN, delivered, deliveredReported: nwcRaw[n - 1], adj: nwcAdj, dso, dio, dpo, dsoY: yoy(dso), dioY: yoy(dio), dpoY: yoy(dpo) },
+    nwc: { def: nwcDef, wantDef, defNote: nwcDefNote, edited: nwcFx, unknownDebt, lines: nwcLines.map(l => ({ line: l, cls: cls[l], sign: sign(l), values: months.map(m => at(l, m)), srcs: months.map(m => srcAt(l, m)) })), monthly: nwcM, reported: nwcRaw, normalizations, peg, pegN, delivered, deliveredReported: nwcRaw[n - 1], adj: nwcAdj, dso, dio, dpo, dsoY: yoy(dso), dioY: yoy(dio), dpoY: yoy(dpo) },
     debt: { rows: debtRows, fundedDebt, bsDebt, debtLike, debtLikeTotal, cash, netDebt: fundedDebt - cash, overlap, inNWC: { cash: cashIn, debt: debtIn, debtLike: dlIn } },
     customers: { list: custList, hhi, lost, lostRev: sum(lost, l => l.prior), fresh, count: custList.length, priorCount: Object.values(cP).filter(v => v > 0).length },
     benford, flags, fired,
@@ -3086,6 +3112,7 @@ function docFromAnyText(name, text) {
 const RECORD_VERSION = '2.0.0';
 const SEV_PEN = { High: 30, Medium: 15, Low: 5 };
 const CATS_RISK = ['Earnings quality', 'Revenue quality', 'Working capital', 'Debt & liabilities', 'Controls & data integrity', 'Projections'];
+const W_KEY = { 'Earnings quality': 'earnings', 'Revenue quality': 'revenue', 'Working capital': 'nwc', 'Debt & liabilities': 'debt', 'Controls & data integrity': 'controls', 'Projections': 'projections' };
 const CAT_W = { 'Earnings quality': 0.30, 'Revenue quality': 0.20, 'Working capital': 0.15, 'Debt & liabilities': 0.15, 'Controls & data integrity': 0.10, 'Projections': 0.10 };
 const LEDGER_CAT = { R01: 'Revenue quality', R02: 'Working capital', R03: 'Earnings quality', R04: 'Revenue quality', R05: 'Controls & data integrity', R06: 'Controls & data integrity', R07: 'Controls & data integrity', R08: 'Revenue quality', R09: 'Controls & data integrity', R10: 'Debt & liabilities', R11: 'Working capital', R12: 'Earnings quality', R13: 'Working capital', R14: 'Revenue quality', R15: 'Earnings quality' };
 
@@ -3479,7 +3506,23 @@ const NWC_DEFS = [
     assumptions: ['Only the three trade balances are counted; prepaids, accruals, deferred revenue and customer deposits are left out.', 'Useful for the cash conversion cycle and for comparing with peers; it is not a closing mechanism.'] }
 ];
 const isCur = i => i.current != null ? i.current : !NONCUR(i) && !(i.cls === 'Other' && NONCUR_ASSET.test(i.label));
-function nwcMeasures(X, L, dec, asOfIn) {
+function nwcMeasures(X, L, dec, asOfIn, S) {
+  const res = nwcMeasures0(X, L, dec, asOfIn); if (!res) return res;
+  res.defs = res.defs.map(d => { const f = nwcEdited(S, d.id); if (!f) return { ...d, fx: NWC_FX_DEFAULT[d.id] };
+    const b = nwcBlocksAt(X, L, dec, res.asOf); if (!b || d.value == null) return { ...d, fx: NWC_FX_DEFAULT[d.id] };
+    const g = fxFn(f, 'nwc')(b) - fxFn(NWC_FX_DEFAULT[d.id], 'nwc')(b); const v = d.value + g;
+    return { ...d, fx: f, edited: true, value: isFinite(v) ? v : null, rows: [...d.rows, { label: 'Change from the edited formula', value: g, note: `Edited: ${fxShow(f)} = ${fxCalc(f, b)} = ${fmtUSD(fxFn(f, 'nwc')(b))}. Standard: ${fxShow(NWC_FX_DEFAULT[d.id])} = ${fxCalc(NWC_FX_DEFAULT[d.id], b)} = ${fmtUSD(fxFn(NWC_FX_DEFAULT[d.id], 'nwc')(b))}. Change: ${fmtUSD(g)}.` }], note: `Edited formula for this deal: ${f}` }; });
+  return res;
+}
+function nwcBlocksAt(X, L, dec, asOf) {
+  if (L && L.lines && L.lines.length) { const m = L.last; const curOf = l => L.cls[l] !== 'Debt' ? (NONCUR({ label: l }) ? false : null) : NONCUR({ label: l }) ? false : CUR_DEBT.test(l) ? true : null;
+    return nwcBlocks(L.lines.map(l => ({ label: l, cls: L.cls[l], value: ((L.bsv[l] || {})[m]) || 0, cur: curOf(l) })), dec); }
+  if (!X.bsItems.length) return null; const T = (X.bsTotals || []).filter(t => !asOf || !t.asOf || t.asOf === asOf);
+  const ca = T.find(t => /^total current assets$/.test(t.label)), cl = T.find(t => /^total current liabilities$/.test(t.label));
+  return nwcBlocks(X.bsItems.map(i => ({ label: i.label, cls: i.cls, value: i.value,
+    cur: !isCur(i) ? false : i.current != null ? i.current : i.cls === 'Debt' ? (NONCUR(i) ? false : (T.length || CUR_DEBT.test(i.label)) ? true : null) : null })), dec, { ca: ca ? ca.value : null, cl: cl ? cl.value : null });
+}
+function nwcMeasures0(X, L, dec, asOfIn) {
   const lineSet = (fromLedger) => {
     if (fromLedger) { const asOf = L.last; return { asOf, T: [], items: L.lines.map(l => ({ label: l, cls: L.cls[l], value: ((L.bsv[l] || {})[asOf]) || 0, src: L.srcAt(l, asOf) })) }; }
     const asOf = X.bsItems.length ? X.bsItems[0].asOf : asOfIn; const T = (X.bsTotals || []).filter(t => !asOf || !t.asOf || t.asOf === asOf); const items = X.bsItems.map(i => ({ ...i }));
@@ -3642,6 +3685,162 @@ function verifyFindings(findings, ctx) {
     if (c.status === 'moved') tally.moves.push(`${r.figure}: moved from ${c.from} to ${c.to}`); });
   return tally;
 }
+/* ---------- information the documents do not contain ----------
+   Each gap names what is missing, why it matters and the request to send the seller. Gaps become issues (severity
+   Info, outside the risk score: a missing document is an open item, not evidence of a problem) and seller questions
+   that appear automatically and clear themselves once a document supplying the information is uploaded. */
+const GAP_OWNER = { 'Working capital': 'manager', 'Debt & liabilities': 'manager' };
+function infoGaps(c) {
+  const { X, L, M, SM, pos, assumptionSrc, docs } = c; const out = [];
+  if (!(L || M || SM)) return out;
+  const has = k => (X.facts || []).some(f => f.kind === k);
+  const text = (docs || []).map(d => { try { return docText(d, 200000); } catch (e) { return ''; } }).join(' ');
+  const add = (id, area, title, why, ask) => out.push({ id, area, title, why, ask, owner: GAP_OWNER[area] || 'analyst' });
+  const money = v => fmtUSD(v);
+  // add-backs with no support behind them
+  if (M && M.addbacks && M.addbacks.length) {
+    const un = M.addbacks.filter(a => a.amount > 0 && (!a.support || ['Unsupported', 'Not testable', 'Differs'].includes(a.support.status)));
+    if (un.length) add('G01', 'Earnings quality', 'No support for the EBITDA adjustments',
+      `${un.length} of management's adjustments (${money(un.reduce((s, a) => s + a.amount, 0))}) have no invoices, payroll records or contracts behind them in the documents.`,
+      `Please provide support for each EBITDA adjustment: ${un.map(a => `${a.label} (${money(a.amount)})`).join('; ')}. For each, send the invoices, payroll records or contracts behind it and explain why it will not recur.`);
+  }
+  if (!L) add('G02', 'Controls & data integrity', 'No general ledger',
+    'Without a general ledger, the adjustments cannot be tested against transactions, unlisted adjustments and revenue cut-off cannot be checked, and the controls tests cannot run.',
+    'Please provide the general ledger (detailed transactions) for the last 24 months and the current year to date, exported from the accounting system with customer and vendor names.');
+  if (!L && !has('largest') && !has('topN')) add('G03', 'Revenue quality', 'Customer concentration not disclosed',
+    'The documents do not state revenue by customer, so the share of revenue from the largest customers is unknown.',
+    'Please provide revenue by customer for the last three fiscal years and the latest twelve months, for the top 20 customers.');
+  const months = new Set((X.bs || []).map(r => r.month)).size;
+  if (months < 12) add('G04', 'Working capital', 'No monthly balance sheets',
+    `The working capital peg needs a twelve-month average; the documents contain ${months ? `${months} month-end balance sheet${months === 1 ? '' : 's'}` : 'no monthly balance sheets'}.`,
+    'Please provide month-end balance sheets for the last 24 months.');
+  if (!(X.debt || []).length && ((pos && pos.debt > 0) || has('debtMention'))) add('G05', 'Debt & liabilities', 'Debt not confirmed by the lenders',
+    `${pos && pos.debt > 0 ? `Funded debt of ${money(pos.debt)} is` : 'Debt is'} taken from the documents but not confirmed by the lenders.`,
+    'Please provide a debt schedule and current statements or payoff letters from each lender, including any shareholder, seller or related-party notes.');
+  if (!(X.bank || []).length) add('G06', 'Controls & data integrity', 'No bank statements',
+    'Revenue and cash cannot be tied to bank deposits, so the proof of cash cannot run.',
+    'Please provide 12 months of bank statements for every operating, payroll and savings account, as CSV exports if available.');
+  if (assumptionSrc && assumptionSrc.marketRent && assumptionSrc.marketRent.from === 'default' && (has('relatedParty') || has('rentStated')))
+    add('G07', 'Earnings quality', 'Market rent not established',
+      'The documents disclose a related party or a lease but give no market rent, so EBITDA cannot be adjusted to a market lease.',
+      'Please provide the current lease, the proposed post-closing lease terms, and evidence of market rent for comparable space (a broker opinion or comparable listings).');
+  if (assumptionSrc && assumptionSrc.marketOfficerComp && assumptionSrc.marketOfficerComp.from === 'default' && M && (M.addbacks || []).some(a => /owner|officer|shareholder|founder|compensation|salary/i.test(a.label)))
+    add('G08', 'Earnings quality', 'Market salary for the owner not established',
+      "The owner compensation adjustment is not backed by a market salary in the documents.",
+      'Please provide compensation for the owner and any family members by person for three years, and the basis for the market salary used in the owner compensation adjustment.');
+  if (!L && SM && !(SM.pl.capex && Object.keys(SM.pl.capex).length)) add('G09', 'Cash flow', 'Capital expenditure not disclosed',
+    'Without capital expenditure, cash conversion and free cash flow cannot be measured.',
+    'Please provide capital expenditures for the last three fiscal years and the latest twelve months, split between maintenance and growth.');
+  if (!L && !/recurring|contracted|subscription|maintenance (agreement|contract)|service agreement|repeat/i.test(text)) add('G10', 'Revenue quality', 'Revenue mix not disclosed',
+    'The documents do not split revenue between recurring contracts and one-time work.',
+    'Please provide revenue by service line or product and by type (recurring contracts versus one-time projects) for three years.');
+  if (SM && !SM.periods.some(p => p.type === 'P')) add('G11', 'Projections', 'No management projections',
+    'Without projections, the forecast cannot be tested against history or the market.',
+    "Please provide management's projections for the next three to five years, with the key assumptions behind revenue, margins and capital expenditure.");
+  /* the statements' basis: a sentence that says they were audited, reviewed or compiled answers it; so does one that
+     says they were not (unaudited, internally prepared, management accounts), which also calls for the tax returns.
+     Sentences about projections, forecasts or budgets are about something else and are ignored. */
+  const NEG = /\bnot (been )?(audited|reviewed|compiled)\b|\bunaudited\b|\bunreviewed\b|internally prepared|prepared by management|management accounts/i;
+  const POS = /\b(audited|reviewed|compiled)\b|audit report|review report|compilation report/i;
+  const basisSents = text.split(/(?<=[.;])\s+/).filter(t => !/projection|forecast|budget/i.test(t));
+  const saysReviewed = basisSents.some(t => POS.test(t) && !NEG.test(t)), saysNot = basisSents.some(t => NEG.test(t));
+  if (!saysReviewed && !saysNot) add('G12', 'Controls & data integrity', 'Basis of the financial statements unknown',
+    'The documents do not say whether the financial statements are audited, reviewed or compiled.',
+    "Please confirm whether the financial statements are audited, reviewed or compiled, and provide the accountant's report.");
+  if (saysNot && !saysReviewed) add('G13', 'Controls & data integrity', 'Financial statements not audited or reviewed',
+    'The documents say the financial statements are not audited or reviewed, so no outside accountant has checked them.',
+    'Please provide federal and state tax returns for the last three years so the financial statements can be tied to what was filed.');
+  return out;
+}
+/* the seller question list: questions the team added, then a question for each gap that has not been removed */
+function sellerQList(R, m) {
+  const st = (m && m.rv && m.rv.gq) || {}; const own = (m && m.rv && m.rv.sq) || [];
+  const auto = ((R && R.gaps) || []).filter(g => !(st[g.id] && st[g.id].dismissed)).map(g => { const s0 = st[g.id] || {};
+    return { id: 'gap:' + g.id, gapId: g.id, auto: true, from: g.id, text: g.ask, why: g.why, title: g.title, status: s0.status || 'Draft', owner: s0.owner || g.owner, due: s0.due || '', answer: s0.answer || '' }; });
+  return [...auto, ...own];
+}
+/* ---------- editable valuation formulas ----------
+   Enterprise value and equity value are formulas the deal team can edit. A formula may use numbers, the named
+   figures below, + - * / ^ and parentheses, and min(), max(), abs(), round(). It is parsed, never run as code.
+   Every value built on enterprise value (ranges, price gaps, finding values, sensitivity, sources and uses, returns,
+   memo, deck) is computed through evAt / equityAt, so an edited formula carries through everywhere. */
+const FX_DEFAULT = { ev: 'ebitda * multiple', equity: 'ev - debt - debt_like + cash + nwc_adjustment + overlap',
+  tax: 'max(0, ebitda - depreciation - interest) * tax_rate', fcf: 'ebitda * conversion - interest - tax' };
+/* each definition of working capital as a formula of the balance sheet building blocks below; editing one replaces that
+   definition for this deal, every month, so the peg, delivered working capital and the closing adjustment follow it */
+const NWC_FX_DEFAULT = { accounting: 'total_current_assets - total_current_liabilities', operating: 'total_current_assets - cash - (total_current_liabilities - current_debt)',
+  deal: 'trade_receivables + inventory + other_operating_assets - trade_payables - other_operating_liabilities - debt_like_kept', trade: 'trade_receivables + inventory - trade_payables' };
+const FX_SETS = {
+  ev: ['ebitda', 'multiple', 'diligence_ebitda', 'management_ebitda', 'reported_ebitda', 'revenue', 'debt', 'debt_like', 'cash', 'nwc_adjustment', 'overlap'],
+  nwc: ['cash', 'trade_receivables', 'inventory', 'other_operating_assets', 'non_operating_assets', 'trade_payables', 'other_operating_liabilities', 'debt_like', 'debt_like_kept', 'current_debt', 'total_current_assets', 'total_current_liabilities'],
+  tax: ['ebitda', 'depreciation', 'interest', 'tax_rate', 'debt', 'year'],
+  fcf: ['ebitda', 'conversion', 'interest', 'tax', 'depreciation', 'tax_rate', 'debt', 'year'] };
+FX_SETS.equity = [...FX_SETS.ev, 'ev'];
+const FX_NAMES = {
+  ebitda: 'EBITDA the deal is priced on', multiple: 'EV / EBITDA multiple', diligence_ebitda: 'Diligence-adjusted EBITDA',
+  management_ebitda: "Management's Adjusted EBITDA", reported_ebitda: 'Reported EBITDA', revenue: 'Revenue',
+  ev: 'Enterprise value (equity purchase price formula only)', debt: 'Funded debt', debt_like: 'Debt-like items', cash: 'Cash',
+  nwc_adjustment: 'Working capital adjustment', overlap: 'Items already inside working capital, added back once',
+  trade_receivables: 'Trade receivables, net of allowance', inventory: 'Inventory and work in progress', other_operating_assets: 'Other operating current assets (prepaids, unbilled, deposits)',
+  non_operating_assets: 'Current assets that are not operating (tax and owner receivables, unidentified)', trade_payables: 'Trade payables',
+  other_operating_liabilities: 'Other operating current liabilities (accruals, deferred revenue, deposits)', debt_like_kept: 'Debt-like items not ticked as debt on Debt Tie-outs',
+  current_debt: 'Debt due within a year', total_current_assets: 'Total current assets', total_current_liabilities: 'Total current liabilities',
+  depreciation: 'Depreciation that year', interest: 'Interest that year', tax_rate: 'Tax rate', conversion: 'Cash conversion of EBITDA', tax: 'Tax that year (from the tax formula)', year: 'Year of the hold (1, 2, ...)'
+};
+const FX_KIND = k => k === 'evFormula' ? 'ev' : k === 'equityFormula' ? 'equity' : k === 'taxFormula' ? 'tax' : k === 'fcfFormula' ? 'fcf' : /^nwcFormula:/.test(k) ? 'nwc' : null;
+const fxSame = (a, b) => String(a || '').replace(/\s+/g, '') === String(b || '').replace(/\s+/g, '');
+const FX_FUNCS = { min: Math.min, max: Math.max, abs: Math.abs, round: (x, d) => { const k = Math.pow(10, d || 0); return Math.round(x * k) / k; } };
+function compileFormula(src, kind) {
+  const allowed = FX_SETS[kind] || FX_SETS.ev;
+  const toks = []; const re = /\s*(?:(\d+(?:\.\d+)?(?:e[+-]?\d+)?)(%?)|([A-Za-z_][A-Za-z0-9_]*)|(\*\*|[-+*/^(),]))/gy; let m, i = 0; const t = String(src || '').trim();
+  if (!t) throw new Error('The formula is empty.');
+  while (i < t.length) { re.lastIndex = i; m = re.exec(t); if (!m || m.index !== i) { if (/^\s+$/.test(t.slice(i))) break; throw new Error(`Can't read "${t.slice(i, i + 12)}". Use numbers, the named figures, + - * / ^ and parentheses.`); }
+    i = re.lastIndex; if (m[1] != null) toks.push({ n: parseFloat(m[1]) / (m[2] ? 100 : 1) }); else if (m[3]) toks.push({ id: m[3].toLowerCase() }); else toks.push({ op: m[4] === '**' ? '^' : m[4] }); }
+  let k = 0; const peek = () => toks[k], take = op => { if (toks[k] && toks[k].op === op) { k++; return true; } return false; };
+  const expr = () => { let a = term(); for (;;) { if (take('+')) { const l = a, r = term(); a = v => l(v) + r(v); } else if (take('-')) { const l = a, r = term(); a = v => l(v) - r(v); } else return a; } };
+  const term = () => { let a = power(); for (;;) { if (take('*')) { const l = a, r = power(); a = v => l(v) * r(v); } else if (take('/')) { const l = a, r = power(); a = v => l(v) / r(v); } else return a; } };
+  const power = () => { const b = unary(); if (take('^')) { const e = power(); return v => Math.pow(b(v), e(v)); } return b; };
+  const unary = () => { if (take('-')) { const a = unary(); return v => -a(v); } if (take('+')) return unary(); return prim(); };
+  const prim = () => { const x = peek(); if (!x) throw new Error('The formula ends too early.');
+    if (x.n != null) { k++; return () => x.n; }
+    if (take('(')) { const a = expr(); if (!take(')')) throw new Error('A closing parenthesis is missing.'); return a; }
+    if (x.id) { k++;
+      if (FX_FUNCS[x.id] && take('(')) { const args = [expr()]; while (take(',')) args.push(expr()); if (!take(')')) throw new Error(`${x.id}( is missing its closing parenthesis.`); const fn = FX_FUNCS[x.id]; return v => fn(...args.map(g => g(v))); }
+      if (!allowed.includes(x.id)) throw new Error(`"${x.id}" isn't a figure this formula can use. Available: ${allowed.join(', ')}.`);
+      return v => v[x.id] == null ? NaN : v[x.id]; }
+    throw new Error(`Unexpected "${x.op}".`); };
+  const fn = expr(); if (k < toks.length) throw new Error(`Unexpected "${toks[k].op || toks[k].id || toks[k].n}" after the end of the formula.`);
+  return fn;
+}
+/* a formula as people read it (× and −, thousands separators), and the same formula with the deal's figures put in */
+function fxShow(src) { return String(src).replace(/\s+/g, ' ').replace(/\*\*|\^/g, '^').replace(/\*/g, '×').replace(/ - |(?<=[\w)]) ?-(?= ?[\w(])/g, ' − ').replace(/\d+(\.\d+)?/g, n => (+n >= 1000 ? (+n).toLocaleString('en-US') : n)).replace(/\s+/g, ' ').trim(); }
+function fxCalc(src, vars) {
+  const money = v => (v < 0 ? '−' : '') + fmtUSD(Math.abs(v)).replace('-', '');
+  const shown = id => { const v = vars[id]; if (v == null || !isFinite(v)) return id;
+    if (id === 'multiple') return (+v).toFixed(2) + 'x'; if (id === 'tax_rate' || id === 'conversion') return (v * 100).toFixed(1) + '%'; if (id === 'year') return String(v); return money(v); };
+  return fxShow(String(src).replace(/[A-Za-z_][A-Za-z0-9_]*/g, id => FX_FUNCS[id] ? id : vars[id] != null ? '\u0000' + id + '\u0001' : id)).replace(/\u0000([A-Za-z_0-9]+)\u0001/g, (m, id) => shown(id));
+}
+const FX_CACHE = {};
+function fxFn(src, kind) { const key = kind + '|' + src; if (!FX_CACHE[key]) FX_CACHE[key] = compileFormula(src, kind); return FX_CACHE[key]; }
+/* enterprise and equity value at any EBITDA and multiple, through the deal's formulas */
+function evAt(R, ebitda, mult) { const V = R && R.val; if (!V || ebitda == null || !isFinite(ebitda)) return null;
+  const x = mult != null ? mult : V.mult; let r; try { r = fxFn(V.formulas.ev, 'ev')({ ...V.vars, ebitda, multiple: x }); } catch (e) { r = ebitda * x; } return isFinite(r) ? r : null; }
+function equityAt(R, ebitda, mult) { const V = R && R.val; const ev = evAt(R, ebitda, mult); if (ev == null) return null;
+  let r; try { r = fxFn(V.formulas.equity, 'equity')({ ...V.vars, ebitda, multiple: mult != null ? mult : V.mult, ev }); } catch (e) { r = ev; } return isFinite(r) ? r : null; }
+/* value of a change in EBITDA, and the gap between two EBITDA figures, measured through the EV formula */
+function evDiff(R, a, b) { const x = evAt(R, a), y = evAt(R, b); return x == null || y == null ? null : x - y; }
+function evOfEbitda(R, d) { const V = R && R.val; const b = V && V.basisE != null ? V.basisE : (R && R.diligence) || 0; const x = evAt(R, b + d), y = evAt(R, b); return x == null || y == null ? d * ((V && V.mult) || 0) : x - y; }
+function fxCustom(R) { const F = R && R.val && R.val.formulas; return !!F && (F.ev.replace(/\s+/g, '') !== FX_DEFAULT.ev.replace(/\s+/g, '') || F.equity.replace(/\s+/g, '') !== FX_DEFAULT.equity.replace(/\s+/g, '')); }
+/* rows that reconcile the standard bridge to the deal's formulas; empty when the formulas are standard */
+function fxBridgeRows(R, e, th) { const V = R.val, P = R.pos; if (!V || !V.custom || e == null) return { ev: [], eq: [] };
+  const ev = evAt(R, e), std = e * V.mult; const eqv = equityAt(R, e); const stdEq = ev == null ? null : ev - (P ? P.debt + P.debtLike - P.cash - P.nwcAdj - (P.overlap || 0) : 0);
+  return { ev: ev != null && Math.abs(ev - std) > 0.5 ? [[`Change from edited formula: EV = ${fxShow(V.formulas.ev)}`, th(ev - std)]] : [],
+           eq: eqv != null && stdEq != null && Math.abs(eqv - stdEq) > 0.5 ? [[`Change from edited formula: equity purchase price = ${fxShow(V.formulas.equity)}`, th(eqv - stdEq)]] : [] }; }
+/* what edited tax or free cash flow formulas do to year 1 and the base case return, against the standard formulas */
+function fxReturnsNote(R, m) { if (!(R.edits || []).some(e => e.area === 'returns')) return '';
+  let a, b; try { a = returnsCase(R, m); b = returnsCase({ ...R, S: { ...R.S, taxFormula: '', fcfFormula: '' } }, m); } catch (e) { return ''; } if (!a || !b) return '';
+  const y = a.base.years[0], y0 = b.base.years[0], pct = x => x == null ? 'n/a' : (x * 100).toFixed(1) + '%';
+  return `Year 1: tax ${fmtUSD(y.tax)} (standard ${fmtUSD(y0.tax)}), free cash flow ${fmtUSD(y.fcf)} (standard ${fmtUSD(y0.fcf)}). Base case IRR ${pct(a.base.irr)} (standard ${pct(b.base.irr)}).`; }
 function buildRecord(docs, mandate, S0, dec, rv) {
   dec = dec || {}; rv = rv || {};
   const X = extractAll(docs);
@@ -3823,7 +4022,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   }
   const val = (m, k) => SM && SM.pl[m] && SM.pl[m][k] ? SM.pl[m][k].v : null;
   const src = (m, k) => SM && SM.pl[m] && SM.pl[m][k] ? SM.pl[m][k].src : null;
-  const findings = []; const FIRM = typeof firmOf === 'function' ? firmOf({ firm: mandate.firm }) : { thresholds: {}, rules: {} }; const TH = FIRM.thresholds;
+  const findings = []; const FIRM = typeof firmOf === 'function' ? firmOf({ firm: mandate.firm }) : { thresholds: {}, rules: {}, weights: null }; const TH = FIRM.thresholds;
   const F = (id, cat, severity, title, text, o) => findings.push({ id, category: cat, severity, title, text, metric: '', cites: [], evidence: [], impact: null, ...(o || {}) });
 
   /* management bridge from the CIM */
@@ -4152,14 +4351,20 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   }
 
   /* working capital measures; with one balance sheet date the selected definition is the figure reported */
-  let NWM = null; try { NWM = nwcMeasures(X, L, dec, pos && pos.asOf); } catch (e) { NWM = null; }
+  let NWM = null; try { NWM = nwcMeasures(X, L, dec, pos && pos.asOf, S); } catch (e) { NWM = null; }
   if (pos && pos.source === 'statements' && NWM) { const d = NWM.defs.find(x => x.id === S.nwcDef && x.value != null) || NWM.defs.find(x => x.id === 'deal');
     pos.nwcDef = d.id; pos.delivered = d.value; }
   /* deal economics */
   const mult = +S.multiple;
   const basisE = S.ebitdaBasis === 'reported' ? reported : S.ebitdaBasis === 'management' && management != null ? management : diligence;
-  const ev = basisE != null ? basisE * mult : null;
-  const equity = ev != null && pos ? ev - pos.debt - pos.debtLike + pos.cash + pos.nwcAdj + (pos.overlap || 0) : ev;
+  const formulas = { ev: S.evFormula || FX_DEFAULT.ev, equity: S.equityFormula || FX_DEFAULT.equity }; const formulaErr = {};
+  ['ev', 'equity'].forEach(kd => { try { fxFn(formulas[kd], kd); } catch (e) { formulaErr[kd] = e.message; formulas[kd] = FX_DEFAULT[kd]; } });
+  const fxVars = { diligence_ebitda: diligence, management_ebitda: management, reported_ebitda: reported, revenue: M && M.revenue != null ? M.revenue : L ? L.T.Revenue : null,
+    debt: pos ? pos.debt : 0, debt_like: pos ? pos.debtLike : 0, cash: pos ? pos.cash : 0, nwc_adjustment: pos ? pos.nwcAdj : 0, overlap: pos ? (pos.overlap || 0) : 0 };
+  const Rv = { val: { mult, basisE, formulas, vars: fxVars }, diligence };
+  const ev = basisE != null ? evAt(Rv, basisE, mult) : null;
+  const equity = ev != null ? equityAt(Rv, basisE, mult) : null;
+  Object.entries(formulaErr).forEach(([kd, msg]) => dataChecks.push({ status: 'warn', text: `The ${kd === 'ev' ? 'enterprise value' : 'equity purchase price'} formula could not be used (${msg}) The standard formula was used instead.` }));
   const contributors = [];
   if (management != null && diligence != null) {
     if (M.stated != null && M.computed != null && Math.abs(M.stated - M.computed) > 0.5) contributors.push({ label: 'Arithmetic error in stated Adjusted EBITDA', ebitda: M.stated - M.computed, cites: [M.statedSrc] });
@@ -4169,7 +4374,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     const explained = contributors.reduce((s, c) => s + c.ebitda, 0);
     const resid = (management - diligence) - explained;
     if (Math.abs(resid) > 0.5) contributors.push({ label: L ? 'Diligence adjustments not in management\'s bridge, and rounding' : 'Non-operating income and rounding', ebitda: resid, cites: [], ids: L ? L.adj.filter(a => a.accepted && ['A5', 'A6', 'A7'].includes(a.id)).map(a => a.id) : ['S1'] });
-    contributors.forEach(c => c.value = c.ebitda * mult);
+    contributors.forEach(c => { const d = evOfEbitda(Rv, c.ebitda); c.value = d; });
   }
 
   /* industry pack: SaaS / subscription metrics, read from tables and text, tested against the firm's thresholds */
@@ -4211,7 +4416,7 @@ function buildRecord(docs, mandate, S0, dec, rv) {
   const covered = c => findings.some(f => f.category === c && !f.held);
   const risk = CATS_RISK.filter(covered).map(c => {
     const fs = fired.filter(f => f.category === c); const pen = fs.reduce((s, f) => s + SEV_PEN[f.severity], 0);
-    return { cat: c, score: Math.max(0, 100 - pen), penalty: pen, findings: fs, tested: findings.filter(f => f.category === c && !f.held).length, toVerify: findings.filter(f => f.category === c && f.held).length, weight: CAT_W[c] };
+    return { cat: c, score: Math.max(0, 100 - pen), penalty: pen, findings: fs, tested: findings.filter(f => f.category === c && !f.held).length, toVerify: findings.filter(f => f.category === c && f.held).length, weight: FIRM.weights && FIRM.weights[W_KEY[c]] != null ? FIRM.weights[W_KEY[c]] : CAT_W[c] };
   });
   const wsum = risk.reduce((s, r) => s + r.weight, 0) || 1;
   const confidence = Math.round(risk.reduce((s, r) => s + r.score * r.weight, 0) / wsum);
@@ -4228,6 +4433,10 @@ function buildRecord(docs, mandate, S0, dec, rv) {
     const defOwner = ['Debt & liabilities', 'Working capital'].includes(f.category) ? 'manager' : 'analyst';
     return { id: 'I-' + f.id, finding: f, status: st.status || 'Open', owner: st.owner || defOwner, note: st.note || '' };
   });
+  const gaps = infoGaps({ X, L, M, SM, pos, assumptionSrc, docs });
+  gaps.forEach(g => { const st = rv['iss:' + g.id] || {};
+    issues.push({ id: 'I-' + g.id, gap: true, finding: { id: g.id, gap: true, category: g.area, severity: 'Info', title: g.title, text: g.why, ask: g.ask, metric: 'Missing', cites: [], evidence: [] },
+      status: st.status || 'Open', owner: st.owner || g.owner, note: st.note || '' }); });
   const actions = [];
   const done = id => rv['act:' + id];
   if (L) L.adj.filter(a => dec['adj:' + a.id] === undefined).forEach(a => actions.push({ id: 'adj:' + a.id, type: 'Approve adjustment', text: `${a.title} (${a.amount >= 0 ? '+' : '−'}${fmtUSD(Math.abs(a.amount))} EBITDA)`, gate: 'manager', decKey: 'adj:' + a.id }));
@@ -4251,8 +4460,25 @@ function buildRecord(docs, mandate, S0, dec, rv) {
 
   const fingerprint = fnv1a(JSON.stringify([RECORD_VERSION, ENGINE_VERSION, docs.map(d => d.hash), S, Object.keys(dec).sort().map(k => [k, dec[k]]), fix, fixU]));
   const R = {
-    X, L, SM, M, S, assumptionSrc, findings, fired, highs, risk, confidence, verdict, issues, actions, questions: qBase,
-    reported, diligence, management, revenue, periodLabel, pos, val: { mult, basisE, ev, equity, contributors },
+    edits: (() => { const out = [];
+      const vv = { ...fxVars, ebitda: basisE, multiple: mult }; const usd = v => v == null ? 'n/a' : fmtUSD(v);
+      if (!fxSame(formulas.ev, FX_DEFAULT.ev) && ev != null) { const std = fxFn(FX_DEFAULT.ev, 'ev')(vv);
+        out.push({ area: 'valuation', text: `Edited formula: enterprise value = ${fxShow(formulas.ev)} = ${fxCalc(formulas.ev, vv)} = ${usd(ev)} (standard formula ${fxShow(FX_DEFAULT.ev)} gives ${usd(std)}; change ${usd(ev - std)}).`,
+          short: `Edited EV formula: ${fxShow(formulas.ev)} = ${usd(ev)} (standard ${usd(std)}).` }); }
+      if (!fxSame(formulas.equity, FX_DEFAULT.equity) && equity != null) { const ve = { ...vv, ev }; const std = fxFn(FX_DEFAULT.equity, 'equity')(ve);
+        out.push({ area: 'valuation', text: `Edited formula: equity purchase price = ${fxShow(formulas.equity)} = ${fxCalc(formulas.equity, ve)} = ${usd(equity)} (standard formula gives ${usd(std)}; change ${usd(equity - std)}).`,
+          short: `Edited equity purchase price formula: ${fxShow(formulas.equity)} = ${usd(equity)} (standard ${usd(std)}).` }); }
+      const nd = (L && L.nwc && L.nwc.def) || (pos && pos.nwcDef) || S.nwcDef; const nf = nwcEdited(S, nd);
+      if (nf) { const nm = ((NWC_DEFS.find(d => d.id === nd) || {}).short || nd).toLowerCase(); const md = NWM && NWM.defs.find(d => d.id === nd);
+        const chg = md && md.rows ? (md.rows.find(r => r.label === 'Change from the edited formula') || {}).value : null;
+        out.push({ area: 'nwc', text: `Edited formula: ${nm} working capital = ${fxShow(nf)} (standard: ${fxShow(NWC_FX_DEFAULT[nd])}).${md && md.value != null && chg != null ? ` At ${monthLabel(NWM.asOf)}: standard ${usd(md.value - chg)}, change ${usd(chg)}, edited ${usd(md.value)}.` : ''}${L && L.nwc ? ` Applied every month: peg ${usd(L.nwc.peg)}, closing adjustment ${usd(L.nwc.adj)}.` : ''}`,
+          short: `Edited ${nm} working capital formula: ${fxShow(nf)}${md && md.value != null && chg != null ? ` = ${usd(md.value)} (standard ${usd(md.value - chg)})` : ''}.` }); }
+      [['taxFormula', 'tax', 'tax'], ['fcfFormula', 'fcf', 'free cash flow']].forEach(([k, kd, nm]) => { const f = S[k]; if (f && !fxSame(f, FX_DEFAULT[kd])) { try { fxFn(f, kd); out.push({ area: 'returns', kind: kd, text: `Edited formula: ${nm} = ${fxShow(f)} (standard: ${fxShow(FX_DEFAULT[kd])}).`, short: `Edited ${nm} formula: ${fxShow(f)}.` }); } catch (e) { } } });
+      const w = FIRM.weights, w0 = FIRM_DEFAULTS.weights; if (w && Object.keys(w0).some(k => Math.abs((w[k] ?? w0[k]) - w0[k]) > 1e-9))
+        out.push({ area: 'risk', text: `Risk score weights set by the firm: ${[['earnings', 'earnings quality'], ['revenue', 'revenue quality'], ['nwc', 'working capital'], ['debt', 'debt and liabilities'], ['controls', 'controls'], ['projections', 'projections']].map(([k, n]) => `${n} ${Math.round(w[k] * 100)}%`).join(', ')} (standard 30, 20, 15, 15, 10, 10).` });
+      return out; })(),
+    X, L, SM, M, S, assumptionSrc, findings, fired, highs, risk, confidence, verdict, issues, gaps, actions, questions: qBase,
+    reported, diligence, management, revenue, periodLabel, pos, val: { mult, basisE, ev, equity, equityValue: ev == null ? null : pos ? ev - pos.debt - pos.debtLike + pos.cash : ev, contributors, formulas, formulaErr, vars: fxVars, custom: fxCustom(Rv) },
     cash: L ? cashFlow(L) : cashFromStatements(SM, M, diligence), nwcNotes: L ? nwcCommentary(L) : [], poc, RA: L ? revenueAnalytics(L) : null, segBridge: segmentBridge(X),
     facts: X.facts, market: X.market || null, fingerprint, docs, srcDoc, dataChecks, readChecks, industry, saas, currency: { code: CUR.code, sym: CUR.sym }, baseCurrency: baseCur, detectedCurrency: (Object.entries(curCount).sort((a, b) => b[1] - a[1])[0] || ['USD'])[0], curSources, fxPending, docCur, docCurRead, fxNeeded, bsItems: X.bsItems, bsTotals: X.bsTotals || [], docUnits, nwcMeasures: NWM
   };
@@ -4454,7 +4680,7 @@ function answerQuestion(q, R, ctx) {
       if (!qOk(R.diligence) && !qOk(R.reported)) return gaps.push('ebitda');
       const mg = R.management, dil = R.diligence;
       if (qOk(mg) && qOk(dil)) {
-        parts.push(`Management presents Adjusted EBITDA of ${qMn(mg)}; diligence supports ${qMn(dil)}, ${qMn(mg - dil)} less (${qMn((mg - dil) * R.val.mult)} of value at ${qXm(R.val.mult)}).`);
+        parts.push(`Management presents Adjusted EBITDA of ${qMn(mg)}; diligence supports ${qMn(dil)}, ${qMn(mg - dil)} less (${qMn(evDiff(R, mg, dil))} of value at ${qXm(R.val.mult)}).`);
         if (M && M.statedSrc) cites.push(M.statedSrc);
         const rej = (M && M.addbacks || []).filter(a => !a.accepted).sort((a, b) => b.amount - a.amount);
         if (rej.length) { parts.push(`Add-backs not accepted: ${rej.slice(0, 4).map(a => `${a.label} (${qMn(a.amount)}): ${a.note}`).join(' ')}`); rej.slice(0, 4).forEach(a => a.src && cites.push(a.src)); }
@@ -4552,8 +4778,8 @@ function answerQuestion(q, R, ctx) {
     },
     valuation() {
       if (!qOk(R.val.ev)) return gaps.push('valuation');
-      const v = R.val; parts.push(`At ${qXm(v.mult)} diligence-adjusted EBITDA of ${qMn(R.diligence)}, enterprise value is ${qMn(v.ev)} (${qMn((v.mult - 0.5) * R.diligence)} to ${qMn((v.mult + 0.5) * R.diligence)} across half a turn either way) and the equity purchase price ${qMn(v.equity)}.`);
-      if (qOk(R.management)) parts.push(`Management's Adjusted EBITDA would imply ${qMn(R.management * v.mult)}; the ${qMn(R.management * v.mult - v.ev)} gap is explained in the valuation bridge.`);
+      const v = R.val; parts.push(`At ${qXm(v.mult)} diligence-adjusted EBITDA of ${qMn(R.diligence)}, enterprise value is ${qMn(v.ev)} (${qMn(evAt(R, R.diligence, v.mult - 0.5))} to ${qMn(evAt(R, R.diligence, v.mult + 0.5))} across half a turn either way) and the equity purchase price ${qMn(v.equity)}.`);
+      if (qOk(R.management)) parts.push(`Management's Adjusted EBITDA would imply ${qMn(evAt(R, R.management))}; the ${qMn(evAt(R, R.management) - v.ev)} gap is explained in the valuation bridge.`);
       (v.contributors || []).slice(0, 3).forEach(c => cites.push(...(c.cites || [])));
       const RC = typeof returnsCase === 'function' ? returnsCase(R, ctx.m || {}) : null;
       if (RC && RC.maxEntry) parts.push(`To clear a ${qPc(RC.a.targetIRR)} IRR on the current assumptions, pay no more than ${qXm(RC.maxEntry)}, about ${qMn(RC.maxEV)}.`);
@@ -4727,13 +4953,15 @@ function icEffective(R, m) {
 const FIRM_DEFAULTS = {
   returns: { targetIRR: 0.25, leverage: 3.0, rate: 0.09, fees: 0.025, taxRate: 0.25, hold: 5, maxDebtPct: 0.6 },
   cases: { downGrowth: -0.05, downExit: -1.0, upGrowth: 0.03, upExit: 0.5 },
+  /* how much each risk area counts toward the pre-LOI confidence score (rescaled over the areas a deal could test) */
+  weights: { earnings: 0.30, revenue: 0.20, nwc: 0.15, debt: 0.15, controls: 0.10, projections: 0.10 },
   /* the firm's own thresholds for the flags (fractions; materiality in dollars) */
   thresholds: { addbackMed: 0.20, addbackHigh: 0.40, proFormaHigh: 0.10, hockeyMed: 0.10, hockeyHigh: 0.20, marginMed: 0.05, marginHigh: 0.10, concMed: 0.15, concHigh: 0.25, materiality: null, nrrMin: 1.0, grrMin: 0.85, churnMax: 0.15, ruleOf40: 0.40 },
   criteria: { minEBITDA: null, maxEBITDA: null, minRevenue: null, maxRevenue: null, minMargin: null, maxAddbackPct: null, maxTopCustomer: null, maxMultiple: null, blockCats: [], excludeTerms: '' }
 };
 function firmOf(m) {
   const f = (m && m.firm) || {};
-  return { returns: { ...FIRM_DEFAULTS.returns, ...(f.returns || {}) }, cases: { ...FIRM_DEFAULTS.cases, ...(f.cases || {}) }, criteria: { ...FIRM_DEFAULTS.criteria, ...(f.criteria || {}) },
+  return { returns: { ...FIRM_DEFAULTS.returns, ...(f.returns || {}) }, cases: { ...FIRM_DEFAULTS.cases, ...(f.cases || {}) }, weights: { ...FIRM_DEFAULTS.weights, ...Object.fromEntries(Object.entries(f.weights || {}).filter(([, v]) => v != null && isFinite(v) && v >= 0)) }, criteria: { ...FIRM_DEFAULTS.criteria, ...(f.criteria || {}) },
     thresholds: { ...FIRM_DEFAULTS.thresholds, ...Object.fromEntries(Object.entries(f.thresholds || {}).filter(([, v]) => v != null && isFinite(v))) }, rules: { ...(f.rules || {}) } };
 }
 
@@ -5161,18 +5389,18 @@ function memoModel(R, m, opts) {
   const LEDGER = 'DealBasis analysis of the general ledger';
   const ledgerNote = () => { const d = (m.docs || R.docs || []).find(x => x.rows || x.sheets); return d ? note([{ d: d.id, t: d.rows ? 'csv' : 'xlsx', r: 1, s: d.sheets && d.sheets[0] ? d.sheets[0].name : undefined, c1: 0, c2: 0 }]) : []; };
   const fcite = f => note(f.cites.length ? f.cites : f.evidence.map(e => e.src));
-  const impactVal = f => !f.impact ? null : f.impact.kind === 'ebitda' ? f.impact.amount * mult : f.impact.kind === 'exposure' ? null : f.impact.amount;
+  const impactVal = f => !f.impact ? null : f.impact.kind === 'ebitda' ? evOfEbitda(R, f.impact.amount) : f.impact.kind === 'exposure' ? null : f.impact.amount;
   const fact = k => R.facts.find(f => f.kind === k);
 
   /* ---------- recommendation ---------- */
   const dil = R.diligence, mg = R.management;
-  const lo = ok(dil) ? dil * (mult - 0.5) : null, base = ok(dil) ? dil * mult : null, hi = ok(dil) ? dil * (mult + 0.5) : null;
+  const lo = ok(dil) ? evAt(R, dil, mult - 0.5) : null, base = ok(dil) ? evAt(R, dil, mult) : null, hi = ok(dil) ? evAt(R, dil, mult + 0.5) : null;
   const rec = { verdict: live ? R.verdict : 'Insufficient information', score: live ? R.confidence : null, headline: '', ask: '', conditions: [] };
   if (!live) { rec.headline = 'No recommendation'; rec.ask = 'No source documents have been analyzed for this mandate.'; }
   else if (R.verdict === 'Go') { rec.headline = 'Proceed to letter of intent'; rec.ask = `The deal team requests approval to submit a non-binding letter of intent at an enterprise value of up to ${mn(hi)} (${xm(mult + 0.5)} diligence-adjusted EBITDA of ${mn(dil)}), with a base case of ${mn(base)} at ${xm(mult)}.`; }
   else if (R.verdict === 'Proceed with conditions') { rec.headline = 'Proceed to letter of intent, subject to conditions'; rec.ask = `The deal team requests approval to submit a non-binding letter of intent in the range of ${mn(lo)} to ${mn(base)} enterprise value (${xm(mult - 0.5)} to ${xm(mult)} diligence-adjusted EBITDA of ${mn(dil)}), conditional on resolving the items below before exclusivity.`; }
   else if (R.verdict === 'Limited evidence') { rec.headline = 'Not enough evidence to recommend a letter of intent'; rec.ask = `The documents on file support only ${R.risk.length} of the six risk areas${dil == null && R.reported == null ? ' and no EBITDA figure' : ''}. The deal team requests time to obtain management's EBITDA bridge, financial statements or a general ledger before a recommendation is made${ok(base) ? `; on the figures available, value is indicated at about ${mn(base)}` : ''}.`; }
-  else { rec.headline = 'Do not proceed to letter of intent at this time'; rec.ask = `The deal team does not recommend submitting a letter of intent until the conditions below are resolved. On current evidence, value is indicated at ${mn(lo)} to ${mn(base)} enterprise value (${xm(mult - 0.5)} to ${xm(mult)} diligence-adjusted EBITDA of ${mn(dil)})${ok(mg) ? `, against ${mn(mg * mult)} implied by management's Adjusted EBITDA` : ''}.`; }
+  else { rec.headline = 'Do not proceed to letter of intent at this time'; rec.ask = `The deal team does not recommend submitting a letter of intent until the conditions below are resolved. On current evidence, value is indicated at ${mn(lo)} to ${mn(base)} enterprise value (${xm(mult - 0.5)} to ${xm(mult)} diligence-adjusted EBITDA of ${mn(dil)})${ok(mg) ? `, against ${mn(evAt(R, mg))} implied by management's Adjusted EBITDA` : ''}.`; }
   rec.conditions = condItems(R).map(c => ({ t: c.t, notes: c.fs.flatMap(fcite) }));
 
   const S = []; const sec = (title, blocks) => { if (blocks && blocks.length) S.push({ title, blocks }); };
@@ -5189,7 +5417,7 @@ function memoModel(R, m, opts) {
     const gmM = (() => { const S = R.SM, b = S && S.basis, g = S && b && S.pl.gp && S.pl.gp[b]; return g && ok(R.revenue) ? g.v / R.revenue : null; })();
     if (ok(R.revenue) && ok(R.reported)) intro.push(`Over the ${R.periodLabel}, it generated revenue of ${mn(R.revenue)} and reported EBITDA of ${mn(R.reported)}, a ${pc(R.reported / R.revenue)} margin.`);
     else if (ok(R.revenue)) intro.push(`Over the ${R.periodLabel}, it generated revenue of ${mn(R.revenue)}${ok(gmM) ? ` at a ${pc(gmM)} gross margin` : ''}. The documents do not state EBITDA yet.`);
-    if (ok(mg) && ok(dil)) intro.push(`Management presents Adjusted EBITDA of ${mn(mg)}. Diligence supports ${mn(dil)}, ${mn(mg - dil)} less, which is ${mn((mg - dil) * mult)} of enterprise value at ${xm(mult)}.`);
+    if (ok(mg) && ok(dil)) intro.push(`Management presents Adjusted EBITDA of ${mn(mg)}. Diligence supports ${mn(dil)}, ${mn(mg - dil)} less, which is ${mn(evDiff(R, mg, dil))} of enterprise value at ${xm(mult)}.`);
     else if (ok(dil)) intro.push(`Diligence-adjusted EBITDA is ${mn(dil)}.`);
     b.push({ p: intro.join(' '), notes: [...note([f && f.src, hq && hq.src, e && e.src]), ...(L ? [] : note([M && M.revenueSrc, M && M.reportedSrc]))] });
     if (ok(R.revenue)) {
@@ -5266,17 +5494,18 @@ function memoModel(R, m, opts) {
   /* ---------- 3 transaction and valuation ---------- */
   if (live && ok(dil)) {
     const terms = [['Mandate', m.name, []], ['Transaction', m.dealType || 'Not specified', []], ['Stage', m.stage, []], ['Valuation basis', `${xm(mult)} EV / diligence-adjusted EBITDA`, []], ['Balance sheet date', P && P.asOf ? monthLabel(P.asOf) : 'Not available', []]];
-    const bridge = [['Diligence-adjusted EBITDA', th(dil)], [`× ${xm(mult)}`, ''], ['Enterprise value', th(base)]];
-    if (P) bridge.push(['Less: funded debt' + (P.debt !== P.bsDebt ? ' (incl. debt identified in diligence)' : ''), th(-P.debt)], ['Less: debt-like items', th(-P.debtLike)], ['Plus: cash', th(P.cash)], ['Working capital adjustment' + (P.peg != null ? '' : ' (no peg available)'), th(P.nwcAdj)]); if (P && P.overlap) bridge.push(['Add back: items already inside working capital', th(P.overlap)]);
-    bridge.push(['Equity purchase price', th(R.val.equity)]);
+    const fxr = fxBridgeRows(R, dil, th);
+    const bridge = [['Diligence-adjusted EBITDA', th(dil)], [`× ${xm(mult)}`, ''], ...fxr.ev, ['Enterprise value', th(base)]];
+    if (P) bridge.push(['Less: funded debt' + (P.debt !== P.bsDebt ? ' (incl. debt identified in diligence)' : ''), th(-P.debt)], ['Less: debt-like items', th(-P.debtLike)], ['Plus: cash', th(P.cash)], ['Equity value', th(base - P.debt - P.debtLike + P.cash)], ['Working capital adjustment' + (P.peg != null ? '' : ' (no peg available)'), th(P.nwcAdj)]); if (P && P.overlap) bridge.push(['Add back: items already inside working capital', th(P.overlap)]);
+    bridge.push(...fxr.eq, ['Equity purchase price', th(equityAt(R, dil))]);
     const ms = [mult - 1, mult - 0.5, mult, mult + 0.5, mult + 1].filter(x => x > 0);
-    const eqAt = (e, x) => e * x - (P ? P.debt + P.debtLike - P.cash - P.nwcAdj - (P.overlap || 0) : 0);
+    const eqAt = (e, x) => equityAt(R, e, x);
     const bases = [['Diligence-adjusted', dil], ...(ok(mg) ? [["Management's", mg]] : []), ['Reported', R.reported]].filter(x => ok(x[1]));
     sec('Transaction and valuation', [
       { kv: terms },
-      { h: 'Enterprise to equity value' }, { table: { unit: curUnit('thousands'), head: ['', 'Amount'], rows: bridge, align: ['l', 'r'], widths: [0.72, 0.28], totals: [2, bridge.length - 1] } },
-      { h: 'Equity value sensitivity' }, { table: { unit: curUnit('thousands'), head: ['EBITDA basis', ...ms.map(xm)], rows: bases.map(([l, e]) => [`${l} (${th(e)})`, ...ms.map(x => th(eqAt(e, x)))]), align: ['l', ...ms.map(() => 'r')], widths: [0.3, ...ms.map(() => 0.7 / ms.length)], hi: { row: 0, col: ms.indexOf(mult) + 1 } } },
-      ...(ok(mg) ? [{ p: `At ${xm(mult)}, the difference between management's and the diligence-adjusted EBITDA is worth ${mn((mg - dil) * mult)} of enterprise value. The quality of earnings section sets out where it comes from.` }] : [])
+      { h: 'Enterprise to equity value' }, { table: { unit: curUnit('thousands'), head: ['', 'Amount'], rows: bridge, align: ['l', 'r'], widths: [0.72, 0.28], totals: bridge.map((r, i) => /^(Enterprise value|Equity value|Equity purchase price)$/.test(r[0]) ? i : -1).filter(i => i >= 0) } },
+      { h: 'Equity purchase price sensitivity' }, { table: { unit: curUnit('thousands'), head: ['EBITDA basis', ...ms.map(xm)], rows: bases.map(([l, e]) => [`${l} (${th(e)})`, ...ms.map(x => th(eqAt(e, x)))]), align: ['l', ...ms.map(() => 'r')], widths: [0.3, ...ms.map(() => 0.7 / ms.length)], hi: { row: 0, col: ms.indexOf(mult) + 1 } } },
+      ...(ok(mg) ? [{ p: `At ${xm(mult)}, the difference between management's and the diligence-adjusted EBITDA is worth ${mn(evDiff(R, mg, dil))} of enterprise value. The quality of earnings section sets out where it comes from.` }] : [])
     ]);
   }
 
@@ -5337,7 +5566,7 @@ function memoModel(R, m, opts) {
       const ex = M.addbacks.filter(a => !a.accepted);
       if (ex.length) b.push({ bullets: ex.map(a => ({ t: `${a.label} (${mn(a.amount)}): ${a.note}`, notes: note([a.src]) })) });
     }
-    if (R.val.contributors.length) b.push({ h: "Reconciliation to management's figure" }, { table: { unit: curUnit('thousands'), head: ['', 'EBITDA', `Change in value at ${xm(mult)}`], rows: [["Management's Adjusted EBITDA", th(mg), ''], ...R.val.contributors.map(c => [c.label, th(-c.ebitda), th(-c.value)]), ['Diligence-adjusted EBITDA', th(dil), th((dil - mg) * mult)]], align: ['l', 'r', 'r'], widths: [0.6, 0.2, 0.2], totals: [R.val.contributors.length + 1], emph: [0] } });
+    if (R.val.contributors.length) b.push({ h: "Reconciliation to management's figure" }, { table: { unit: curUnit('thousands'), head: ['', 'EBITDA', `Change in value at ${xm(mult)}`], rows: [["Management's Adjusted EBITDA", th(mg), ''], ...R.val.contributors.map(c => [c.label, th(-c.ebitda), th(-c.value)]), ['Diligence-adjusted EBITDA', th(dil), th(evDiff(R, dil, mg))]], align: ['l', 'r', 'r'], widths: [0.6, 0.2, 0.2], totals: [R.val.contributors.length + 1], emph: [0] } });
     sec('Quality of earnings', b);
   }
 
@@ -5407,12 +5636,12 @@ function memoModel(R, m, opts) {
     ...(lines(icx.exit).length ? [{ h: 'Exit' }, { bullets: lines(icx.exit).map(t => ({ t })) }] : []), { small: dv('valueCreation', 'exit') }]);
 
   /* ---------- 11 risk assessment ---------- */
-  if (R.issues.length) {
-    const rows = R.issues.map((i, k) => { const f = i.finding; const v = impactVal(f);
+  if (R.issues.some(i => !i.gap)) {
+    const rows = R.issues.filter(i => !i.gap).map((i, k) => { const f = i.finding; const v = impactVal(f);
       return [String(k + 1), f.title, f.severity, v ? th(Math.abs(v)) : '–', NEXT_STEP[f.id] || '', `${m.owners[i.owner] || i.owner}; ${i.status}`]; });
     sec('Risk assessment', [{ table: { unit: 'Value at stake in $ thousands', head: ['#', 'Risk', 'Severity', 'Value', 'Required diligence', 'Owner; status'], rows, align: ['l', 'l', 'l', 'r', 'l', 'l'], widths: [0.05, 0.25, 0.1, 0.1, 0.32, 0.18], sev: 2 } },
       { small: 'Value at stake converts EBITDA effects at the valuation multiple and takes balance sheet effects dollar for dollar. Findings without a direct value effect are shown as –.' },
-      { h: 'Findings in detail' }, { bullets: R.issues.map(i => ({ t: `${i.finding.title}: ${i.finding.text}`, notes: fcite(i.finding) })), numbered: true }]);
+      { h: 'Findings in detail' }, { bullets: R.issues.filter(i => !i.gap).map(i => ({ t: `${i.finding.title}: ${i.finding.text}`, notes: fcite(i.finding) })), numbered: true }]);
   }
 
   /* ---------- 12 diligence status and approvals ---------- */
@@ -5677,15 +5906,15 @@ function memoModel(R, m, opts) {
 
     /* findings register */
     if (kind === 'fdd' || kind === 'findings') {
-      const rows = R.issues.map((x, i) => { const f = x.finding; const v = impactVal(f); return [String(i + 1), f.category, f.title, f.severity, v ? th(Math.abs(v)) : '–', `${who(x.owner)}; ${x.status}`]; });
+      const rows = R.issues.filter(i => !i.gap).map((x, i) => { const f = x.finding; const v = impactVal(f); return [String(i + 1), f.category, f.title, f.severity, v ? th(Math.abs(v)) : '–', `${who(x.owner)}; ${x.status}`]; });
       const blocks = [{ table: { unit: 'Value at stake in $ thousands', head: ['#', 'Area', 'Finding', 'Severity', 'Value', 'Owner; status'], rows, align: ['l', 'l', 'l', 'l', 'r', 'l'], widths: [0.05, 0.18, 0.33, 0.11, 0.12, 0.21], sev: 3 } },
-        { h: 'Findings in detail' }, { bullets: R.issues.map(x => ({ t: `${x.finding.title} (${x.finding.severity}). ${x.finding.text} Next step: ${NEXT_STEP[x.finding.id] || 'Confirm with the seller.'}`, notes: fcite(x.finding) })), numbered: true }];
+        { h: 'Findings in detail' }, { bullets: R.issues.filter(i => !i.gap).map(x => ({ t: `${x.finding.title} (${x.finding.severity}). ${x.finding.text} Next step: ${NEXT_STEP[x.finding.id] || 'Confirm with the seller.'}`, notes: fcite(x.finding) })), numbered: true }];
       if (kind === 'findings') { addR('Risk scores', [{ table: { head: ['Area', 'Weight', 'Findings', 'Score'], rows: [...R.risk.map(r => [r.cat, Math.round(r.weight * 100) + '%', `${r.findings.length} of ${r.tested}`, String(r.score)]), ['Pre-LOI confidence score', '', '', String(R.confidence)]], align: ['l', 'r', 'r', 'r'], widths: [0.46, 0.16, 0.2, 0.18], totals: [R.risk.length] } }]); addR('Findings register', blocks); }
       else addRA('Findings register', blocks);
     }
 
     /* information requests */
-    { const qs = R.questions || []; const reqs = (R.actions || []).filter(a => a.type === 'Send request'); const sq = (m.rv && m.rv.sq) || [];
+    { const qs = R.questions || []; const reqs = (R.actions || []).filter(a => a.type === 'Send request'); const sq = sellerQList(R, m);
       const blocks = [];
       if (sq.length) blocks.push({ h: 'Seller question list' }, { table: { head: ['#', 'Question', 'Owner', 'Status', 'Due', 'Response'], rows: sq.map((q, i) => ['Q' + (i + 1), q.text + (q.from ? ` (from ${q.from})` : ''), who(q.owner), q.status || 'Draft', q.due || '', q.answer || '']), align: ['l', 'l', 'l', 'l', 'l', 'l'], widths: [0.06, 0.38, 0.13, 0.1, 0.11, 0.22] } });
       if (reqs.length) blocks.push({ h: 'Document requests' }, { table: { head: ['#', 'Request', 'Purpose'], rows: reqs.map((a, i) => ['R' + (i + 1), a.text, a.why || '']), align: ['l', 'l', 'l'], widths: [0.06, 0.6, 0.34] } });
@@ -5719,7 +5948,7 @@ function memoModel(R, m, opts) {
     const sumLine = { qoe: ok(R.diligence) ? `Diligence-adjusted EBITDA of ${mn(R.diligence)}${ok(R.management) ? `, ${mn(Math.abs(R.management - R.diligence))} ${R.diligence < R.management ? 'below' : 'above'} management's ${mn(R.management)}` : ''}` : 'Quality of earnings',
       nwc: N ? `Indicative peg of ${mn(N.peg)}` : 'Net working capital', debt: Dt ? `Net debt of ${mn(Dt.netDebt)}` : 'Net debt', cash: PC ? `Deposits ${PC.tot.gap === 0 ? 'agree with' : 'differ from'} revenue collected${PC.tot.gap ? ` by ${mn(Math.abs(PC.tot.gap))}` : ''}` : 'Cash flow',
       revenue: L && L.customers && L.customers.list[0] ? `Largest customer ${pc(L.customers.list[0].share)} of revenue` : 'Revenue quality', economics: R.val && ok(R.val.ev) ? `Enterprise value of ${mn(R.val.ev)} at ${xm(mult)}` : 'Valuation and returns',
-      findings: `${R.fired.length} findings, ${R.highs.length} high severity`, questions: `${((m.rv && m.rv.sq) || []).filter(q => q.status !== 'Closed' && q.status !== 'Answered').length + (R.questions || []).filter(q => q.status === 'Cannot answer').length} open questions, ${(R.actions || []).filter(a => a.type === 'Send request').length} document requests`, fdd: ok(R.diligence) ? `Diligence-adjusted EBITDA of ${mn(R.diligence)}` : 'Financial due diligence' }[kind];
+      findings: `${R.fired.length} findings, ${R.highs.length} high severity`, questions: `${sellerQList(R, m).filter(q => q.status !== 'Closed' && q.status !== 'Answered').length + (R.questions || []).filter(q => q.status === 'Cannot answer').length} open questions, ${(R.actions || []).filter(a => a.type === 'Send request').length} document requests`, fdd: ok(R.diligence) ? `Diligence-adjusted EBITDA of ${mn(R.diligence)}` : 'Financial due diligence' }[kind];
     const team = ['analyst', 'manager', 'partner'].map(r => m.owners[r]).filter(Boolean).join(', ');
     return {
       meta: { kind: 'report', report: kind, draft: highs ? 'Draft for discussion' : '', title: TITLES[kind] || 'Financial Due Diligence Report', project: m.name, target: m.target || '', date: longDate, period: R.periodLabel, fingerprint: R.fingerprint, classification: 'Strictly confidential',
@@ -5799,7 +6028,7 @@ function memoModel(R, m, opts) {
   if (thS) { const ev = seg(exS, 'What the evidence supports'); const sm = thS.blocks.filter(x => x.small).map(x => ({ small: dv('thesis') }));
     add('Investment thesis', [...thS.blocks.filter(x => !x.small), ...(ev.length ? [{ h: 'Supporting evidence' }, ...ev.slice(1)] : []), ...sm]); }
   // 6 deal terms and structure
-  if (tvS) add('Deal terms and structure', [...tvS.blocks.filter(x => !x.p).filter((x, i, arr) => !(x.h === 'Equity value sensitivity' || (arr[i - 1] && arr[i - 1].h === 'Equity value sensitivity'))), ...(suS ? [{ h: 'Sources and uses' }, ...suS.blocks] : [])]);
+  if (tvS) add('Deal terms and structure', [...tvS.blocks.filter(x => !x.p).filter((x, i, arr) => !(x.h === 'Equity purchase price sensitivity' || (arr[i - 1] && arr[i - 1].h === 'Equity purchase price sensitivity'))), ...(suS ? [{ h: 'Sources and uses' }, ...suS.blocks] : [])]);
   // 7 returns: downside / base / upside, then sensitivity
   if (reS) {
     const blocks = reS.blocks.slice(); const at = blocks.findIndex(x => x.table);
@@ -5833,7 +6062,7 @@ function memoModel(R, m, opts) {
     b.push({ h: 'Approvals' }, ...(ddS ? ddS.blocks.filter(x => x.signoff) : []));
     add('Recommendation', b);
   }
-  if (rkS) addA('Findings register', [{ table: { unit: 'Value at stake in $ thousands', head: ['#', 'Finding', 'Severity', 'Value', 'Required diligence'], rows: R.issues.map((x, k) => { const f = x.finding; const v = impactVal(f); return [String(k + 1), `${f.title}. ${f.text}`, f.severity, v ? th(Math.abs(v)) : '–', NEXT_STEP[f.id] || '']; }), align: ['l', 'l', 'l', 'r', 'l'], widths: [0.05, 0.47, 0.1, 0.09, 0.29], sev: 2, notes: note(R.issues.flatMap(x => x.finding.cites)) } }]);
+  if (rkS) addA('Findings register', [{ table: { unit: 'Value at stake in $ thousands', head: ['#', 'Finding', 'Severity', 'Value', 'Required diligence'], rows: R.issues.filter(i => !i.gap).map((x, k) => { const f = x.finding; const v = impactVal(f); return [String(k + 1), `${f.title}. ${f.text}`, f.severity, v ? th(Math.abs(v)) : '–', NEXT_STEP[f.id] || '']; }), align: ['l', 'l', 'l', 'r', 'l'], widths: [0.05, 0.47, 0.1, 0.09, 0.29], sev: 2, notes: note(R.issues.flatMap(x => x.finding.cites)) } }]);
   A.unshift(...AX);
   rec.short = true;
   /* renumber source notes in reading order */
@@ -5845,6 +6074,10 @@ function memoModel(R, m, opts) {
   S.forEach(x => each(x.blocks, remap)); A.forEach(x => each(x.blocks, remap)); rec.conditions.forEach(c => remap(c.notes));
   const ordered = order.map((old, i) => ({ n: i + 1, label: notes[old - 1].label })); notes.length = 0; notes.push(...ordered);
   const team = ['analyst', 'manager', 'partner'].map(r => m.owners[r]).filter(Boolean).join(', ');
+  { const ED = R.edits || []; const where = { valuation: 'Deal terms and structure', nwc: 'Financial analysis', returns: 'Returns analysis', risk: 'Risks and key areas of due diligence' };
+    ED.forEach(e => { const sx = S.find(x => x.title === where[e.area]); if (sx) sx.blocks.push({ small: e.text }); });
+    const rn = fxReturnsNote(R, m); if (rn) { const sx = S.find(x => x.title === where.returns); if (sx) sx.blocks.push({ small: rn }); }
+    const ex = S.find(x => x.title === 'Executive summary'); if (ex && ED.length) ex.blocks.push({ small: `This memo uses formulas the deal team edited. ${ED.map(e => e.short || e.text).join(' ')} Each is set out, with its calculation, where the figure appears.` }); }
   return {
     meta: { draft: '', title: 'Investment Committee Memorandum', project: m.name, target: m.target || '', date: longDate, to: 'Investment Committee', from: team || 'Deal team', re: `${m.dealType ? m.dealType + ': ' : ''}${m.target || m.name}`, stage: m.stage, period: R.periodLabel, fingerprint: R.fingerprint, classification: 'Strictly confidential' },
     rec, sections: S, appendices: A, notes
@@ -6222,51 +6455,54 @@ function icAssumptions(R, m) {
   let daRatio = 0.15;
   if (R.L && R.L.T.EBITDA) daRatio = Math.max(0, Math.min(0.6, R.L.T['D&A'] / Math.max(1, R.L.adjEBITDA)));
   else if (R.SM && R.SM.pl.da && R.M && R.SM.pl.da[R.M.basis] && R.M.diligence) daRatio = Math.max(0, Math.min(0.6, Math.abs(R.SM.pl.da[R.M.basis].v) / R.M.diligence));
-  return { ...ic, growth: g, conversion: c, entry, exitMultiple: exitM, hold: Math.max(1, Math.min(10, Math.round(+ic.hold || 5))), daRatio, src };
+  const fxOk = (k, kd) => { const f = R.S && R.S[k]; if (!f || fxSame(f, FX_DEFAULT[kd])) return null; try { fxFn(f, kd); return f; } catch (e) { return null; } };
+  return { ...ic, taxF: fxOk('taxFormula', 'tax'), fcfF: fxOk('fcfFormula', 'fcf'), growth: g, conversion: c, entry, exitMultiple: exitM, hold: Math.max(1, Math.min(10, Math.round(+ic.hold || 5))), daRatio, src };
 }
-function runCase(E0, a, entryMult, exitMult, g, nwcAdj) {
-  const ev = E0 * entryMult, fees = ev * a.fees;
+function runCase(E0, a, entryMult, exitMult, g, nwcAdj, evf) {
+  evf = evf || ((e, x) => e * x);
+  const ev = evf(E0, entryMult), fees = ev * a.fees;
   const debt0 = Math.max(0, Math.min(a.leverage * E0, ev * a.maxDebtPct));
   const uses = ev + nwcAdj + fees; const equity0 = uses - debt0;
   let debt = debt0, cash = 0; const years = [];
   for (let t = 1; t <= a.hold; t++) {
     const e = E0 * Math.pow(1 + g, t);
     const pre = e * a.conversion; const interest = debt * a.rate;
-    const tax = Math.max(0, e - a.daRatio * e - interest) * a.taxRate;
-    const fcf = pre - interest - tax; const pay = Math.min(debt, Math.max(0, fcf));
+    const yv = { ebitda: e, depreciation: a.daRatio * e, interest, tax_rate: a.taxRate, conversion: a.conversion, debt, year: t };
+    let tax = a.taxF ? fxFn(a.taxF, 'tax')(yv) : Math.max(0, e - a.daRatio * e - interest) * a.taxRate; if (!isFinite(tax)) tax = 0;
+    let fcf = a.fcfF ? fxFn(a.fcfF, 'fcf')({ ...yv, tax }) : pre - interest - tax; if (!isFinite(fcf)) fcf = 0; const pay = Math.min(debt, Math.max(0, fcf));
     debt -= pay; cash += fcf - pay;
     years.push({ t, ebitda: e, pre, interest, tax, fcf, pay, debt, cash });
   }
   const Eh = years[years.length - 1].ebitda;
-  const exitEV = Eh * exitMult, exitEquity = exitEV - debt + cash;
+  const exitEV = evf(Eh, exitMult), exitEquity = exitEV - debt + cash;
   const moic = equity0 > 0 ? exitEquity / equity0 : null;
   const irr = moic != null && moic > 0 ? Math.pow(moic, 1 / a.hold) - 1 : null;
   return { ev, fees, debt0, uses, equity0, years, exitEV, exitEquity, moic, irr, Eh, debtH: debt, cashH: cash,
-    bridge: { growth: (Eh - E0) * entryMult, multiple: (exitMult - entryMult) * Eh, delever: debt0 - debt + cash, leakage: -(fees + nwcAdj) } };
+    bridge: { growth: evf(Eh, entryMult) - evf(E0, entryMult), multiple: evf(Eh, exitMult) - evf(Eh, entryMult), delever: debt0 - debt + cash, leakage: -(fees + nwcAdj) } };
 }
 function returnsCase(R, m) {
   const E0 = R.diligence; if (!(E0 > 0)) return null;
-  const a = icAssumptions(R, m); const nwc = R.pos ? R.pos.nwcAdj : 0;
-  const base = runCase(E0, a, a.entry, a.exitMultiple, a.growth, nwc);
+  const a = icAssumptions(R, m); const nwc = R.pos ? R.pos.nwcAdj : 0; const evf = (e, x) => { const v = evAt(R, e, x); return v == null ? e * x : v; };
+  const base = runCase(E0, a, a.entry, a.exitMultiple, a.growth, nwc, evf);
   const xs = [-1, -0.5, 0, 0.5, 1].map(d => +(a.exitMultiple + d).toFixed(2)).filter(x => x > 0);
   const gs = [-0.04, -0.02, 0, 0.02, 0.04].map(d => +(a.growth + d).toFixed(4));
-  const grid = gs.map(g => xs.map(x => runCase(E0, a, a.entry, x, g, nwc).irr));
+  const grid = gs.map(g => xs.map(x => runCase(E0, a, a.entry, x, g, nwc, evf).irr));
   // highest entry multiple that still clears the target IRR, holding the exit multiple at the base case
   let lo = 0.5, hi = 40, maxEntry = null;
-  if ((runCase(E0, a, lo, a.exitMultiple, a.growth, nwc).irr || -1) >= a.targetIRR) {
-    for (let k = 0; k < 50; k++) { const mid = (lo + hi) / 2; const r = runCase(E0, a, mid, a.exitMultiple, a.growth, nwc).irr; if (r != null && r >= a.targetIRR) lo = mid; else hi = mid; }
+  if ((runCase(E0, a, lo, a.exitMultiple, a.growth, nwc, evf).irr || -1) >= a.targetIRR) {
+    for (let k = 0; k < 50; k++) { const mid = (lo + hi) / 2; const r = runCase(E0, a, mid, a.exitMultiple, a.growth, nwc, evf).irr; if (r != null && r >= a.targetIRR) lo = mid; else hi = mid; }
     maxEntry = lo;
   }
   const y1 = base.years[0];
-  return { a, E0, base, xs, gs, grid, maxEntry, maxEV: maxEntry ? maxEntry * E0 : null,
+  return { a, E0, base, xs, gs, grid, maxEntry, maxEV: maxEntry ? evf(E0, maxEntry) : null,
     stats: { leverage: base.debt0 / E0, coverage: y1.interest ? y1.ebitda / y1.interest : null, equityPct: base.equity0 / base.uses } };
 }
 
 /* Downside / base / upside, as an IC memo presents them. Downside and upside move growth and the
    exit multiple by fixed, stated amounts so the cases are reproducible. */
 function returnsScenarios(R, m) {
-  const RC = returnsCase(R, m); if (!RC) return null; const a = RC.a, nwc = R.pos ? R.pos.nwcAdj : 0;
-  const mk = (name, g, x, basis) => ({ name, g, x, basis, ...runCase(RC.E0, a, a.entry, x, g, nwc) });
+  const RC = returnsCase(R, m); if (!RC) return null; const a = RC.a, nwc = R.pos ? R.pos.nwcAdj : 0; const evf = (e, x) => { const v = evAt(R, e, x); return v == null ? e * x : v; };
+  const mk = (name, g, x, basis) => ({ name, g, x, basis, ...runCase(RC.E0, a, a.entry, x, g, nwc, evf) });
   const cs = typeof firmOf === 'function' ? firmOf(m).cases : { downGrowth: -0.05, downExit: -1, upGrowth: 0.03, upExit: 0.5 };
   const pts = v => `${v >= 0 ? '' : ''}${Math.abs(v * 100).toFixed(0)} points ${v >= 0 ? 'higher' : 'lower'}`, turns = v => `${Math.abs(v).toFixed(1).replace(/\.0$/, '')} turn${Math.abs(v) === 1 ? '' : 's'} ${v >= 0 ? 'higher' : 'lower'}`;
   return [mk('Downside', a.growth + cs.downGrowth, Math.max(1, a.exitMultiple + cs.downExit), `Growth ${pts(cs.downGrowth)}; exit ${turns(cs.downExit)}`),
@@ -6276,7 +6512,7 @@ function returnsScenarios(R, m) {
 /* Findings grouped into the risk areas a committee discusses, ranked by severity then value at stake. */
 function riskAreas(R) {
   const mult = R.val.mult; const rank = { High: 0, Medium: 1, Low: 2 };
-  const iv = f => !f.impact ? 0 : f.impact.kind === 'ebitda' ? Math.abs(f.impact.amount * mult) : f.impact.kind === 'exposure' ? 0 : Math.abs(f.impact.amount);
+  const iv = f => !f.impact ? 0 : f.impact.kind === 'ebitda' ? Math.abs(evOfEbitda(R, f.impact.amount)) : f.impact.kind === 'exposure' ? 0 : Math.abs(f.impact.amount);
   const by = {}; (R.fired || []).filter(f => f.severity === 'High' || f.severity === 'Medium').forEach(f => { (by[f.category] = by[f.category] || []).push(f); });
   return Object.entries(by).map(([cat, fs]) => {
     fs.sort((a, b) => rank[a.severity] - rank[b.severity] || iv(b) - iv(a));
@@ -6303,12 +6539,12 @@ function deckModel(R, m, opts) {
   const drafted = (...ks) => ks.some(k => ic._drafted && ic._drafted[k]) ? 'Drafted by DealBasis from the source documents' : '';
   const lines = t => String(t || '').split(/\n+/).map(s => s.replace(/^\s*(?:[-*•\u2022]|\d{1,2}[.)])\s+/, '').trim()).filter(Boolean);
   const dil = R.diligence, mg = R.management, rev = R.revenue;
-  const lo = ok(dil) ? dil * (mult - 0.5) : null, base = ok(dil) ? dil * mult : null, hi = ok(dil) ? dil * (mult + 0.5) : null;
+  const lo = ok(dil) ? evAt(R, dil, mult - 0.5) : null, base = ok(dil) ? evAt(R, dil, mult) : null, hi = ok(dil) ? evAt(R, dil, mult + 0.5) : null;
   const fact = k => R.facts.find(f => f.kind === k);
   const docName = id => { const d = (m.docs || R.docs || []).find(x => x.id === id); return d ? d.name.replace(/\.[^.]+$/, '') : id; };
   const srcLine = anchors => { const ids = [...new Set((anchors || []).filter(Boolean).map(a => a.d))]; return ids.length ? 'Source: ' + ids.map(docName).join('; ') + '. Every figure links to its page, cell, row or tag in the DealBasis record.' : ''; };
   const ledgerSrc = () => { const d = (m.docs || R.docs || []).find(x => x.rows || x.sheets); return d ? [{ d: d.id }] : []; };
-  const impactVal = f => !f.impact ? null : f.impact.kind === 'ebitda' ? f.impact.amount * mult : f.impact.kind === 'exposure' ? null : f.impact.amount;
+  const impactVal = f => !f.impact ? null : f.impact.kind === 'ebitda' ? evOfEbitda(R, f.impact.amount) : f.impact.kind === 'exposure' ? null : f.impact.amount;
   const slides = [];
   const S = (section, title, els, notes, source) => slides.push({ section, title, els, notes: notes || '', source: source || '' });
 
@@ -6479,14 +6715,15 @@ function deckModel(R, m, opts) {
   /* 11 valuation */
   {
     const ms = [mult - 1, mult - 0.5, mult, mult + 0.5, mult + 1].filter(x => x > 0);
-    const eqAt = (e, x) => e * x - (P ? P.debt + P.debtLike - P.cash - P.nwcAdj - (P.overlap || 0) : 0);
+    const eqAt = (e, x) => equityAt(R, e, x);
     const bases = [['Diligence', dil], ...(ok(mg) ? [['Management', mg]] : []), ['Reported', R.reported]].filter(b => ok(b[1]));
-    const bridge = [['Diligence-adjusted EBITDA', th(dil)], [`× ${xm(mult)}`, ''], ['Enterprise value', th(base)], ...(P ? [['Less: funded debt', th(-P.debt)], ['Less: debt-like items', th(-P.debtLike)], ['Plus: cash', th(P.cash)], ['NWC adjustment', th(P.nwcAdj)], ...(P.overlap ? [['Already inside working capital', th(P.overlap)]] : [])] : []), ['Equity purchase price', th(R.val.equity)]];
-    if (!ok(base)) S('Valuation', 'Valuation needs an EBITDA figure', [txt(X0, BODY, W, 1.2, `The deal is priced at ${xm(mult)} EBITDA, and the documents on file don't state EBITDA yet. Once the income statements or management's EBITDA bridge are added, the enterprise value, equity value and sensitivity fill in here.`, { size: 13 })], 'Valuation is shown once an EBITDA figure is read from the documents.', '');
-    else S('Valuation', `${xm(mult)} diligence-adjusted EBITDA implies ${mn(base)} EV and ${mn(R.val.equity)} equity value`, [
-      ...head(X0, BODY, 3.9, 'Enterprise to equity value, ' + curUnit('thousands')), tbl(X0, BODY + 0.4, 3.9, ['', ''], bridge, { size: 9.5, colW: [0.68, 0.32], totals: [2, bridge.length - 1] }),
-      ...head(4.8, BODY, 4.7, 'Equity value sensitivity, ' + curUnit('thousands')), tbl(4.8, BODY + 0.4, 4.7, ['EBITDA basis', ...ms.map(xm)], bases.map(([l, e]) => [`${l} (${th(e)})`, ...ms.map(x => th(eqAt(e, x)))]), { size: 8.5, colW: [0.3, ...ms.map(() => 0.7 / ms.length)], hi: { r: 0, c: ms.indexOf(mult) + 1 } }),
-      ...(ok(mg) ? [txt(4.8, BODY + 2.0, 4.7, 0.8, `Paying on management's EBITDA would mean ${mn((mg - dil) * mult)} more enterprise value than diligence supports.`, { size: 10.5, bold: true })] : [])
+    const fxr = fxBridgeRows(R, dil, th);
+    const bridge = [['Diligence-adjusted EBITDA', th(dil)], [`× ${xm(mult)}`, ''], ...fxr.ev, ['Enterprise value', th(base)], ...(P ? [['Less: funded debt', th(-P.debt)], ['Less: debt-like items', th(-P.debtLike)], ['Plus: cash', th(P.cash)], ['Equity value', th(base - P.debt - P.debtLike + P.cash)], ['NWC adjustment', th(P.nwcAdj)], ...(P.overlap ? [['Already inside working capital', th(P.overlap)]] : [])] : []), ...fxr.eq, ['Equity purchase price', th(equityAt(R, dil))]];
+    if (!ok(base)) S('Valuation', 'Valuation needs an EBITDA figure', [txt(X0, BODY, W, 1.2, `The deal is priced at ${xm(mult)} EBITDA, and the documents on file don't state EBITDA yet. Once the income statements or management's EBITDA bridge are added, the enterprise value, equity value, equity purchase price and sensitivity fill in here.`, { size: 13 })], 'Valuation is shown once an EBITDA figure is read from the documents.', '');
+    else S('Valuation', `${xm(mult)} diligence-adjusted EBITDA implies ${mn(base)} EV and a ${mn(equityAt(R, dil))} equity purchase price`, [
+      ...head(X0, BODY, 3.9, 'Enterprise to equity value, ' + curUnit('thousands')), tbl(X0, BODY + 0.4, 3.9, ['', ''], bridge, { size: 9.5, colW: [0.68, 0.32], totals: bridge.map((r, i) => /^(Enterprise value|Equity value|Equity purchase price)$/.test(r[0]) ? i : -1).filter(i => i >= 0) }),
+      ...head(4.8, BODY, 4.7, 'Equity purchase price sensitivity, ' + curUnit('thousands')), tbl(4.8, BODY + 0.4, 4.7, ['EBITDA basis', ...ms.map(xm)], bases.map(([l, e]) => [`${l} (${th(e)})`, ...ms.map(x => th(eqAt(e, x)))]), { size: 8.5, colW: [0.3, ...ms.map(() => 0.7 / ms.length)], hi: { r: 0, c: ms.indexOf(mult) + 1 } }),
+      ...(ok(mg) ? [txt(4.8, BODY + 2.0, 4.7, 0.8, `Paying on management's EBITDA would mean ${mn(evDiff(R, mg, dil))} more enterprise value than diligence supports.`, { size: 10.5, bold: true })] : [])
     ], `At ${xm(mult)} on ${mn(dil)} we get ${mn(base)} of enterprise value and ${mn(R.val.equity)} for the equity after debt, debt-like items, cash and working capital.`, srcLine(ledgerSrc()));
   }
 
@@ -6602,6 +6839,13 @@ function deckModel(R, m, opts) {
     txt(X0, 4.7, W, 0.3, `DealBasis record run ${R.fingerprint}. Every figure in this pack traces to a page and line, cell, row, paragraph or XBRL tag in these documents. Diligence analysis, not an audit, attestation or accounting firm\u2019s quality of earnings report.`, { size: 8.5, italic: true, color: C.grey })
   ], '', '');
 
+  /* an edited formula is stated on every slide whose figures use it, ahead of the source line, and on the recommendation */
+  { const ED = R.edits || []; const area = sl => ({ 'Valuation': 'valuation', 'Sources and uses': 'valuation', 'Working capital and net debt': 'nwc', 'Returns': 'returns', 'Returns sensitivity': 'returns' })[sl.section] || (sl.title === 'Scoring methodology' ? 'risk' : null);
+    const rn = fxReturnsNote(R, m);
+    slides.forEach(sl => { const a = area(sl); const es = a ? ED.filter(e => e.area === a) : []; if (!es.length) return;
+      const shortN = es.map(e => e.short || e.text).join(' ') + (a === 'returns' && rn ? ' ' + rn : ''), fullN = es.map(e => e.text).join(' ') + (a === 'returns' && rn ? ' ' + rn : '');
+      sl.source = `${shortN}${sl.source ? ' ' + sl.source : ''}`; sl.notes = `${sl.notes || ''} ${fullN}`.trim(); });
+    const rs = slides.find(sl => sl.section === 'Recommendation'); if (rs && ED.length) rs.els.push(txt(X0, 5.3, W, 0.24, `Uses edited formulas. ${ED.map(e => e.short || e.text).join(' ')}`, { size: 8, color: '777777' })); }
   /* the standard committee order, mirroring the memo */
   const ORD = ['', 'Executive summary', 'Company overview', 'Market and management', 'Historical performance', 'Quality of earnings', 'Working capital and net debt', 'Investment thesis', 'Valuation', 'Sources and uses', 'Returns', 'Returns sensitivity', 'Value creation and exit', 'Key risks and mitigants', 'Diligence status and next steps', 'Recommendation', 'Appendix'];
   const out = slides.map((x, i) => ({ x, i })).sort((p, q) => (ORD.indexOf(p.x.section) - ORD.indexOf(q.x.section)) || (p.i - q.i)).map(p => p.x);
@@ -6638,7 +6882,7 @@ function rec_ask(R, mult, dil, mg, lo, base, hi, RC) {
   if (R.verdict === 'Go') return `Approve a non-binding LOI at up to ${mn(hi)} enterprise value (${xm(mult + 0.5)} diligence-adjusted EBITDA of ${mn(dil)}).${ret}`;
   if (R.verdict === 'Proceed with conditions') return `Approve a non-binding LOI at ${mn(lo)} to ${mn(base)} enterprise value (${xm(mult - 0.5)} to ${xm(mult)} diligence-adjusted EBITDA), subject to the conditions below.${ret}`;
   if (R.verdict === 'Limited evidence') return `Approve time to obtain the EBITDA bridge, financial statements or ledger. The documents on file are not enough for an LOI recommendation.`;
-  return `Approve continued diligence, not an LOI. Revisit when the conditions below are resolved; current evidence supports ${mn(lo)} to ${mn(base)} enterprise value${mg ? ` against ${mn(mg * mult)} on management's figures` : ''}.${ret}`;
+  return `Approve continued diligence, not an LOI. Revisit when the conditions below are resolved; current evidence supports ${mn(lo)} to ${mn(base)} enterprise value${mg ? ` against ${mn(evAt(R, mg))} on management's figures` : ''}.${ret}`;
 }
 
 /* ---------- chart geometry shared by PDF and HTML ---------- */
@@ -7008,7 +7252,7 @@ function workbookModel(R, m) {
   /* Findings and questions */
   add('Findings', ['ID', 'Severity', 'Category', 'Finding', 'Detail', 'Price impact', 'Sources'], (R.fired || []).map(f => [f.id, f.severity, f.category, f.title, f.text, { v: f.impact ? f.impact.amount : null, k: 'usd' }, (f.cites && f.cites.length ? f.cites : (f.evidence || []).map(e => e.src)).slice(0, 4).map(where).join('; ')]), { widths: [7, 10, 22, 32, 90, 16, 60] });
   add('Questions', ['Question', 'Status', 'Answer'], (R.questions || []).map(q => [q.text, q.status, q.answer || q.why || '']), { widths: [46, 16, 120] });
-  { const sq = (m.rv && m.rv.sq) || []; if (sq.length) add('Seller questions', ['#', 'Question', 'Status', 'Due', 'Answer', 'From issue'], sq.map((q, i) => ['Q' + (i + 1), q.text, q.status, q.due || '', q.answer || '', q.from || '']), { widths: [6, 70, 12, 12, 70, 10] }); }
+  { const sq = sellerQList(R, m); if (sq.length) add('Seller questions', ['#', 'Question', 'Status', 'Due', 'Answer', 'From issue'], sq.map((q, i) => ['Q' + (i + 1), q.text, q.status, q.due || '', q.answer || '', q.from || '']), { widths: [6, 70, 12, 12, 70, 10] }); }
   add('Data checks', ['Status', 'Check'], (R.dataChecks || []).map(c => [c.status, c.text]), { widths: [10, 140] });
   return { sheets };
 }
@@ -7107,8 +7351,8 @@ function databookModel(R, m) {
     add('11 Bank non-operating', ['Date', 'Description', 'Treated as', 'Amount', 'Account'], (R.poc.nonOp || []).map(t => [t.date, t.desc, t.kind, U(t.amount), t.account]), { title: title('Non-operating bank activity'), widths: [12, 44, 20, 14, 40] });
     tabs.push(['10 Proof of cash', 'Opening, receipts, disbursements and closing, per bank and per books'], ['11 Bank non-operating', 'Transfers, loans, owner money and refunds set aside']); }
   /* findings, requests, sources */
-  add('12 Findings', ['#', 'Rule', 'Area', 'Finding', 'Severity', 'Detail', 'Status', 'Source'], R.issues.map((x, i) => { const f = x.finding; return [i + 1, f.id, f.category, f.title, f.severity, f.text, x.status, (f.cites[0] || (f.evidence[0] || {}).src) ? where(f.cites[0] || f.evidence[0].src) : '']; }), { title: title('Findings register'), widths: [5, 8, 22, 36, 10, 90, 12, 40] });
-  const sq = (m.rv && m.rv.sq) || [];
+  add('12 Findings', ['#', 'Rule', 'Area', 'Finding', 'Severity', 'Detail', 'Status', 'Source'], R.issues.filter(i => !i.gap).map((x, i) => { const f = x.finding; return [i + 1, f.id, f.category, f.title, f.severity, f.text, x.status, (f.cites[0] || (f.evidence[0] || {}).src) ? where(f.cites[0] || f.evidence[0].src) : '']; }), { title: title('Findings register'), widths: [5, 8, 22, 36, 10, 90, 12, 40] });
+  const sq = sellerQList(R, m);
   add('13 Information requests', ['#', 'Type', 'Request or question', 'Status', 'Due', 'Response'], [...sq.map((q, i) => ['Q' + (i + 1), 'Seller question', q.text, q.status || 'Draft', q.due || '', q.answer || '']), ...(R.actions || []).filter(a => a.type === 'Send request').map((a, i) => ['R' + (i + 1), 'Document request', a.text, 'Open', '', ''])], { title: title('Information requests'), widths: [6, 16, 80, 12, 12, 60] });
   add('14 Sources', ['ID', 'Document', 'Type'], docs.filter(d => d.type).map(d => [d.id, d.name, d.type.toUpperCase()]), { title: title('Documents analyzed'), sub: `DealBasis record, run ${R.fingerprint}`, widths: [6, 70, 10] });
   tabs.push(['12 Findings', 'Every finding with its severity, status and source'], ['13 Information requests', 'Seller questions and document requests'], ['14 Sources', 'Documents analyzed']);
@@ -7369,7 +7613,7 @@ function vWorkspace() {
     ${R.L ? `<section class="sec"><div class="sechead"><h2>Revenue and EBITDA by month</h2><span class="aside">From the ledger</span></div><div class="legend"><span><i style="background:var(--ink)"></i>Revenue</span><span><i class="line" style="background:var(--brand)"></i>Reported EBITDA</span></div><div class="chart" data-chart="ws"></div></section>` : ''}
   </div>`;
 }
-const impactValue = f => !f.impact ? 0 : f.impact.kind === 'ebitda' ? f.impact.amount * R.val.mult : f.impact.amount;
+const impactValue = f => !f.impact ? 0 : f.impact.kind === 'ebitda' ? evOfEbitda(R, f.impact.amount) : f.impact.amount;
 
 /* ======================= Firm settings ======================= */
 // Amounts typed as 1,500,000 or 1.5M or 250k or $2B; percentages as 25 or 25%.
@@ -7385,6 +7629,9 @@ const FIRM_FIELDS = [
     ['thresholds.hockeyMed', 'Projected growth above history: medium above (points)', 'pts'], ['thresholds.hockeyHigh', 'Projected growth above history: high above (points)', 'pts'],
     ['thresholds.marginMed', 'Projected margin expansion: medium above (points)', 'pts'], ['thresholds.marginHigh', 'Projected margin expansion: high above (points)', 'pts'], ['thresholds.materiality', 'Materiality ($)', 'amt'],
     ['thresholds.nrrMin', 'SaaS: minimum net revenue retention (%)', 'pct'], ['thresholds.grrMin', 'SaaS: minimum gross retention (%)', 'pct'], ['thresholds.churnMax', 'SaaS: maximum annual churn (%)', 'pct'], ['thresholds.ruleOf40', 'SaaS: Rule of 40 minimum (%)', 'pct']]],
+  ['Risk score weights', 'How much each risk area counts toward the pre-LOI confidence score. Standard: 30, 20, 15, 15, 10, 10. They are rescaled over the areas a deal could test.', [
+    ['weights.earnings', 'Earnings quality (%)', 'pct'], ['weights.revenue', 'Revenue quality (%)', 'pct'], ['weights.nwc', 'Working capital (%)', 'pct'],
+    ['weights.debt', 'Debt & liabilities (%)', 'pct'], ['weights.controls', 'Controls & data integrity (%)', 'pct'], ['weights.projections', 'Projections (%)', 'pct']]],
   ['Screening criteria', 'Every deal is tested against these. Leave a box empty to skip that test.', [
     ['criteria.minEBITDA', 'Minimum EBITDA ($)', 'amt'], ['criteria.maxEBITDA', 'Maximum EBITDA ($)', 'amt'], ['criteria.minRevenue', 'Minimum revenue ($)', 'amt'], ['criteria.maxRevenue', 'Maximum revenue ($)', 'amt'],
     ['criteria.minMargin', 'Minimum EBITDA margin (%)', 'pct'], ['criteria.maxAddbackPct', 'Maximum add-backs (% of reported EBITDA)', 'pct'], ['criteria.maxTopCustomer', 'Maximum largest customer (% of revenue)', 'pct'], ['criteria.maxMultiple', 'Maximum entry multiple (x)', 'x']]]
@@ -7586,7 +7833,7 @@ const statusChip = s => s === 'Approved' ? '<span class="chip ok">Approved</span
 function vQoE() {
   if (!hasData()) return `${head('Financial Diligence', 'QoE & Revenue Quality')}${emptyState('No earnings data yet')}`;
   const L = R.L, M = R.M, m = MD(); let html = `${head('Financial Diligence', 'QoE & Revenue Quality')}<p class="muted" style="font-size:12.5px;margin:-6px 0 14px">A quality of earnings analysis built from the documents provided, by fixed rules. It is not an audit or attestation, and not a quality of earnings report issued by an independent accounting firm.</p>`;
-  html += `<section class="kpis">${kpi('Reported EBITDA', K(R.reported), esc(R.periodLabel))}${M && M.stated != null ? kpi('Management Adj. EBITDA', K(M.stated), cites([M.statedSrc], 1)) : ''}${kpi('Diligence Adj. EBITDA', K(R.diligence), R.revenue && R.diligence != null ? pc(R.diligence / R.revenue) + ' margin' : R.diligence == null ? 'Not stated in the documents' : '', true)}${M && M.stated != null ? kpi('Gap to management', K(R.diligence - M.stated), `${K((R.diligence - M.stated) * R.val.mult)} at ${R.val.mult}x`) : ''}</section>`;
+  html += `<section class="kpis">${kpi('Reported EBITDA', K(R.reported), esc(R.periodLabel))}${M && M.stated != null ? kpi('Management Adj. EBITDA', K(M.stated), cites([M.statedSrc], 1)) : ''}${kpi('Diligence Adj. EBITDA', K(R.diligence), R.revenue && R.diligence != null ? pc(R.diligence / R.revenue) + ' margin' : R.diligence == null ? 'Not stated in the documents' : '', true)}${M && M.stated != null ? kpi('Gap to management', K(R.diligence - M.stated), `${K(evDiff(R, R.diligence, M.stated))} at ${R.val.mult}x`) : ''}</section>`;
   if (R.saas) { const S2 = R.saas; const NM = { arr: 'ARR', mrr: 'MRR', nrr: 'Net revenue retention', grr: 'Gross revenue retention', churn: 'Annual churn', customers: 'Customers', cacPayback: 'CAC payback (months)', ltvCac: 'LTV / CAC', ruleOf40: 'Rule of 40' };
     const fmtS = (k, o) => ['nrr', 'grr', 'churn', 'ruleOf40'].includes(k) ? pc(o.value) : ['arr', 'mrr'].includes(k) ? $(o.value) : k === 'ltvCac' ? o.value.toFixed(1) + 'x' : String(Math.round(o.value * 10) / 10);
     html += `<section class="sec"><div class="sechead"><h2>SaaS metrics</h2><span class="aside">Read from the documents; tested against Firm Settings</span></div><div class="tbl"><table><tbody>${Object.keys(NM).filter(k => S2[k]).map(k => { const o = S2[k]; const f = R.findings.find(x => ({ nrr: 'SA1', grr: 'SA2', churn: 'SA2', ruleOf40: 'SA3', arr: 'SA4' })[k] === x.id);
@@ -7747,7 +7994,9 @@ function nwcDefsSection() {
     <section class="kpis">${kpi(esc(sel.short) + ' working capital', sel.value == null ? '–' : K(sel.value), '', true)}</section>
     ${(sel.flags || []).filter(() => sel.value != null).map(f => `<div class="msg err">${esc(f)}</div>`).join('')}
     <div class="tbl"><table><tbody>${sel.rows.map(r => `<tr><td>${esc(r.label)}${r.note ? `<br><span class="muted" style="font-size:12px">${esc(r.note)}</span>` : ''}</td><td class="n">${$(r.value)}</td><td>${r.src ? cite(r.src) : ''}</td></tr>`).join('')}
-      <tr class="total"><td>${esc(sel.short)} working capital</td><td class="n">${v(sel)}</td><td></td></tr></tbody></table></div>${sel.note ? `<p class="muted" style="font-size:12px">${esc(sel.note)}</p>` : ''}</section>`;
+      <tr class="total"><td>${esc(sel.short)} working capital</td><td class="n">${v(sel)}</td><td></td></tr></tbody></table></div>${sel.note ? `<p class="muted" style="font-size:12px">${esc(sel.note)}</p>` : ''}
+    ${NWC_FX_DEFAULT[sel.id] ? `<div class="formgrid" style="grid-template-columns:1fr;margin-top:10px">${fxRow('nwcFormula:' + sel.id, 'nwc', `${esc(sel.short)} working capital, as a formula (applied to every month: peg, delivered and the closing adjustment) =`, NWC_FX_DEFAULT[sel.id], sel.value == null ? null : $(sel.value))}</div>
+      ${fxNamesHTML('nwc', nwcBlocksAt(R.X, R.L, MD().dec, W.asOf))}` : ''}</section>`;
 }
 function vNWC() {
   const L = R.L;
@@ -7898,36 +8147,59 @@ function vMarket() {
   ${V.drivers.length ? `<section class="sec"><div class="sechead"><h2>Growth drivers</h2><span class="aside">Management's view</span></div>${V.drivers.map(x => `<div class="find"><b>${esc(x.title || 'Driver')}</b><p style="margin:4px 0 0">${esc(x.text)} ${cite(x.src)}</p></div>`).join('')}</section>` : ''}
   ${V.strengths.length ? `<section class="sec"><div class="sechead"><h2>Competitive strengths claimed</h2><span class="aside">${esc(V.strengths[0].title || '')}</span></div>${V.strengths.map(x => `<div class="find"><p style="margin:0">${esc(x.text)} ${cite(x.src)}</p></div>`).join('')}</section>` : ''}`;
 }
+/* ---------- formula editors ---------- */
+/* one editable formula: key in the deal's settings, its kind (names it may use), label, standard text and result */
+function fxRow(key, kind, label, std, result) { const S = R.S; const val = S[key] || std; const live = msgs.fx && msgs.fx.key === key;
+  return `<div class="field"><label for="fx-${esc(key)}">${label}</label><div class="row" style="gap:8px;flex-wrap:nowrap"><input id="fx-${esc(key)}" class="mono" data-set="${esc(key)}" value="${esc(live ? msgs.fx.value : val)}" spellcheck="false" style="flex:1;min-width:0">
+    ${!fxSame(val, std) ? `<button class="btn sm ghost" data-fxreset="${esc(key)}">Reset</button>` : ''}</div>
+    ${live ? `<div class="msg err" role="alert">${esc(msgs.fx.text)}</div>` : `<span class="hint">${!fxSame(val, std) ? 'Edited for this deal' : 'Standard'}${result != null ? ` · = ${result}` : ''}</span>`}</div>`; }
+function fxNamesHTML(kind, vals, fmt) { return `<details class="ev" style="margin-top:6px"><summary>Names you can use${vals ? ", with today's values" : ''}</summary><div class="tbl"><table><tbody>${FX_SETS[kind].map(k => `<tr><td class="mono">${k}</td><td>${esc(FX_NAMES[k])}</td>${vals ? `<td class="n">${fmt ? fmt(k, vals[k]) : vals[k] == null ? '–' : $(vals[k])}</td>` : ''}</tr>`).join('')}</tbody></table></div></details>`; }
+function formulaEditorHTML() {
+  const V = R.val, S = R.S; const vars = { ...V.vars, ebitda: V.basisE, multiple: V.mult, ev: V.ev };
+  const row = (kd, key, label) => fxRow(key, kd, label, FX_DEFAULT[kd], $(kd === 'ev' ? V.ev : V.equity));
+  return `<section class="sec"><div class="sechead"><h2>Formulas</h2><span class="aside">${V.custom || (R.edits || []).some(e => e.area === 'returns') ? 'Edited for this deal' : 'Standard'}</span></div>
+    <p class="lede" style="font-size:13px">Each formula below is the one DealBasis uses as standard; edit any of them for this deal, or Reset to go back. Every figure built on them updates with the formula: the value range, price gap, finding values, sensitivity, sources and uses, returns, memo, deck and workbook. Use the names below, numbers, + − * / ^, parentheses and min(), max(), abs() or round(). Write enterprise value with <span class="mono">ebitda</span> and <span class="mono">multiple</span> so ranges, sensitivity and the exit value can vary them.</p>
+    <div class="formgrid" style="grid-template-columns:1fr">${row('ev', 'evFormula', 'Enterprise value =')}${row('equity', 'equityFormula', 'Equity purchase price =')}</div>
+    ${fxNamesHTML('equity', vars, (k, x) => k === 'multiple' ? (x != null ? (+x).toFixed(2) + 'x' : '–') : x == null ? '–' : $(x))}
+    ${(() => { let y1 = null; try { const RC = returnsCase(R, MD()); y1 = RC && RC.base.years[0]; } catch (e) { y1 = null; }
+      return `<h3 class="h3" style="margin-top:14px">Returns: each year of the hold</h3><p class="lede" style="font-size:13px">How tax and free cash flow are worked out in the returns model. Free cash flow repays debt first, then builds cash.</p>
+      <div class="formgrid" style="grid-template-columns:1fr">${fxRow('taxFormula', 'tax', 'Tax =', FX_DEFAULT.tax, y1 ? $(y1.tax) + ' in year 1' : null)}${fxRow('fcfFormula', 'fcf', 'Free cash flow =', FX_DEFAULT.fcf, y1 ? $(y1.fcf) + ' in year 1' : null)}</div>
+      ${fxNamesHTML('fcf', y1 ? { ebitda: y1.ebitda, conversion: null, interest: y1.interest, tax: y1.tax, depreciation: null, tax_rate: null, debt: null, year: 1 } : null, (k, x) => k === 'year' ? '1' : x == null ? '–' : $(x))}`; })()}</section>`;
+}
 function vEconomics() {
   if (!hasData()) return `${head('Deal Intelligence', 'Deal Economics')}${emptyState('No earnings data yet')}`;
   const V = R.val, P = R.pos, m = MD();
   const bases = [['diligence', 'Diligence-adjusted', R.diligence], ['management', `Management (${(R.srcDoc || {}).short === 'Stated' ? 'as stated' : (R.srcDoc || {}).short || 'as stated'})`, R.management], ['reported', 'Reported', R.reported]].filter(b => b[2] != null);
   const cur = R.S.ebitdaBasis === 'reported' ? 'reported' : R.S.ebitdaBasis === 'management' && R.management != null ? 'management' : 'diligence';
-  const eq = e => e * V.mult - (P ? P.debt + P.debtLike - P.cash - P.nwcAdj - (P.overlap || 0) : 0);
   const mults = [-1, -0.5, 0, 0.5, 1].map(x => +(V.mult + x).toFixed(2)).filter(x => x > 0);
   const priced = R.fired.filter(f => f.impact && f.impact.kind !== 'exposure').map(f => ({ f, v: impactValue(f) })).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
   return `${head('Deal Intelligence', 'Deal Economics')}
   <div class="formgrid" style="max-width:680px"><div class="field"><label for="m-multiple">EV / EBITDA multiple</label><input type="number" id="m-multiple" data-m="multiple" step="0.25" value="${m.multiple}"></div>
     <div class="field"><label for="s-ebitdaBasis">Price on</label><select id="s-ebitdaBasis" data-set="ebitdaBasis">${bases.map(b => `<option value="${b[0] === 'diligence' ? 'adjusted' : b[0]}" ${cur === b[0] ? 'selected' : ''}>${b[1]} (${K(b[2])})</option>`).join('')}</select></div></div>
-  <section class="kpis">${R.management != null ? kpi('EV at management\'s number', K(R.management * V.mult), `${V.mult}x ${K(R.management)}`) : ''}${R.diligence != null ? kpi('EV at diligence number', K(R.diligence * V.mult), `${V.mult}x ${K(R.diligence)}`, true) : kpi('EV at diligence number', '–', 'Needs EBITDA from the documents', true)}${R.management != null ? kpi('Price gap', K((R.diligence - R.management) * V.mult), 'Diligence less management') : ''}${kpi('Equity purchase price', K(V.equity), P ? 'Cash-free, debt-free' : 'No balance sheet yet')}</section>
+  <section class="kpis">${R.management != null ? kpi('EV at management\'s number', K(evAt(R, R.management)), `${V.mult}x ${K(R.management)}`) : ''}${R.diligence != null ? kpi('EV at diligence number', K(evAt(R, R.diligence)), `${V.mult}x ${K(R.diligence)}`, true) : kpi('EV at diligence number', '–', 'Needs EBITDA from the documents', true)}${R.management != null ? kpi('Price gap', K(evDiff(R, R.diligence, R.management)), 'Diligence less management') : ''}${kpi('Equity purchase price', K(V.equity), P ? 'Cash-free, debt-free' : 'No balance sheet yet')}</section>
   ${V.contributors.length ? `<section class="sec"><div class="sechead"><h2>Where the gap comes from</h2><span class="aside">Management's ${K(R.management)} to diligence ${K(R.diligence)}</span></div>
     <div class="tbl"><table><thead><tr><th>Driver</th><th class="n">EBITDA</th><th class="n">Value at ${V.mult}x</th><th>Source</th></tr></thead><tbody>
     ${V.contributors.map(c => `<tr><td>${esc(c.label)}${c.ids ? ` <span class="muted mono" style="font-size:11px">${c.ids.join(', ')}</span>` : ''}</td><td class="n neg">${$(-c.ebitda)}</td><td class="n neg">${K(-c.value)}</td><td>${cites(c.cites, 2)}</td></tr>`).join('')}
-    <tr class="total"><td>Total gap</td><td class="n neg">${$(R.diligence - R.management)}</td><td class="n neg">${K((R.diligence - R.management) * V.mult)}</td><td></td></tr></tbody></table></div></section>` : ''}
+    <tr class="total"><td>Total gap</td><td class="n neg">${$(R.diligence - R.management)}</td><td class="n neg">${K(evDiff(R, R.diligence, R.management))}</td><td></td></tr></tbody></table></div></section>` : ''}
   <section class="sec"><div class="sechead"><h2>Enterprise to equity value</h2><span class="aside">${P && P.asOf ? 'Balances at ' + monthLabel(P.asOf) : ''}</span></div>
     <div class="tbl"><table><tbody>
       <tr><td>EBITDA (${cur})</td><td class="n">${$(V.basisE)}</td></tr><tr class="sub"><td>× Multiple</td><td class="n">${V.mult.toFixed(2)}x</td></tr>
+      ${(() => { const d = V.basisE != null ? V.ev - V.basisE * V.mult : 0; if (Math.abs(d) <= 0.5) return ''; const vv = { ...V.vars, ebitda: V.basisE, multiple: V.mult };
+        return `<tr><td>Change from the edited formula<br><span class="muted" style="font-size:12px">Enterprise value = ${esc(fxShow(V.formulas.ev))} = ${esc(fxCalc(V.formulas.ev, vv))} = ${$(V.ev)}. Standard (${esc(fxShow(FX_DEFAULT.ev))}): ${$(V.basisE * V.mult)}.</span></td><td class="n${nc(d)}">${$(d)}</td></tr>`; })()}
       <tr class="total"><td>Enterprise value</td><td class="n">${$(V.ev)}</td></tr>
-      ${P ? `<tr><td>Less funded debt${P.debt !== P.bsDebt ? ' (incl. debt found in diligence)' : ''}</td><td class="n neg">${$(-P.debt)}</td></tr><tr><td>Less debt-like items</td><td class="n neg">${$(-P.debtLike)}</td></tr><tr><td>Plus cash</td><td class="n">${$(P.cash)}</td></tr><tr><td>NWC adjustment${P.peg != null ? ` (${$(P.delivered)} vs ${$(P.peg)} peg)` : ' (no peg)'}</td><td class="n${nc(P.nwcAdj)}">${$(P.nwcAdj)}</td></tr>${P.overlap ? `<tr><td>Add back: items already inside working capital on this definition (${[P.inNWC.cash ? 'cash' : '', P.inNWC.debt ? 'current debt' : '', P.inNWC.debtLike ? 'debt-like items' : ''].filter(Boolean).join(', ')})</td><td class="n${nc(P.overlap)}">${$(P.overlap)}</td></tr>` : ''}` : ''}
+      ${P ? `<tr><td>Less funded debt${P.debt !== P.bsDebt ? ' (incl. debt found in diligence)' : ''}</td><td class="n neg">${$(-P.debt)}</td></tr><tr><td>Less debt-like items</td><td class="n neg">${$(-P.debtLike)}</td></tr><tr><td>Plus cash</td><td class="n">${$(P.cash)}</td></tr><tr class="total"><td>Equity value</td><td class="n">${$(V.equityValue)}</td></tr><tr><td>NWC adjustment${P.peg != null ? ` (${$(P.delivered)} vs ${$(P.peg)} peg)` : ' (no peg)'}</td><td class="n${nc(P.nwcAdj)}">${$(P.nwcAdj)}</td></tr>${P.overlap ? `<tr><td>Add back: items already inside working capital on this definition (${[P.inNWC.cash ? 'cash' : '', P.inNWC.debt ? 'current debt' : '', P.inNWC.debtLike ? 'debt-like items' : ''].filter(Boolean).join(', ')})</td><td class="n${nc(P.overlap)}">${$(P.overlap)}</td></tr>` : ''}` : ''}
+      ${(() => { if (V.ev == null || V.equity == null) return ''; const std = V.ev - (P ? P.debt + P.debtLike - P.cash - P.nwcAdj - (P.overlap || 0) : 0); const d = V.equity - std; if (Math.abs(d) <= 0.5) return ''; const ve = { ...V.vars, ebitda: V.basisE, multiple: V.mult, ev: V.ev };
+        return `<tr><td>Change from the edited formula<br><span class="muted" style="font-size:12px">Equity purchase price = ${esc(fxShow(V.formulas.equity))} = ${esc(fxCalc(V.formulas.equity, ve))} = ${$(V.equity)}. Standard formula: ${$(std)}.</span></td><td class="n${nc(d)}">${$(d)}</td></tr>`; })()}
       <tr class="total"><td>Equity purchase price</td><td class="n">${$(V.equity)}</td></tr></tbody></table></div></section>
+  ${formulaEditorHTML()}
   <section class="sec"><div class="sechead"><h2>Findings mapped to value</h2><span class="aside">EBITDA items at ${V.mult}x; balance sheet items dollar for dollar</span></div>
     <div class="tbl"><table><thead><tr><th>Finding</th><th>Mechanism</th><th class="n">Value impact</th><th>Source</th></tr></thead><tbody>
     ${priced.map(({ f, v }) => `<tr><td>${sev(f.severity)} ${esc(f.title)}</td><td style="font-size:12.5px">${esc(f.impact.note)}${f.impact.kind === 'ebitda' ? ` (${sgn(f.impact.amount)} EBITDA)` : ''}</td><td class="n${nc(v)}">${K(v)}</td><td>${cites(f.cites.length ? f.cites : f.evidence.map(e => e.src), 2)}</td></tr>`).join('')}
     ${R.fired.filter(f => f.impact && f.impact.kind === 'exposure').map(f => `<tr class="sub"><td>${sev(f.severity)} ${esc(f.title)}</td><td style="font-size:12.5px">${esc(f.impact.note)}</td><td class="n">${K(f.impact.amount)} exposure</td><td></td></tr>`).join('')}
     </tbody></table></div></section>
-  <section class="sec"><div class="sechead"><h2>Sensitivity: equity value</h2></div>
+  <section class="sec"><div class="sechead"><h2>Sensitivity: equity purchase price</h2></div>
     <div class="tbl sens"><table><thead><tr><th>EBITDA basis</th>${mults.map(x => `<th class="n">${x.toFixed(2)}x</th>`).join('')}</tr></thead><tbody>
-    ${bases.map(([k, l, e]) => `<tr><td>${l}<br><span class="muted" style="font-size:12px">${$(e)}</span></td>${mults.map(x => `<td class="n${x === V.mult && k === cur ? ' cur' : ''}">${K(eq(e) + e * (x - V.mult))}</td>`).join('')}</tr>`).join('')}
+    ${bases.map(([k, l, e]) => `<tr><td>${l}<br><span class="muted" style="font-size:12px">${$(e)}</span></td>${mults.map(x => `<td class="n${x === V.mult && k === cur ? ' cur' : ''}">${K(equityAt(R, e, x))}</td>`).join('')}</tr>`).join('')}
     </tbody></table></div></section>
   ${returnsHTML()}`;
 }
@@ -7938,7 +8210,7 @@ function vRisk() {
   const passed = R.findings.filter(f => !f.severity && !f.held); const held = R.findings.filter(f => f.held);
   return `${head('Deal Intelligence', 'Risk Scoring')}
   <section class="sec"><div class="score"><div class="big">${R.verdict === 'Limited evidence' ? '–' : R.confidence}<small>/100</small></div><div style="display:flex;flex-direction:column;gap:8px;padding-bottom:8px"><span class="eyebrow">Pre-LOI confidence score</span><span class="chip ${R.verdict === 'Go' ? 'go' : R.verdict === 'Not ready' ? 'bad' : 'warn'}" style="font-size:12px;padding:6px 9px;align-self:flex-start">${R.verdict}</span></div></div>
-    <p class="lede">Each category starts at 100 and loses 30 per high, 15 per medium and 5 per low finding. The confidence score weights the categories: earnings 30%, revenue 20%, working capital 15%, debt 15%, controls 10%, projections 10%, rescaled over the categories this record can test. 75 and above is Go; 50 to 74 proceeds with conditions; below 50 is not ready.</p></section>
+    <p class="lede">Each category starts at 100 and loses 30 per high, 15 per medium and 5 per low finding. The confidence score weights the categories: ${(() => { const w = firmOf(MD()).weights; return ['earnings', 'revenue', 'working capital', 'debt', 'controls', 'projections'].map((n, i) => `${n} ${Math.round(w[['earnings', 'revenue', 'nwc', 'debt', 'controls', 'projections'][i]] * 100)}%`).join(', '); })()}, rescaled over the categories this record can test. 75 and above is Go; 50 to 74 proceeds with conditions; below 50 is not ready.</p></section>
   <section class="sec"><div class="sechead"><h2>By category</h2><span class="aside">${R.findings.length} tests run, ${R.fired.length} fired</span></div>
     ${R.risk.map(r => `<div class="catrow"><div><h3>${r.cat}</h3><span class="muted" style="font-size:12px">${r.tested} tests, weight ${Math.round(r.weight * 100)}%${r.penalty ? `, −${r.penalty}` : ''}${r.toVerify ? `, ${r.toVerify} to verify` : ''}</span></div><div class="gauge"><i class="${r.score < 50 ? 'lo' : ''}" style="width:${r.score}%"></i><span class="mk" style="left:50%"></span><span class="mk" style="left:75%"></span></div><span class="s">${r.score}</span></div>`).join('')}</section>
   ${R.risk.filter(r => r.findings.length).map(r => `<section class="sec"><div class="sechead"><h2>${r.cat}</h2><span class="aside">${r.findings.length} fired</span></div><div class="flags">${r.findings.map(flagRow).join('')}</div></section>`).join('')}
@@ -7966,22 +8238,26 @@ function commentsHTML(m, key) {
     <input class="inl" data-comment="${esc(key)}" placeholder="Write a comment and press Enter" style="width:100%"></details>`;
 }
 const sellerQs = m => (m.rv.sq = m.rv.sq || []);
+const allSellerQs = m => sellerQList(R, m);
+/* an automatic question's status, owner, due date and answer are kept by gap id, so they survive reruns */
+function gapQState(m, gid) { m.rv.gq = m.rv.gq || {}; const g = ((R && R.gaps) || []).find(x => x.id === gid) || {}; return (m.rv.gq[gid] = m.rv.gq[gid] || { status: 'Draft', owner: g.owner || actingAs }); }
+const sqFind = (m, id) => id.startsWith('gap:') ? gapQState(m, id.slice(4)) : sellerQs(m).find(x => x.id === id);
 function vSeller() {
-  const m = MD(); const qs = sellerQs(m); resolveProfiles(qs.map(q => q.owner).filter(v => v && !ROLES.includes(v)));
+  const m = MD(); const qs = allSellerQs(m); const nAuto = qs.filter(q => q.auto).length; resolveProfiles(qs.map(q => q.owner).filter(v => v && !ROLES.includes(v)));
   const open = qs.filter(q => q.status !== 'Closed');
   return `${head('Deal Intelligence', 'Seller Questions')}
-  <p class="lede">The list of questions for the seller and their answers, with an owner and a status for each. Add your own, or send one from any issue.</p>
+  <p class="lede">The list of questions for the seller and their answers, with an owner and a status for each. Information the documents don't contain is added here automatically${nAuto ? ` (${nAuto} now)` : ''} and drops off once a document that supplies it is uploaded. Add your own, or send one from any issue.</p>
   <section class="sec"><div class="row" style="gap:8px"><input class="inl" id="newsq" placeholder="Type a question for the seller and press Enter" style="flex:1;min-width:280px"><button class="btn sm red" data-addsq="1">Add</button><button class="btn sm ghost" data-copysq="1">Copy open questions for the seller</button></div></section>
   <section class="sec"><div class="sechead"><h2>Questions</h2><span class="aside">${open.length} open of ${qs.length}</span></div>
-    ${qs.length ? `<div class="stack">${qs.map((q, i) => `<div class="item sq"><div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:nowrap;gap:10px"><div style="min-width:0"><span class="chip id">Q${i + 1}</span> <b style="font-weight:600">${esc(q.text)}</b>${q.from ? `<br><span class="muted" style="font-size:12px">From issue ${esc(q.from)}</span>` : ''}</div>
-        <button class="btn sm ghost" data-delsq="${esc(q.id)}" aria-label="Delete question">Delete</button></div>
+    ${qs.length ? `<div class="stack">${qs.map((q, i) => `<div class="item sq"><div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:nowrap;gap:10px"><div style="min-width:0"><span class="chip id">Q${i + 1}</span> ${q.auto ? '<span class="chip Info">Missing from the documents</span> ' : ''}<b style="font-weight:600">${esc(q.text)}</b>${q.auto ? `<br><span class="muted" style="font-size:12px">${esc(q.title)}: ${esc(q.why)} Issue I-${esc(q.gapId)}.</span>` : q.from ? `<br><span class="muted" style="font-size:12px">From issue ${esc(q.from)}</span>` : ''}</div>
+        <button class="btn sm ghost" data-delsq="${esc(q.id)}" aria-label="${q.auto ? 'Remove question' : 'Delete question'}">${q.auto ? 'Remove' : 'Delete'}</button></div>
       <div class="row" style="gap:8px">${ownerSelect(m, 'data-sqowner', q.id, q.owner)}<select class="inl" data-sqstatus="${esc(q.id)}" aria-label="Status">${['Draft', 'Sent', 'Answered', 'Closed'].map(st => `<option ${q.status === st ? 'selected' : ''}>${st}</option>`).join('')}</select>
         <label class="muted" style="font-size:12px">Due <input class="inl" type="date" data-sqdue="${esc(q.id)}" value="${esc(q.due || '')}"></label></div>
       <textarea class="inl" data-sqanswer="${esc(q.id)}" rows="2" placeholder="Seller's answer" style="width:100%">${esc(q.answer || '')}</textarea>
       ${commentsHTML(m, 'sq:' + q.id)}</div>`).join('')}</div>` : '<p class="lede">No questions yet.</p>'}</section>`;
 }
 function myWorkPanel() {
-  const m = MD(); const iss = R.issues.filter(i => i.status !== 'Resolved' && mine((m.rv['iss:' + i.finding.id] || {}).owner)); const qs = sellerQs(m).filter(q => q.status !== 'Closed' && mine(q.owner));
+  const m = MD(); const iss = R.issues.filter(i => i.status !== 'Resolved' && mine((m.rv['iss:' + i.finding.id] || {}).owner)); const qs = allSellerQs(m).filter(q => q.status !== 'Closed' && mine(q.owner));
   if (!iss.length && !qs.length) return '';
   return `<section class="sec onboard"><div class="sechead"><h2>Assigned to you</h2><span class="aside">${iss.length + qs.length} open</span></div><div class="stack">
     ${iss.map(i => `<div class="row" style="justify-content:space-between"><span>${sev(i.finding.severity)} ${esc(i.finding.title)}</span><button class="btn sm ghost" data-nav="issues">Issues</button></div>`).join('')}
@@ -7991,13 +8267,13 @@ function vIssues() {
   if (!hasData()) return `${head('Deal Intelligence', 'Issues')}${emptyState('No issues yet')}`;
   const m = MD(); const list = R.issues.filter(i => issueFilter === 'all' || (issueFilter === 'open' ? i.status !== 'Resolved' : i.status === 'Resolved'));
   return `${head('Deal Intelligence', 'Issues')}
-  <p class="lede">Every fired finding opens an issue with an owner, a status and its source support attached, so nobody rebuilds the story in email.</p>
+  <p class="lede">Every fired finding opens an issue with an owner, a status and its source support attached, so nobody rebuilds the story in email. Information the documents don't contain opens an Info issue too, with its request already in Seller Questions; Info issues don't affect the risk score.</p>
   <div class="row">${[['open', 'Open'], ['resolved', 'Resolved'], ['all', 'All']].map(([k, l]) => `<button class="btn sm ${issueFilter === k ? '' : 'ghost'}" data-ifilter="${k}">${l} (${R.issues.filter(i => k === 'all' || (k === 'open' ? i.status !== 'Resolved' : i.status === 'Resolved')).length})</button>`).join('')}</div>
   <div class="flags">${list.map(i => { const f = i.finding; return `<div class="flag ${f.severity}"><div class="body"><div class="top">${sev(f.severity)}<span class="chip id">${i.id}</span><h3>${esc(f.title)}</h3><span class="muted" style="font-size:12px">${f.category}</span></div>
-      <p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p>${cites(f.cites.length ? f.cites : f.evidence.map(e => e.src), 5)}
+      <p style="color:var(--ink2);max-width:76ch">${esc(f.text)}</p>${f.gap ? `<p style="max-width:76ch;font-size:13px"><b>Request:</b> ${esc(f.ask)}</p>` : cites(f.cites.length ? f.cites : f.evidence.map(e => e.src), 5)}
       <div class="row" style="gap:8px;margin-top:4px">${ownerSelect(m, 'data-iowner', f.id, i.owner)}
         <select class="inl" data-istatus="${f.id}" aria-label="Status">${['Open', 'In review', 'Escalated', 'Resolved'].map(s => `<option ${i.status === s ? 'selected' : ''} ${s === 'Escalated' && !can('manager') ? 'disabled' : ''}>${s}</option>`).join('')}</select>
-        <input class="inl" data-inote="${f.id}" value="${esc(i.note)}" placeholder="Note" style="flex:1;min-width:160px"><button class="btn sm ghost" data-asksq="${f.id}">${sellerQs(m).some(q => q.from === f.id) ? 'Asked seller' : 'Ask the seller'}</button></div>${commentsHTML(m, f.id)}</div><span class="metric">${esc(f.metric)}</span>${evDetails(f.evidence)}</div>`; }).join('') || '<p class="lede">Nothing here.</p>'}</div>`;
+        <input class="inl" data-inote="${f.id}" value="${esc(i.note)}" placeholder="Note" style="flex:1;min-width:160px"><button class="btn sm ghost" data-asksq="${f.id}">${f.gap ? 'In seller questions' : sellerQs(m).some(q => q.from === f.id) ? 'Asked seller' : 'Ask the seller'}</button></div>${commentsHTML(m, f.id)}</div><span class="metric">${esc(f.metric)}</span>${evDetails(f.evidence)}</div>`; }).join('') || '<p class="lede">Nothing here.</p>'}</div>`;
 }
 
 /* ======================= Committee readout ======================= */
@@ -8007,7 +8283,7 @@ function readoutData() {
   return {
     title: `${m.name}: ${m.target}`, sub: `${m.dealType} · ${m.stage} · ${R.periodLabel} · Run ${R.fingerprint}`,
     rec: `${R.verdict} (confidence ${R.confidence}/100).` + (conds.length ? ` Resolve before LOI: ${conds.join('; ')}.` : ''),
-    econ: [['Reported EBITDA', R.reported], ...(R.management != null ? [['Management Adjusted EBITDA', R.management]] : []), ['Diligence Adjusted EBITDA', R.diligence], [`EV at ${R.val.mult}x diligence EBITDA`, R.diligence * R.val.mult], ...(R.management != null ? [[`Price gap at ${R.val.mult}x`, (R.diligence - R.management) * R.val.mult]] : []), ...(P ? [['Funded debt (confirmed)', P.debt], ['Debt-like items', P.debtLike], ['Cash', P.cash], ['NWC adjustment', P.nwcAdj]] : []), ['Equity purchase price', R.val.equity]],
+    econ: [['Reported EBITDA', R.reported], ...(R.management != null ? [['Management Adjusted EBITDA', R.management]] : []), ['Diligence Adjusted EBITDA', R.diligence], [`EV at ${R.val.mult}x diligence EBITDA`, evAt(R, R.diligence)], ...(R.management != null ? [[`Price gap at ${R.val.mult}x`, evDiff(R, R.diligence, R.management)]] : []), ...(P ? [['Funded debt (confirmed)', P.debt], ['Debt-like items', P.debtLike], ['Cash', P.cash], ['NWC adjustment', P.nwcAdj]] : []), ['Equity purchase price', R.val.equity]],
     bridge: R.L ? [['Reported EBITDA', R.L.T.EBITDA], ...R.L.adj.map(a => [`${a.id} ${a.title}${a.accepted ? '' : ' (rejected)'}`, a.accepted ? a.amount : 0]), ['Diligence Adjusted EBITDA', R.L.adjEBITDA]] : R.M ? [['Reported EBITDA', R.M.reported], ...R.M.addbacks.map(a => [`${a.label}${a.accepted ? '' : ' (excluded)'}`, a.accepted ? a.amount : 0]), ...(R.M.s1 ? [['Non-operating income', R.M.s1.accepted ? R.M.s1.amount : 0]] : []), ['Diligence Adjusted EBITDA', R.M.diligence]] : [],
     nwc: R.L && R.L.nwc.lines.length ? `Peg ${$(R.L.nwc.peg)} (${R.L.nwc.pegN}-month average); ${monthLabel(R.L.last)} NWC ${$(R.L.nwc.delivered)}; adjustment ${sgn(R.L.nwc.adj)}. DSO ${R.L.nwc.dsoY ? R.L.nwc.dsoY.now.toFixed(1) + ' days' : 'n/a'}.` : 'No monthly balance sheets; peg not set.',
     risk: R.risk.map(r => [r.cat, r.score]),
@@ -8333,7 +8609,7 @@ function vHelp() {
     ${qa('Proof of cash', 'Upload bank statements (the bank\u2019s CSV export, or a text-based PDF statement) alongside the ledger and monthly balance sheets. DealBasis reads every transaction, sets aside transfers between the company\u2019s own accounts, loans, owner money and refunds, then compares the remaining deposits with revenue collected per the books (revenue less the increase in receivables), month by month. It also checks each month-end bank balance against cash on the balance sheet, and flags loan payments when no debt is recorded. Every figure links to the statement line it came from.')}
     ${qa('Cash conversion', 'EBITDA less capital expenditure and the change in working capital, divided by EBITDA. With a ledger and monthly balance sheets it is computed month by month; otherwise it is read from the cash flow statement.')}
     ${qa('Diligence-adjusted EBITDA', 'Reported EBITDA plus only the add-backs the rules support and the deal team approves. Each add-back keeps a link to the line it came from.')}
-    ${qa('Equity value', 'Enterprise value less funded debt and debt-like items, plus cash, plus or minus the working capital adjustment.')}
+    ${qa('Equity value', 'Enterprise value less funded debt and debt-like items, plus cash: what the shares are worth.')}${qa('Equity purchase price', 'Equity value plus or minus the working capital adjustment against the peg (and any debt-like items already counted inside working capital, added back once): what the buyer pays the seller at closing.')}
     ${qa('Units', 'Every figure is the number printed in the document times the document\u2019s unit. DealBasis uses the unit the document states (for example "$ in thousands"); SEC XBRL data and ledgers are in dollars. Change any document\u2019s unit in Sources or Data checks and every number from it is multiplied by that unit and everything recalculates.')}</section>
   <section class="sec"><div class="sechead"><h2>Questions</h2></div>
     ${qa('Do documents need a set format?', 'No. Exports from QuickBooks, Xero, Sage, NetSuite and spreadsheets are read as they come: any column names, Debit and Credit or one Amount column, accounts with or without numbers, and ledgers grouped under each account. Lines are recognized under the names accounting systems, tax returns and CIMs use (Total Income, Turnover, Gross receipts, Net Operating Income, Normalised EBITDA, Accts. rec.), periods under any heading (FY25, YE Dec-25, Jan - Dec 2025, 31 December 2025), tables with the years across the top or down the side, statements by month (added up into full years and LTM), and figures written in sentences or on the line below their name. The Sources page shows what was read from each file, and nothing is guessed: a figure that can\u2019t be placed is left out.')}
@@ -8391,7 +8667,7 @@ function renderRail() {
   const m = MD();
   const opts = allDeals().filter(d => !d.archived || d.id === curId);
   document.getElementById('mandsel').innerHTML = `<label for="msel">Deal</label><select id="msel">${opts.map(x => `<option value="${esc(x.id)}" ${x.id === curId ? 'selected' : ''}>${esc(x.name)}${x.id === 'sample' ? ' (sample)' : ''}</option>`).join('')}<option value="new">+ New deal</option><option value="db">All deals\u2026</option></select><span class="stage">${esc(m.target || 'No target')} \u00b7 ${esc(m.stage)}</span>`;
-  const counts = { seller: (MD().rv.sq || []).filter(q => q.status === 'Draft' || q.status === 'Sent').length, issues: R.issues.filter(i => i.status !== 'Resolved' && i.finding.severity === 'High').length, workspace: R.actions.length, sources: m.docs.length };
+  const counts = { seller: allSellerQs(MD()).filter(q => q.status === 'Draft' || q.status === 'Sent').length, issues: R.issues.filter(i => i.status !== 'Resolved' && i.finding.severity === 'High').length, workspace: R.actions.length, sources: m.docs.length };
   if (SHOWCASE) {
     document.getElementById('mandsel').innerHTML = `<label>Sample deal</label><div style="font-weight:600;padding:2px 0">${esc(m.name)}</div><span class="stage">${esc(m.target || '')}</span>`;
     document.getElementById('nav').innerHTML = NAV.filter(g => g.items.some(([k]) => SHOWCASE_VIEWS.includes(k))).map(g => `<div class="navgrp"><h6>${g.group}</h6><div class="nav">${g.items.filter(([k]) => SHOWCASE_VIEWS.includes(k)).map(([k, l]) => `<button data-nav="${k}" ${k === view ? 'aria-current="page"' : ''}><span>${l}</span>${counts[k] ? `<span class="count ${k === 'issues' ? '' : 'g'}">${counts[k]}</span>` : ''}</button>`).join('')}</div></div>`).join('');
@@ -8615,7 +8891,7 @@ async function readAny(name, getBuf, getText) {
 }
 const viaReader = (file, how) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error || new Error('Could not read ' + file.name)); fr[how](file); });
 /* sensible ranges for numeric inputs: anything outside is refused with the reason */
-const LIMITS = { multiple: [0.5, 50, 'x'], leverage: [0, 10, 'x'], rate: [0, 0.5, '%'], fees: [0, 0.2, '%'], hold: [1, 10, 'years'], taxRate: [0, 0.6, '%'], growth: [-0.5, 1, '%'], exitMultiple: [0.5, 50, 'x'],
+const LIMITS = { earnings: [0, 1, '%'], revenue: [0, 1, '%'], nwc: [0, 1, '%'], debt: [0, 1, '%'], controls: [0, 1, '%'], projections: [0, 1, '%'], multiple: [0.5, 50, 'x'], leverage: [0, 10, 'x'], rate: [0, 0.5, '%'], fees: [0, 0.2, '%'], hold: [1, 10, 'years'], taxRate: [0, 0.6, '%'], growth: [-0.5, 1, '%'], exitMultiple: [0.5, 50, 'x'],
   conversion: [0, 1.5, '%'], targetIRR: [0, 2, '%'], maxDebtPct: [0, 1, '%'], downGrowth: [-0.5, 0.5, '%'], upGrowth: [-0.5, 0.5, '%'], downExit: [-10, 10, 'x'], upExit: [-10, 10, 'x'],
   minMargin: [-1, 1, '%'], maxAddbackPct: [0, 5, '%'], maxTopCustomer: [0, 1, '%'], maxMultiple: [0.5, 50, 'x'] };
 function outOfRange(k, v) { const L = LIMITS[k]; if (!L || v == null) return null; if (v >= L[0] && v <= L[1]) return null;
@@ -8691,7 +8967,7 @@ async function copyText(text, btn) {
 }
 document.addEventListener('click', e => {
   if (SHOWCASE) { const b = e.target.closest('button, [data-nav]'); if (b && b.closest('#view, #rail, #drawerhost, #present, .app') && !showcaseSafe(b) && !b.closest('.drawer .x, [data-close]')) { e.preventDefault(); return; } }
-  const t = e.target.closest('[data-addsq],[data-copysq],[data-delsq],[data-asksq],[data-revert],[data-xlsx],[data-auth],[data-signout],[data-rolego],[data-nav],[data-ci],[data-dmode],[data-close],[data-goto],[data-open],[data-rmdoc],[data-act],[data-adj],[data-export],[data-ifilter],[data-addq],[data-delq],[data-icreset],[data-asrole],[data-unfix],[data-oflag],[data-screen],[data-unset],[data-deal],[data-newdeal],[data-savesample],[data-arch],[data-deldeal],[data-dbcopy],[data-cancel],[data-memo],[data-present],[data-deck],[data-pv],[data-report]'); if (!t) return;
+  const t = e.target.closest('[data-fxreset],[data-addsq],[data-copysq],[data-delsq],[data-asksq],[data-revert],[data-xlsx],[data-auth],[data-signout],[data-rolego],[data-nav],[data-ci],[data-dmode],[data-close],[data-goto],[data-open],[data-rmdoc],[data-act],[data-adj],[data-export],[data-ifilter],[data-addq],[data-delq],[data-icreset],[data-asrole],[data-unfix],[data-oflag],[data-screen],[data-unset],[data-deal],[data-newdeal],[data-savesample],[data-arch],[data-deldeal],[data-dbcopy],[data-cancel],[data-memo],[data-present],[data-deck],[data-pv],[data-report]'); if (!t) return;
   const m = MD();
   if (t.dataset.nav) return setView(t.dataset.nav);
   if (t.dataset.ci) return openDrawer(CITES[+t.dataset.ci]);
@@ -8714,9 +8990,10 @@ document.addEventListener('click', e => {
   if (t.dataset.report) { const [rk, rf] = t.dataset.report.split(':'); return downloadReport(rk, rf, t); }
   if (t.dataset.xlsx) return downloadXlsx(t);
   if (t.dataset.addsq) { const el = document.getElementById('newsq'); if (el && el.value.trim()) { addSellerQ(el.value.trim()); } return; }
-  if (t.dataset.asksq) { const m = MD(); const f = R.findings.find(x => x.id === t.dataset.asksq); if (!f || sellerQs(m).some(q => q.from === f.id)) return setView('seller'); addSellerQ(sellerQuestionFor(f), f.id); return setView('seller'); }
-  if (t.dataset.delsq) { const m = MD(); m.rv.sq = sellerQs(m).filter(q => q.id !== t.dataset.delsq); log('Deleted a seller question'); return rerun(); }
-  if (t.dataset.copysq) { const m = MD(); const qs = sellerQs(m).filter(q => q.status === 'Draft' || q.status === 'Sent'); const txt = `${m.target || m.name}: questions\n\n` + qs.map((q, i) => `${i + 1}. ${q.text}`).join('\n'); copyText(txt, t); if (qs.length) { qs.forEach(q => { if (q.status === 'Draft') q.status = 'Sent'; }); log(`Copied ${qs.length} seller questions to send`); rerun(); } return; }
+  if (t.dataset.asksq) { const m = MD(); if ((R.gaps || []).some(g => g.id === t.dataset.asksq)) { const st = gapQState(m, t.dataset.asksq); if (st.dismissed) { st.dismissed = false; log('Restored an automatic seller question'); rerun(); } return setView('seller'); } const f = R.findings.find(x => x.id === t.dataset.asksq); if (!f || sellerQs(m).some(q => q.from === f.id)) return setView('seller'); addSellerQ(sellerQuestionFor(f), f.id); return setView('seller'); }
+  if (t.dataset.fxreset) { const m = MD(); delete m.S[t.dataset.fxreset]; msgs.fx = null; log('Reset a formula to standard'); return rerun(); }
+  if (t.dataset.delsq) { const m = MD(); if (t.dataset.delsq.startsWith('gap:')) { gapQState(m, t.dataset.delsq.slice(4)).dismissed = true; log('Removed an automatic seller question'); return rerun(); } m.rv.sq = sellerQs(m).filter(q => q.id !== t.dataset.delsq); log('Deleted a seller question'); return rerun(); }
+  if (t.dataset.copysq) { const m = MD(); const qs = allSellerQs(m).filter(q => q.status === 'Draft' || q.status === 'Sent'); const txt = `${m.target || m.name}: questions\n\n` + qs.map((q, i) => `${i + 1}. ${q.text}`).join('\n'); copyText(txt, t); if (qs.length) { qs.forEach(q => { if (q.status === 'Draft') q.status = 'Sent'; }); log(`Copied ${qs.length} seller questions to send`); rerun(); } return; }
   if (t.dataset.revert) { const m = MD(); const d = m.docs.find(x => x.id === t.dataset.revert); const p = d && m.docs.find(x => x.id === d.versionOf); if (!d || !p) return;
     if (!d.supersededBy) { d.supersededBy = p.id; delete p.supersededBy; log(`Switched back to ${p.name} instead of ${d.name}`); } else { delete d.supersededBy; p.supersededBy = d.id; log(`Switched to ${d.name} instead of ${p.name}`); }
     DECK = null; return rerun(); }
@@ -8783,10 +9060,13 @@ document.addEventListener('change', e => {
   if (t.dataset.ab) { m.dec[t.dataset.ab] = t.checked; log(`${t.checked ? 'Included' : 'Excluded'} add-back`); return rerun(); }
   if (t.dataset.adjs1) { m.dec['adj:S1'] = t.checked; return rerun(); }
   if (t.dataset.dl) { m.dec['dl:' + t.dataset.dl] = t.checked; log(`${t.checked ? 'Included' : 'Excluded'} debt-like item ${t.dataset.dl}`); return rerun(); }
+  if (FX_KIND(t.dataset.set || '')) { const k = t.dataset.set, v = t.value.trim();
+    try { fxFn(v, FX_KIND(k)); } catch (err) { msgs.fx = { key: k, value: t.value, text: err.message }; return render(); }
+    msgs.fx = null; m.S[k] = v; log(`Changed the ${{ ev: 'enterprise value', equity: 'equity purchase price', tax: 'tax', fcf: 'free cash flow', nwc: 'working capital' }[FX_KIND(k)]} formula to ${v}`); return rerun(); }
   if (t.dataset.set) { const k = t.dataset.set; let v = t.value; if (typeof DEFAULT_SETTINGS[k] === 'number') { v = parseFloat(v); if (isNaN(v) || v < 0) { t.value = R.S[k]; return; } } m.S[k] = v; return rerun(); }
   if (t.dataset.why) { m.rv['why:' + t.dataset.why] = t.value; log(`Recorded rationale for ${t.dataset.why}`); return scheduleSave(); }
   if (t.dataset.iowner) { const k = 'iss:' + t.dataset.iowner; m.rv[k] = { ...(m.rv[k] || {}), owner: t.value }; log(`Assigned ${t.dataset.iowner} to ${ownerName(m, t.value)}`); return rerun(); }
-  if (t.dataset.sqowner || t.dataset.sqstatus || t.dataset.sqdue || t.dataset.sqanswer) { const id = t.dataset.sqowner || t.dataset.sqstatus || t.dataset.sqdue || t.dataset.sqanswer; const q = sellerQs(m).find(x => x.id === id); if (!q) return;
+  if (t.dataset.sqowner || t.dataset.sqstatus || t.dataset.sqdue || t.dataset.sqanswer) { const id = t.dataset.sqowner || t.dataset.sqstatus || t.dataset.sqdue || t.dataset.sqanswer; const q = sqFind(m, id); if (!q) return;
     if (t.dataset.sqowner) { q.owner = t.value; log(`Assigned seller question to ${ownerName(m, t.value)}`); }
     if (t.dataset.sqstatus) { q.status = t.value; if (t.value === 'Answered') q.answeredAt = new Date().toISOString(); log(`Seller question marked ${t.value}`); }
     if (t.dataset.sqdue) q.due = t.value; if (t.dataset.sqanswer) { q.answer = t.value; if (q.answer && q.status !== 'Closed') q.status = 'Answered'; }
