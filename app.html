@@ -8708,6 +8708,7 @@ const planDate = d => { try { return new Date(d).toLocaleDateString('en-US', { m
 function planLapsedText(P) {
   const how = P.admin ? 'Choose a plan on the admin page to keep editing.' : 'Ask your workspace admin to choose a plan to keep editing.';
   if (P.status === 'trial') return `Your free trial ended on ${planDate(P.trialEndsAt)}. Every deal, file and report is still here to open and export. ${how}`;
+  if (P.status === 'pilot') return `Your pilot ended on ${planDate(P.paidUntil)} and the first-year invoice hasn't been paid yet. Every deal, file and report is still here to open and export, and editing resumes as soon as it's paid.${P.admin ? '' : ' Your workspace admin can check the plan on the admin page.'}`;
   if (P.status === 'canceled') return `This workspace's subscription has ended. Every deal, file and report is still here to open and export. ${how}`;
   return `This workspace's subscription ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export. ${how}`;
 }
@@ -8715,6 +8716,10 @@ function planBanner() {
   const P = PLAN(); if (!P || !signedIn()) return '';
   const link = P.admin ? ' <a href="/admin#plan">Choose a plan</a>' : '';
   if (!P.active) return view === 'deals' ? '' : `<div class="callout"><b>Read-only.</b><p>${esc(planLapsedText(P))}${link}</p></div>`;
+  if (P.status === 'pilot' && P.paidUntil) {
+    const days = Math.max(0, Math.ceil((new Date(P.paidUntil) - Date.now()) / 864e5));
+    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Your first year continues at $750 per seat.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
+  }
   if (P.status === 'trial' && P.trialEndsAt) {
     const days = Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5));
     return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Free trial: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}, every feature.${link.replace('Choose a plan', 'Change seats')}</p>`;

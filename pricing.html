@@ -83,8 +83,8 @@
 </div></section>
 
 <section class="psec"><div class="wrap">
-  <div class="trial"><div><h2>Try it free for 14 days</h2><p>Every feature, for as many editor seats as you plan to buy (up to 50), and no card needed. Set the seats on your admin page, invite the team and run a real CIM through it. When the trial ends, your workspace stays open to read and export, and editing resumes as soon as you choose a plan.</p></div>
-    <div class="ctas"><a class="btn btn-primary" href="/signin">Start free trial</a><a class="btn btn-secondary" href="/demo">Request a demo</a></div></div>
+  <div class="trial"><div><h2>Try it free for 14 days</h2><p>Every feature, for the number of editor seats you choose when you sign up (up to 50), and no card needed. Invite the team and run a real CIM through it. When the trial ends, your workspace stays open to read and export, and editing resumes as soon as you choose a plan.</p></div>
+    <div class="ctas"><a class="btn btn-primary" id="trialcta" href="/signin?signup=1&amp;seats=3">Start free trial</a><a class="btn btn-secondary" href="/demo">Request a demo</a></div></div>
 </div></section>
 
 <section class="psec"><div class="wrap">
@@ -113,7 +113,9 @@
   var i = document.getElementById('seats'), o = document.getElementById('total');
   function price(n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; }
   function upd() { var n = Math.floor(+i.value); o.textContent = n >= 1 && n <= 999 ? '$' + (n * price(n)).toLocaleString('en-US') + ' per year' + (n >= 3 ? ' ($' + price(n).toLocaleString('en-US') + ' per seat)' : '') : 'Enter 1 to 999 seats'; }
-  i.addEventListener('input', upd); upd();
+  var cta = document.getElementById('trialcta');
+  function link() { var n = Math.floor(+i.value); if (cta) cta.href = '/signin?signup=1&seats=' + (n >= 1 && n <= 50 ? n : 1); }
+  i.addEventListener('input', function () { upd(); link(); }); upd(); link();
 })();
 </script>
 <script src="/home.js"></script>

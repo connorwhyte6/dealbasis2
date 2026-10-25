@@ -32,7 +32,14 @@ where id = 'WORKSPACE-ID-FROM-STEP-1';
 -- 5. Customer bought more seats mid-year (invoice the prorated amount, then) ----------------------------
 update public.workspaces set seats = 5 where id = 'WORKSPACE-ID-FROM-STEP-1';
 
--- 6. Signed pilot: 60 days free, 8 editor seats (or a trial above the 50 seats admins can set themselves) -------------------------------------------------------
+-- 6. Design partner pilot paid ($750): like a subscription, but for 60 days, on the seats they asked for
+update public.workspaces set plan_status = 'pilot', seats = 5, paid_until = now() + interval '60 days', billing_email = 'ap@firm.com'
+where id = 'WORKSPACE-ID-FROM-STEP-1';
+-- The pilot is the start of their design-partner subscription. When it ends, invoice the first year
+-- ($750 per editor seat, minus the $750 pilot fee); once paid, use block 3 to start the year. If they told you
+-- before the end that they aren't continuing, do nothing: the workspace goes read-only when the pilot ends.
+
+-- 6b. A free trial longer than 14 days or above the 50 seats admins can set themselves -------------------------------------------------------
 update public.workspaces set plan_status = 'trial', seats = 8, trial_ends_at = now() + interval '60 days', trial_extended = true
 where id = 'WORKSPACE-ID-FROM-STEP-1';
 

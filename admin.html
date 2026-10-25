@@ -36,13 +36,16 @@
   /* pricing: per editor seat (Admin or Member) per year; Viewers are free; every plan has every feature */
   function seatPrice(n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; }
   function usd(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
-  function quote(n) { var p = seatPrice(n); return n + ' editor seat' + (n === 1 ? '' : 's') + ' × ' + usd(p) + ' = ' + usd(n * p) + ' per year' + (n >= 10 ? ' (25% off)' : n >= 3 ? ' (15% off)' : ''); }
+  function quote(n) {
+    if (ws && ws.plan && ws.plan.status === 'pilot') return n + ' editor seat' + (n === 1 ? '' : 's') + ' × ' + usd(750) + ' = ' + usd(n * 750) + ' for the first year, minus your ' + usd(750) + ' pilot fee = ' + usd(Math.max(0, n * 750 - 750)) + ', invoiced when the pilot ends';
+    var p = seatPrice(n); return n + ' editor seat' + (n === 1 ? '' : 's') + ' × ' + usd(p) + ' = ' + usd(n * p) + ' per year' + (n >= 10 ? ' (25% off)' : n >= 3 ? ' (15% off)' : ''); }
   function longDate(d) { try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } }
   function planSection() {
     var P = ws.plan || {}; var used = P.seatsUsed || 0, seats = P.seats || 0;
     var days = P.trialEndsAt ? Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5)) : 0;
     var status = P.status === 'comp' ? 'Complimentary · no end date'
       : P.status === 'trial' ? (P.active ? 'Free trial for ' + seats + ' editor seat' + (seats === 1 ? '' : 's') + ' · ' + (days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left') + ' (ends ' + longDate(P.trialEndsAt) + ')' : 'Free trial ended ' + longDate(P.trialEndsAt) + ' · read-only')
+      : P.status === 'pilot' ? (P.active ? 'Subscribed as a design partner · 60-day pilot through ' + longDate(P.paidUntil) + ', then your first year continues at ' + usd(750) + ' per editor seat' : 'Pilot ended ' + longDate(P.paidUntil) + ' · first-year invoice not yet paid · read-only')
       : P.status === 'active' ? (P.active ? 'Subscribed · paid through ' + longDate(P.paidUntil) : 'Subscription ended ' + longDate(P.paidUntil) + ' · read-only')
       : 'Subscription ended · read-only';
     var want = Math.max(used, seats || 1), trial = P.status === 'trial';
@@ -56,10 +59,11 @@
       '<form id="buy" class="row" novalidate><div class="field" style="width:140px"><label for="bs">Editor seats</label><input id="bs" type="number" min="' + Math.max(1, used) + '" max="999" step="1" value="' + want + '"></div>' +
         '<div class="field" style="flex:1;min-width:200px"><label for="be">Send the invoice to</label><input id="be" type="email" value="' + esc((me && me.email) || '') + '"></div>' +
         (trial ? '<button type="button" class="btn ghost" id="settrial">Set trial seats</button>' : '') +
-        '<button class="btn">' + (P.status === 'active' ? 'Request seat change' : 'Request this plan') + '</button></form>' +
+        '<button class="btn">' + (P.status === 'active' || P.status === 'pilot' ? 'Request seat change' : 'Request this plan') + '</button></form>' +
+      (P.status === 'pilot' ? '<p class="small">Your design partner price is locked for the first year. Not continuing after the pilot? Email us before ' + longDate(P.paidUntil) + ' and nothing more is billed.</p>' : '') +
       (trial ? '<p class="small">Your trial runs on the number of editor seats you plan to buy, so you can try it with the whole team. Change it any time during the trial (up to 50).</p>' : '') +
       '<p class="lede" id="bq" style="font-size:14px;margin:0">' + esc(quote(want)) + '</p>' +
-      '<p class="small">Per editor seat, per year: 1–2 seats ' + usd(1500) + ', 3–9 seats ' + usd(1275) + ' (15% off), 10 or more ' + usd(1125) + ' (25% off). Billed yearly. DealBasis emails an invoice, and your seats update as soon as it’s paid. Seats added mid-year are prorated.</p></section>';
+      (P.status === 'pilot' ? '' : '<p class="small">Per editor seat, per year: 1–2 seats ' + usd(1500) + ', 3–9 seats ' + usd(1275) + ' (15% off), 10 or more ' + usd(1125) + ' (25% off). Billed yearly. DealBasis emails an invoice, and your seats update as soon as it’s paid. Seats added mid-year are prorated.</p>') + '</section>';
   }
 
   /* ---------- files: this workspace's folder, plus files from before workspaces existed ---------- */
@@ -110,7 +114,7 @@
       case 'member.left': return t + ' left the workspace';
       case 'invite.sent': return 'Invited ' + t + ' as ' + (ROLE[d.role] || d.role);
       case 'workspace.settings_changed': return 'Changed workspace settings: ' + Object.keys(d).map(function (k) { return ({ name: 'name', allowed_domain: 'firm domain', require_mfa: 'two-factor ' + (d[k] ? 'required' : 'optional'), idle_minutes: 'sign-out after ' + d[k] + ' min' })[k] || k; }).join(', ');
-      case 'workspace.plan_changed': return 'Plan updated: ' + Object.keys(d).map(function (k) { return k === 'seats' ? d[k] + ' editor seats' : k === 'status' ? ({ trial: 'free trial', active: 'subscribed', comp: 'complimentary', canceled: 'canceled' })[d[k]] || d[k] : k === 'paid_until' ? 'paid through ' + longDate(d[k]) : k === 'trial_ends_at' ? 'trial ends ' + longDate(d[k]) : k; }).join(', ');
+      case 'workspace.plan_changed': return 'Plan updated: ' + Object.keys(d).map(function (k) { return k === 'seats' ? d[k] + ' editor seats' : k === 'status' ? ({ trial: 'free trial', pilot: 'design partner pilot', active: 'subscribed', comp: 'complimentary', canceled: 'canceled' })[d[k]] || d[k] : k === 'paid_until' ? 'paid through ' + longDate(d[k]) : k === 'trial_ends_at' ? 'trial ends ' + longDate(d[k]) : k; }).join(', ');
       case 'workspace.trial_extended': return 'Extended the free trial to ' + longDate(d.trial_ends_at);
       case 'workspace.exported': return 'Exported the whole workspace';
       case 'workspace.deleted': return 'Deleted the workspace';

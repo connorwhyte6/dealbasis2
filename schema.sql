@@ -40,6 +40,7 @@ alter table public.workspaces add constraint workspaces_idle_check check (idle_m
 -- Only DealBasis changes these (SQL editor, see billing.sql); the app can read them but never write them.
 --   trial    : 14-day free trial for the number of editor seats the firm plans to buy (an admin sets it on the admin page,
 --              1 to 50); one 7-day extension an admin can take there too
+--   pilot    : paid design-partner pilot ($750), the same as a subscription but for 60 days: paid_until is its last day
 --   active   : paid; paid_until is the end of the paid year, with 14 days' grace after it
 --   comp     : complimentary (your own workspace, design partners); never expires
 --   canceled : ended
@@ -57,7 +58,7 @@ update public.workspaces set plan_status = 'trial' where plan_status is null;
 alter table public.workspaces alter column plan_status set default 'trial';
 alter table public.workspaces alter column plan_status set not null;
 alter table public.workspaces drop constraint if exists workspaces_plan_check;
-alter table public.workspaces add constraint workspaces_plan_check check (plan_status in ('trial', 'active', 'comp', 'canceled'));
+alter table public.workspaces add constraint workspaces_plan_check check (plan_status in ('trial', 'pilot', 'active', 'comp', 'canceled'));
 alter table public.workspaces drop constraint if exists workspaces_seats_check;
 alter table public.workspaces add constraint workspaces_seats_check check (seats between 1 and 10000);
 
@@ -202,6 +203,7 @@ language sql stable security definer set search_path = public as $$
   select coalesce((select case x.plan_status
       when 'comp'   then true
       when 'trial'  then x.trial_ends_at > now()
+      when 'pilot'  then x.paid_until is not null and x.paid_until > now()
       when 'active' then x.paid_until is null or x.paid_until + interval '14 days' > now()
       else false end
     from public.workspaces x where x.id = w), false)
@@ -321,7 +323,12 @@ begin
   end if;
 
   if w is null then
-    insert into public.workspaces (name, created_by) values (coalesce(nullif(nm, ''), 'My') || '''s workspace', uid) returning id into w;
+    -- a new firm: its free trial runs on the editor seats chosen at sign-up (1 to 50)
+    insert into public.workspaces (name, created_by, seats)
+    values (coalesce(nullif(nm, ''), 'My') || '''s workspace', uid,
+            (select least(50, greatest(1, coalesce(nullif(substring(regexp_replace(coalesce(u.raw_user_meta_data ->> 'trial_seats', ''), '[^0-9]', '', 'g') for 3), '')::int, 1)))
+               from auth.users u where u.id = uid))
+    returning id into w;
     r := 'admin';
   end if;
 
