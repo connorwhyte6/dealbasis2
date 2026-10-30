@@ -8718,7 +8718,7 @@ function planBanner() {
   if (!P.active) return view === 'deals' ? '' : `<div class="callout"><b>Read-only.</b><p>${esc(planLapsedText(P))}${link}</p></div>`;
   if (P.status === 'pilot' && P.paidUntil) {
     const days = Math.max(0, Math.ceil((new Date(P.paidUntil) - Date.now()) / 864e5));
-    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Your first year continues at $750 per seat.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
+    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Your first year continues at the design partner price.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
   }
   if (P.status === 'trial' && P.trialEndsAt) {
     const days = Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5));

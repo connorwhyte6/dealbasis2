@@ -37,8 +37,11 @@
     card.innerHTML = '<h1>Almost there</h1><p class="lede">This site is not connected to its database yet. On GitHub, open <b>config.js</b>, click the pencil icon, paste your Supabase Project URL and public key between the quotes, and click Commit changes. The site updates in about a minute.' + (cfg.secretKey ? ' <b>The key there is a secret key: replace it with the public (anon or publishable) key.</b>' : '') + '</p>';
     return;
   }
+  /* read the reset link before the sign-in library clears it from the address bar */
+  var fromRecovery = /type=recovery/.test(location.hash);
+  var linkError = /error_code=|error_description=/.test(location.hash) ? decodeURIComponent(((location.hash.match(/error_description=([^&]+)/) || [])[1] || '').replace(/\+/g, ' ')) || 'This link is no longer valid.' : null;
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-  var mode = 'signin', msg = null, busy = false, recovering = false, factorId = null, shown = null;
+  var mode = 'signin', msg = null, busy = false, recovering = false, factorId = null, shown = null, pendingPw = null;
   var TERMS_VERSION = '2026-10-24';
   /* editor seats for the free trial: from the pricing page (?seats=4), or chosen on the sign-up form */
   var SEAT_PRICE = function (n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; };
@@ -125,6 +128,12 @@
       var vr = factorId ? await sb.auth.mfa.challengeAndVerify({ factorId: factorId, code: code }) : { error: { message: 'No authenticator is set up for this account.' } };
       busy = false;
       if (vr.error) { msg = { err: true, text: /invalid|expired/i.test(vr.error.message) ? 'That code didn’t match. Codes change every 30 seconds; try the current one.' : vr.error.message }; return render(); }
+      if (pendingPw) {
+        var up = await sb.auth.updateUser({ password: pendingPw }); pendingPw = null;
+        if (up.error) { mode = 'signin'; msg = { err: true, text: 'Your password wasn’t changed: ' + friendly(up.error) + ' Request a new reset link.' }; return render(); }
+        try { await sb.rpc('log_event', { act: 'auth.password_reset' }); } catch (er) { }
+        var s2 = await sb.auth.getSession(); return enter(s2.data.session);
+      }
       return finish();
     }
     var email = v('email'), pw = f.querySelector('[name="password"]') ? f.querySelector('[name="password"]').value : '';
@@ -135,7 +144,17 @@
     busy = true; msg = null; render();
     try {
       var back = location.origin + '/signin' + (next !== '/app' ? '?next=' + encodeURIComponent(next) : '');
-      if (recovering) { var u = await sb.auth.updateUser({ password: pw }); if (u.error) throw u.error; recovering = false; busy = false; var s = await sb.auth.getSession(); return enter(s.data.session); }
+      if (recovering) {
+        /* an account with two-factor sign-in confirms its code before the password can change */
+        var al = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (al.data && al.data.nextLevel === 'aal2' && al.data.currentLevel !== 'aal2') {
+          var fl = await sb.auth.mfa.listFactors(); var tf = fl.data && fl.data.totp && fl.data.totp[0]; factorId = tf && tf.id;
+          pendingPw = pw; recovering = false; busy = false; mode = 'mfa'; msg = { err: false, text: 'Enter the 6-digit code from your authenticator app to finish resetting your password.' }; return render();
+        }
+        var u = await sb.auth.updateUser({ password: pw }); if (u.error) throw u.error;
+        try { await sb.rpc('log_event', { act: 'auth.password_reset' }); } catch (er) { }
+        recovering = false; busy = false; var s = await sb.auth.getSession(); return enter(s.data.session);
+      }
       if (mode === 'signin') { var r = await sb.auth.signInWithPassword({ email: email, password: pw }); if (r.error) throw r.error; busy = false; return enter(r.data.session); }
       if (mode === 'signup') {
         var ns = Math.min(50, Math.max(1, Math.floor(+v('seats')) || 1));
@@ -159,7 +178,8 @@
     var access = params.get('access');
     if (params.get('mode') === 'signup' || params.get('signup') === '1') mode = 'signup';
     var s = await sb.auth.getSession(); var session = s.data && s.data.session;
-    if (/type=recovery/.test(location.hash)) { recovering = true; return render(); }
+    if (fromRecovery && session) { recovering = true; msg = null; return render(); }
+    if (linkError) { mode = fromRecovery || /recovery/i.test(linkError) ? 'forgot' : 'signin'; msg = { err: true, text: /expired|invalid/i.test(linkError) ? 'That link has expired or was already used. ' + (mode === 'forgot' ? 'Request a new reset link below.' : 'Sign in, or request a new link.') : linkError }; return render(); }
     if (access === 'idle') { msg = { err: false, text: 'You were signed out after a period of inactivity. Sign in again to continue.' }; if (session) await sb.auth.signOut(); return render(); }
     if (session && !access) return enter(session);
     if (session && access === 'unconfirmed') { mode = 'unconfirmed'; msg = { email: session.user.email }; }
