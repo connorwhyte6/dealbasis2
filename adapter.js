@@ -36,7 +36,8 @@
     /* the plan: when a trial or paid year has run out, the workspace is read-only for everyone (the database enforces it too) */
     var plan = ws.plan || { active: true };
     window.DEALBASIS_PLAN = Object.freeze({ status: plan.status || null, seats: plan.seats || null, seatsUsed: plan.seatsUsed || 0, trialEndsAt: plan.trialEndsAt || null,
-      paidUntil: plan.paidUntil || null, active: plan.active !== false, admin: role === 'admin' });
+      paidUntil: plan.paidUntil || null, active: plan.active !== false, admin: role === 'admin',
+      trialAvailable: !!plan.trialAvailable, trialDeletedAt: plan.trialDeletedAt || null, trialLocked: !!plan.trialLocked, deleteAt: plan.deleteAt || null, testPurchase: !!plan.testPurchase });
     if (plan.active === false) writable = false;
     /* two-factor: ask for the code, or set up an authenticator when the firm requires one */
     var G = window.DealBasisGuard;

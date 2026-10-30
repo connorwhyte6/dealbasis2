@@ -42,11 +42,14 @@
   var linkError = /error_code=|error_description=/.test(location.hash) ? decodeURIComponent(((location.hash.match(/error_description=([^&]+)/) || [])[1] || '').replace(/\+/g, ' ')) || 'This link is no longer valid.' : null;
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   var mode = 'signin', msg = null, busy = false, recovering = false, factorId = null, shown = null, pendingPw = null;
-  var TERMS_VERSION = '2026-10-24';
+  var TERMS_VERSION = '2026-10-30';
   /* editor seats for the free trial: from the pricing page (?seats=4), or chosen on the sign-up form */
   var SEAT_PRICE = function (n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; };
   var trialSeats = Math.min(50, Math.max(1, Math.floor(+params.get('seats')) || 1));
-  function seatQuote(n) { return n + ' editor seat' + (n === 1 ? '' : 's') + ' free for 14 days. After the trial: $' + (n * SEAT_PRICE(n)).toLocaleString('en-US') + ' per year. Viewers are always free.'; }
+  /* a free trial starts only from a free trial button, which sends people here with next=/admin?trial=1 */
+  var WANTS_TRIAL = /^\/admin\?(.*&)?trial=1(&|$)/.test(next);
+  function seatQuote(n) { return WANTS_TRIAL ? n + ' editor seat' + (n === 1 ? '' : 's') + ' free for 14 days. After the trial: $' + (n * SEAT_PRICE(n)).toLocaleString('en-US') + ' per year. Viewers are always free.' : n + ' editor seat' + (n === 1 ? '' : 's') + ': $' + (n * SEAT_PRICE(n)).toLocaleString('en-US') + ' per year. Viewers are always free.'; }
+  var SEAT_NOTE = WANTS_TRIAL ? ' Editors upload and edit; you can change the number during the trial. One free trial per email. Not needed if a colleague invited you.' : ' Editors upload and edit. Not needed if a colleague invited you.';
 
   function field(id, label, type, ac, extra) { return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" name="' + id + '" type="' + type + '" autocomplete="' + ac + '" required ' + (extra || '') + '></div>'; }
   function note() { return msg ? '<div class="msg ' + (msg.err ? 'err' : 'ok') + '" role="' + (msg.err ? 'alert' : 'status') + '">' + esc(msg.text) + '</div>' : ''; }
@@ -60,10 +63,10 @@
         '<div class="alt"><button class="lnk" data-mode="magic">Email me a sign-in link</button><button class="lnk" data-mode="forgot">Forgot password</button></div>' +
         '<p class="small">New to DealBasis? <button class="lnk" data-mode="signup">Create an account</button></p>';
     } else if (mode === 'signup') {
-      h = '<h1 id="authh">Create your account</h1><form id="f" novalidate>' + field('name', 'Full name', 'text', 'name') + field('email', 'Work email', 'email', 'email') + field('password', 'Password', 'password', 'new-password', 'minlength="8"') +
+      h = '<h1 id="authh">' + (WANTS_TRIAL ? 'Start your 14-day free trial' : 'Create your account') + '</h1><form id="f" novalidate>' + field('name', 'Full name', 'text', 'name') + field('email', 'Work email', 'email', 'email') + field('password', 'Password', 'password', 'new-password', 'minlength="8"') +
         '<p class="small">At least 8 characters. A new account gets its own private workspace for your firm. Invited by a colleague? Use the email they invited, and you join their workspace instead.</p>' +
-        '<div class="field"><label for="seats">Editor seats for your free trial</label><input id="seats" name="seats" type="number" min="1" max="50" step="1" inputmode="numeric" value="' + trialSeats + '"></div>' +
-        '<p class="small" id="seatq">' + seatQuote(trialSeats) + ' Editors upload and edit; you can change the number during the trial. Not needed if a colleague invited you.</p>' +
+        '<div class="field"><label for="seats">' + (WANTS_TRIAL ? 'Editor seats for your free trial' : 'Editor seats you plan to buy') + '</label><input id="seats" name="seats" type="number" min="1" max="50" step="1" inputmode="numeric" value="' + trialSeats + '"></div>' +
+        '<p class="small" id="seatq">' + seatQuote(trialSeats) + SEAT_NOTE + '</p>' +
         '<label class="agree"><input type="checkbox" name="agree" value="1"> <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>, and understand DealBasis provides diligence analysis, not an audit or an accounting firm\u2019s quality of earnings report.</span></label>' + note() +
         '<button class="btn big" ' + (busy ? 'disabled' : '') + '>Create account</button></form><p class="small">Already have an account? <button class="lnk" data-mode="signin">Sign in</button></p>';
     } else if (mode === 'magic') {
@@ -169,7 +172,7 @@
     } catch (err) { msg = { err: true, text: friendly(err) }; }
     busy = false; render();
   });
-  card.addEventListener('input', function (e) { if (e.target.id === 'seats') { var n = Math.floor(+e.target.value), q = document.getElementById('seatq'); if (q && n >= 1 && n <= 50) { trialSeats = n; q.textContent = seatQuote(n) + ' Editors upload and edit; you can change the number during the trial. Not needed if a colleague invited you.'; } } });
+  card.addEventListener('input', function (e) { if (e.target.id === 'seats') { var n = Math.floor(+e.target.value), q = document.getElementById('seatq'); if (q && n >= 1 && n <= 50) { trialSeats = n; q.textContent = seatQuote(n) + SEAT_NOTE; } } });
   sb.auth.onAuthStateChange(function (event, session) {
     if (event === 'PASSWORD_RECOVERY') { recovering = true; msg = null; render(); }
     else if (event === 'SIGNED_IN' && session && mode !== 'entering' && mode !== 'mfa' && !recovering && !busy) enter(session);

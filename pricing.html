@@ -88,8 +88,8 @@
 </div></section>
 
 <section class="psec"><div class="wrap">
-  <div class="trial"><div><h2>Try it free for 14 days</h2><p>Every feature, for the number of editor seats you choose when you sign up (up to 50), and no card needed. Invite the team and run a real CIM through it. When the trial ends, your workspace stays open to read and export, and editing resumes as soon as you choose a plan.</p></div>
-    <div class="ctas"><a class="btn btn-primary" id="trialcta" href="/signin?signup=1&amp;seats=3">Start free trial</a><a class="btn btn-secondary" href="/demo">Request a demo</a></div></div>
+  <div class="trial"><div><h2>Try it free for 14 days</h2><p>Every feature, for the number of editor seats you choose when you sign up (up to 50), and no card needed. Invite the team and run a real CIM through it. One free trial per email. Buy a plan at any time during the 14 days and everything carries over. If the trial ends without one, its deals and files are locked for 7 days, so you can still buy and pick up where you left off, then deleted.</p></div>
+    <div class="ctas"><a class="btn btn-primary" id="trialcta" href="/signin?signup=1&amp;seats=3&amp;next=%2Fadmin%3Ftrial%3D1">Start free trial</a><a class="btn btn-secondary" href="/demo">Request a demo</a></div></div>
 </div></section>
 
 <section class="psec"><div class="wrap">
@@ -97,7 +97,7 @@
   <div class="faq">
     <details><summary>Who counts as an editor?</summary><p>Anyone who can upload, edit or approve: workspace Admins and Members, whatever deal role (analyst, manager or partner) they hold. Viewers, such as investment committee members and investors, read deals, memos and decks but can’t change anything, and they’re always free.</p></details>
     <details><summary>Can one person run a whole deal on one seat?</summary><p>Yes. Deal roles build on each other: a Partner can do everything a Manager or Analyst can, so a solo searcher can take a deal from upload to committee decision alone. More seats are only needed when different people each sign off under their own name.</p></details>
-    <details><summary>What happens when the trial ends?</summary><p>Nothing is deleted. Your workspace becomes read-only: everyone can still open and export every deal, file and report, but nobody can upload or edit. Choose a plan on the admin page and editing comes back as soon as the invoice is paid. An admin can extend the trial once by 7 days. A workspace left without a plan for 30 days after its trial ends may be deleted, so export anything you want to keep.</p></details>
+    <details><summary>What happens when the trial ends?</summary><p>The trial always runs the full 14 days; it can’t be extended or ended early. Buy a plan before it ends and everything carries over: deals, files and the team. If it ends without a plan, its deals, documents and files are locked: kept for 7 days but not openable or exportable. Buy a plan in that week and everything comes back exactly as it was. After the 7 days they are deleted and can’t be recovered; your account stays, and you can still buy a plan, starting with an empty workspace. Each email gets one free trial.</p></details>
     <details><summary>Can we add seats during the year?</summary><p>Yes. Request them on the admin page, and added seats are prorated to your renewal date. Moving past 3 or 10 seats lowers the price of every seat at your next renewal.</p></details>
     <details><summary>Do you offer pilots for larger firms?</summary><p>Yes. Firms that need a signed agreement and a data processing addendum before uploading documents can run a 60-day pilot. <a href="/demo">Request a demo</a> and we’ll set it up.</p></details>
     <details><summary>How do we pay?</summary><p>By invoice, yearly in advance. Plans renew each year unless canceled before the renewal date.</p></details>
@@ -119,7 +119,7 @@
   function price(n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; }
   function upd() { var n = Math.floor(+i.value); o.textContent = n >= 1 && n <= 999 ? '$' + (n * price(n)).toLocaleString('en-US') + ' per year' + (n >= 3 ? ' ($' + price(n).toLocaleString('en-US') + ' per seat)' : '') : 'Enter 1 to 999 seats'; }
   var cta = document.getElementById('trialcta');
-  function link() { var n = Math.floor(+i.value); if (cta) cta.href = '/signin?signup=1&seats=' + (n >= 1 && n <= 50 ? n : 1); }
+  function link() { var n = Math.floor(+i.value); if (cta) cta.href = '/signin?signup=1&seats=' + (n >= 1 && n <= 50 ? n : 1) + '&next=%2Fadmin%3Ftrial%3D1'; }
   i.addEventListener('input', function () { upd(); link(); }); upd(); link();
 })();
 </script>

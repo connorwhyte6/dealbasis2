@@ -8486,6 +8486,10 @@ let SEEN_WRITTEN = false;
 const sessGet = () => { try { return sessionStorage.getItem('sorai.session'); } catch (e) { return null; } };
 const sessSet = v => { try { if (v) sessionStorage.setItem('sorai.session', v); else sessionStorage.removeItem('sorai.session'); } catch (e) { } };
 const signedIn = () => auth.phase === 'in';
+/* a firm's own workspace (signed in, not the public sample page): it lists only the deals the firm added.
+   The built-in sample deal is shown only during a free trial, to help people get started. */
+const REAL_WS = () => signedIn() && !auth.demo && !SHOWCASE && !(window.DEALBASIS_PLAN && window.DEALBASIS_PLAN.status === 'trial');
+const WS_VIEWS = ['deals', 'team', 'activity', 'help', 'legal', 'firm'];
 const myRole = () => auth.demo || !auth.me || !auth.me.id ? actingAs : (team[auth.me.id] && team[auth.me.id].role) || (auth.admin ? 'partner' : 'analyst');
 const whoName = a => (a.by && PROF[a.by] && PROF[a.by].name) || a.who || 'Someone';
 async function resolveProfiles(ids) {
@@ -8687,8 +8691,8 @@ const RENDER = { deals: vDeals, firm: vFirm, workspace: vWorkspace, mandate: vMa
 function renderRail() {
   const m = MD();
   const opts = allDeals().filter(d => !d.archived || d.id === curId);
-  document.getElementById('mandsel').innerHTML = `<label for="msel">Deal</label><select id="msel">${opts.map(x => `<option value="${esc(x.id)}" ${x.id === curId ? 'selected' : ''}>${esc(x.name)}${x.id === 'sample' ? ' (sample)' : ''}</option>`).join('')}<option value="new">+ New deal</option><option value="db">All deals\u2026</option></select><span class="stage">${esc(m.target || 'No target')} \u00b7 ${esc(m.stage)}</span>`;
-  const counts = { seller: allSellerQs(MD()).filter(q => q.status === 'Draft' || q.status === 'Sent').length, issues: R.issues.filter(i => i.status !== 'Resolved' && i.finding.severity === 'High').length, workspace: R.actions.length, sources: m.docs.length };
+  document.getElementById('mandsel').innerHTML = `<label for="msel">Deal</label><select id="msel">${REAL_WS() && curId === 'sample' ? '<option value="" selected disabled>Choose a deal</option>' : ''}${opts.map(x => `<option value="${esc(x.id)}" ${x.id === curId ? 'selected' : ''}>${esc(x.name)}${x.id === 'sample' ? ' (sample)' : ''}</option>`).join('')}<option value="new">+ New deal</option><option value="db">All deals\u2026</option></select><span class="stage">${esc(m.target || 'No target')} \u00b7 ${esc(m.stage)}</span>`;
+  const counts = REAL_WS() && curId === 'sample' ? {} : { seller: allSellerQs(MD()).filter(q => q.status === 'Draft' || q.status === 'Sent').length, issues: R.issues.filter(i => i.status !== 'Resolved' && i.finding.severity === 'High').length, workspace: R.actions.length, sources: m.docs.length };
   if (SHOWCASE) {
     document.getElementById('mandsel').innerHTML = `<label>Sample deal</label><div style="font-weight:600;padding:2px 0">${esc(m.name)}</div><span class="stage">${esc(m.target || '')}</span>`;
     document.getElementById('nav').innerHTML = NAV.filter(g => g.items.some(([k]) => SHOWCASE_VIEWS.includes(k))).map(g => `<div class="navgrp"><h6>${g.group}</h6><div class="nav">${g.items.filter(([k]) => SHOWCASE_VIEWS.includes(k)).map(([k, l]) => `<button data-nav="${k}" ${k === view ? 'aria-current="page"' : ''}><span>${l}</span>${counts[k] ? `<span class="count ${k === 'issues' ? '' : 'g'}">${counts[k]}</span>` : ''}</button>`).join('')}</div></div>`).join('');
@@ -8707,7 +8711,10 @@ const PLAN = () => (!SHOWCASE && !auth.demo && window.DEALBASIS_PLAN) || null;
 const planDate = d => { try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } };
 function planLapsedText(P) {
   const how = P.admin ? 'Choose a plan on the admin page to keep editing.' : 'Ask your workspace admin to choose a plan to keep editing.';
-  if (P.status === 'trial') return `Your free trial ended on ${planDate(P.trialEndsAt)}. Every deal, file and report is still here to open and export. ${how}`;
+  if (P.status === 'none') return P.trialDeletedAt ? `The free trial ended on ${planDate(P.trialDeletedAt)} without a plan, so its deals and files were deleted. ${P.admin ? 'Buy a plan on the admin page to start again.' : 'Ask your workspace admin to buy a plan.'}`
+    : P.trialAvailable ? `This workspace has no plan yet. ${P.admin ? 'Start the 14-day free trial or buy a plan to upload and run deals.' : 'Ask your workspace admin to start the free trial or buy a plan.'}`
+    : `This workspace has no plan yet. ${P.admin ? 'Buy a plan on the admin page to upload and run deals.' : 'Ask your workspace admin to buy a plan.'}`;
+  if (P.status === 'trial') return `Your free trial ended on ${planDate(P.trialEndsAt)}. Your deals and files are saved but locked until ${planDate(P.deleteAt)}. ${P.admin ? 'Buy a plan on the admin page by then to pick up exactly where you left off.' : 'Ask your workspace admin to buy a plan by then to pick up where you left off.'} After that they are deleted.`;
   if (P.status === 'pilot') return `Your pilot ended on ${planDate(P.paidUntil)} and the first-year invoice hasn't been paid yet. Every deal, file and report is still here to open and export, and editing resumes as soon as it's paid.${P.admin ? '' : ' Your workspace admin can check the plan on the admin page.'}`;
   if (P.status === 'canceled') return `This workspace's subscription has ended. Every deal, file and report is still here to open and export. ${how}`;
   return `This workspace's subscription ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export. ${how}`;
@@ -8715,14 +8722,17 @@ function planLapsedText(P) {
 function planBanner() {
   const P = PLAN(); if (!P || !signedIn()) return '';
   const link = P.admin ? ' <a href="/admin#plan">Choose a plan</a>' : '';
+  if (P.status === 'none') return `<div class="callout"><b>No plan yet.</b><p>${esc(planLapsedText(P))}${P.admin ? (P.trialAvailable ? ' <a href="/admin?trial=1">Start the free trial</a> ·' : '') + ' <a href="/admin#plan">Plans</a>' : ''}</p></div>`;
+  if (P.trialLocked) return `<div class="callout"><b>Trial ended · work saved until ${esc(planDate(P.deleteAt))}.</b><p>${esc(planLapsedText(P))}${P.admin ? ' <a href="/admin#plan">Buy a plan</a>' : ''}</p></div>`;
   if (!P.active) return view === 'deals' ? '' : `<div class="callout"><b>Read-only.</b><p>${esc(planLapsedText(P))}${link}</p></div>`;
+  if (P.status === 'pilot' && P.paidUntil && P.testPurchase) return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Owner payment test, in the pilot format.</p>`;
   if (P.status === 'pilot' && P.paidUntil) {
     const days = Math.max(0, Math.ceil((new Date(P.paidUntil) - Date.now()) / 864e5));
     return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Your first year continues at the design partner price.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
   }
   if (P.status === 'trial' && P.trialEndsAt) {
     const days = Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5));
-    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Free trial: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}, every feature.${link.replace('Choose a plan', 'Change seats')}</p>`;
+    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Free trial: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}, every feature. Buy a plan before it ends to keep this work: otherwise its deals and files are locked for 7 days, then deleted.${link.replace('Choose a plan', 'Plan and seats')}</p>`;
   }
   return '';
 }
@@ -8732,6 +8742,7 @@ function render() {
   if (!scopeOn((NAV.flatMap(g => g.items).find(i => i[0] === view) || [])[2])) view = 'workspace';
   if (!showcaseOk(view)) { view = 'qoe'; renderRail(); }
   const host = document.getElementById('view');
+  if (REAL_WS() && curId === 'sample' && !WS_VIEWS.includes(view)) { host.innerHTML = planBanner() + noDealHTML(); return; }
   try { host.innerHTML = planBanner() + (RUN_ERR && !['team', 'activity', 'help', 'legal', 'deals', 'firm'].includes(view) ? `<div class="callout"><b>Part of this deal could not be processed.</b><p>${esc(RUN_ERR)}</p></div>` : '') + (RENDER[view] || vNotFound)(); if (view === 'team') afterTeam(); }
   catch (e) { try { console.error('DealBasis render', e); } catch (_) { }
     host.innerHTML = `<header class="vh"><div class="eyebrow">Something went wrong</div><h1>This page could not be shown</h1></header><div class="callout"><b>${esc(e.message || String(e))}</b><p>Your deal, documents and decisions are safe. Other pages still work.</p></div><div class="row"><button class="btn" data-nav="workspace">Go to the workspace</button><button class="btn ghost" data-nav="deals">Deal pipeline</button></div>`; }
@@ -8742,6 +8753,11 @@ function render() {
     host.querySelectorAll('input, select, textarea').forEach(f => { f.disabled = true; f.setAttribute('aria-readonly', 'true'); if (f.tagName === 'TEXTAREA' && !f.value) f.remove(); });
   }
   if (drawer) { const h = document.getElementById('drawerhost'); try { h.innerHTML = drawerHTML(drawer); afterDrawer(); } catch (e) { drawer = null; h.innerHTML = ''; } }
+}
+/* a deal page with no deal open (the firm's workspace never shows the sample deal) */
+function noDealHTML() {
+  const n = dealIndex.filter(r => !r.archived).length;
+  return `<header class="vh"><div class="eyebrow">No deal open</div><h1>Open or start a deal</h1></header><p class="lede">${n ? `Choose one of your ${n} deal${n === 1 ? '' : 's'} from the pipeline, or start a new one.` : 'Your workspace has no deals yet. Start one by uploading a CIM, a teaser or financial statements.'}</p><div class="row"><button class="btn" data-nav="deals">Go to the deal pipeline</button>${store.mode === 'readonly' ? '' : '<button class="btn red" data-newdeal="1">New deal</button>'}</div>`;
 }
 function rerun() { run(); render(); scheduleSave(); }
 function refresh() { run(); render(); }
@@ -9030,7 +9046,7 @@ document.addEventListener('click', e => {
   if (t.dataset.savesample) return newDeal(true);
   if (t.dataset.arch) return archiveDeal(t.dataset.arch);
   if (t.dataset.deldeal) { const key = 'del:' + t.dataset.deldeal; if (confirmKey !== key) { confirmKey = key; return render(); } confirmKey = null; return deleteDeal(t.dataset.deldeal); }
-  if (t.dataset.dbcopy) return copyText(dealsCSV(), t);
+  if (t.dataset.dbcopy) return downloadDealsCSV(t);
   if (t.dataset.memo) return downloadMemo(t.dataset.memo, t);
   if (t.dataset.report) { const [rk, rf] = t.dataset.report.split(':'); return downloadReport(rk, rf, t); }
   if (t.dataset.xlsx) return downloadXlsx(t);
@@ -9268,7 +9284,7 @@ function onDeals(snap) {
 }
 async function refreshUsage() { if (!store.assets) return; try { store.usage = (await store.assets.list()).usage; if (view === 'deals') render(); } catch (e) { } }
 function allDeals() {
-  const out = [{ id: 'sample', name: cache.sample.name, target: cache.sample.target, stage: cache.sample.stage, summary: cache.sample.summary || {}, docsN: cache.sample.docs.length, sample: true }];
+  const out = REAL_WS() ? [] : [{ id: 'sample', name: cache.sample.name, target: cache.sample.target, stage: cache.sample.stage, summary: cache.sample.summary || {}, docsN: cache.sample.docs.length, sample: true }];
   const seen = new Set(['sample']);
   dealIndex.forEach(r => { seen.add(r.id); const m = cache[r.id]; out.push({ id: r.id, name: (m || r).name, target: (m || r).target, stage: (m || r).stage, archived: m ? !!m.archived : !!r.archived, summary: (m && m.summary) || r.summary || {}, docsN: (m ? m.docs : r.docs || []).length, updatedAt: (m && m.updatedAt) || r.updatedAt }); });
   Object.values(cache).filter(m => !seen.has(m.id)).forEach(m => out.push({ id: m.id, name: m.name, target: m.target, stage: m.stage, archived: !!m.archived, summary: m.summary || {}, docsN: m.docs.length, updatedAt: m.updatedAt, local: m.local, creating: !m.local }));
@@ -9310,7 +9326,7 @@ function vDeals() {
     <label class="drop" id="screendrop" for="screenupl"><b>Drop CIMs, teasers or financial packages here</b><span>or choose files. A .zip of one data room becomes one deal. Every deal is read by the same rules and tested against your Firm Settings.</span><input type="file" id="screenupl" multiple hidden></label>
     ${msgs.screen ? `<div class="msg ${msgs.screen.err ? 'err' : 'ok'}" style="margin-top:8px">${esc(msgs.screen.text)}</div>` : ''}</section>
   <section class="kpis">${kpi('Active deals', stored.length, `${dealIndex.length - stored.length} archived`, true)}${stages.map(st => kpi(st, stored.filter(r => r.stage === st).length, '')).join('')}${kpi('Documents stored', docsN, u ? (u.maxBytes ? `${(u.bytes / 1048576).toFixed(1)} MB of ${(u.maxBytes / 1048576).toFixed(0)} MB` : `${(u.bytes / 1048576).toFixed(1)} MB`) : '')}</section>
-  <section class="sec"><div class="sechead"><h2>Deals</h2><div class="row"><button class="btn sm ghost" data-dbcopy="1">Copy as CSV</button><button class="btn sm red" data-newdeal="1">New deal</button></div></div>
+  <section class="sec"><div class="sechead"><h2>Deals</h2><div class="row"><button class="btn sm ghost" data-dbcopy="1">Download CSV</button><button class="btn sm red" data-newdeal="1">New deal</button></div></div>
     <div class="row" style="align-items:flex-end"><div class="field" style="flex:1;min-width:200px"><label for="dq">Search</label><input id="dq" value="${esc(dealFilter.q)}" placeholder="Deal or target name"></div>
       <div class="field"><label for="dstage">Stage</label><select id="dstage">${['All', ...stages].map(s => `<option ${s === dealFilter.stage ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
       <div class="field"><label for="dsort">Sort</label><select id="dsort">${[['priority', 'Screening priority'], ['updated', 'Last updated'], ['name', 'Name'], ['confidence', 'Confidence'], ['ebitda', 'Diligence EBITDA']].map(([k, l]) => `<option value="${k}" ${k === dealFilter.sort ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -9319,9 +9335,20 @@ function vDeals() {
     <p class="lede" style="font-size:13px">Ranked by screening priority: deals that meet your criteria first, then by confidence. Each deal keeps its mandate, source documents, approvals, issue owners, notes and activity. Deleting a deal also deletes its stored documents and cannot be undone.</p></section>
   ${trackRecordHTML()}`;
 }
+/* the deals list as a CSV file that opens in Excel (the sample deal is included, marked as the sample) */
+async function downloadDealsCSV(btn) {
+  const old = btn.textContent;
+  try {
+    const dl = store.downloads === undefined ? (window.claude && claude.use ? await claude.use('downloads') : null) : store.downloads; store.downloads = dl;
+    const data = '\ufeff' + dealsCSV(), name = `Deals - ${new Date().toISOString().slice(0, 10)}.csv`;
+    if (dl) { await dl.save({ filename: name, data: new Blob([data], { type: 'text/csv;charset=utf-8' }) }); btn.textContent = 'Downloaded'; }
+    else { await copyText(data, btn); return; }
+  } catch (e) { btn.textContent = 'Download failed'; }
+  setTimeout(() => { btn.textContent = old; }, 1600);
+}
 function dealsCSV() {
   return toCSV(['deal', 'target', 'stage', 'revenue', 'reported_ebitda', 'management_ebitda', 'diligence_ebitda', 'confidence', 'verdict', 'high_issues', 'documents', 'updated', 'currency'],
-    filteredDeals().filter(d => !d.sample).map(d => { const s = d.summary || {}; const r = v => v == null ? '' : Math.round(v); return { deal: d.name, target: d.target, stage: d.stage, revenue: r(s.revenue), reported_ebitda: r(s.reported), management_ebitda: r(s.management), diligence_ebitda: r(s.diligence), confidence: s.confidence ?? '', verdict: s.verdict || '', high_issues: s.highs ?? '', documents: d.docsN, updated: d.updatedAt || '', currency: s.currency || 'USD' }; }));
+    filteredDeals().map(d => { const s = d.summary || {}; const r = v => v == null ? '' : Math.round(v); return { deal: d.sample ? `${d.name} (sample deal)` : d.name, target: d.target, stage: d.stage, revenue: r(s.revenue), reported_ebitda: r(s.reported), management_ebitda: r(s.management), diligence_ebitda: r(s.diligence), confidence: s.confidence ?? '', verdict: s.verdict || '', high_issues: s.highs ?? '', documents: d.docsN, updated: d.updatedAt || '', currency: s.currency || 'USD' }; }));
 }
 function openDeal(id) { if (SHOWCASE) return;
   if (!cache[id]) { const rec = dealIndex.find(r => r.id === id); if (!rec) return; cache[id] = recordToMandate(rec); }
