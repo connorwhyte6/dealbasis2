@@ -19,6 +19,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/home.css">
+<style>/* menu with Contact: keep every item on one line, switch to the phone menu earlier */
+.links a,.navcta .signin{white-space:nowrap}.links{gap:22px}
+@media (max-width:1240px){.links{gap:16px;font-size:14.5px}}
+@media (max-width:1120px){.links{display:none}.menu-btn{display:inline-flex}}
+</style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -26,10 +31,10 @@
 <div class="announce"><b>New:</b> figures written in the text are now cross-checked against the statements automatically.<a href="/faq#faq-text">How it works</a></div>
 <header class="nav" id="nav"><div class="wrap">
   <a class="logo" href="/" aria-label="DealBasis home"><span>Deal<b class="wb">Basis</b></span></a>
-  <nav class="links" aria-label="Main"><a href="/product" aria-current="page">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/pricing">Pricing</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a></nav>
+  <nav class="links" aria-label="Main"><a href="/product" aria-current="page">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/pricing">Pricing</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a><a href="/contact">Contact</a></nav>
   <div class="navcta"><a class="signin" href="/signin">Sign in</a><a class="btn btn-secondary btn-sm demo-btn" href="/demo">Request a demo</a><a class="btn btn-primary btn-sm" href="/app?demo=1">Try the sample deal</a><button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
 </div>
-<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/pricing">Pricing</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a><a href="/signin">Sign in</a><a href="/demo">Request a demo</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu"><a href="/">Home</a><a href="/product">Product</a><a href="/why">Why DealBasis</a><a href="/example">Example</a><a href="/pricing">Pricing</a><a href="/faq">FAQ</a><a href="/about">About</a><a href="/team">Team</a><a href="/contact">Contact</a><a href="/signin">Sign in</a><a href="/demo">Request a demo</a><a class="btn btn-primary" href="/app?demo=1">Try the sample deal</a></nav>
 </header>
 
 <main id="main">
