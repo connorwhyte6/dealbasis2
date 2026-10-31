@@ -214,7 +214,7 @@
       (state.usage ? '<section class="sec"><div class="sechead"><h2>Storage</h2></div><p class="lede">' + state.usage.n + ' stored files, ' + (state.usage.bytes / 1048576).toFixed(1) + ' MB.</p></section>' : '') +
       '<section class="sec"><div class="sechead"><h2>Your data</h2></div>' +
         '<p class="lede">Download everything in this workspace in one ZIP file: a list of every deal, document and person and the activity log as spreadsheets that open in Excel, every uploaded file, and a complete backup copy of the data.</p><div class="row"><button class="btn" id="export" ' + (busy || (ws.plan || {}).trialLocked ? 'disabled' : '') + '>' + (busy === 'export' ? 'Preparing…' : 'Export workspace') + '</button>' + ((ws.plan || {}).trialLocked ? '<span class="small">Locked until a plan is bought.</span>' : '') + '</div>' +
-        '<div class="danger"><h2>Delete this workspace</h2><p class="small">Permanently deletes every deal, file, invite and member in <b>' + esc(ws.name) + '</b>. This can’t be undone. Export first if you need a copy. The activity log keeps a record that the workspace was deleted.</p>' +
+        '<div class="danger"><h2>Delete this workspace</h2><p class="small">Permanently deletes every deal, file, invite and member in <b>' + esc(ws.name) + '</b>, and ends its subscription or pilot straight away, with no further charges and no refund. This can’t be undone. Export first if you need a copy. Everyone’s login stays, without access to this workspace. The activity log keeps a record that the workspace was deleted.</p>' +
         '<form id="del" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="dn">Type the workspace name to confirm</label><input id="dn" autocomplete="off" placeholder="' + esc(ws.name) + '"></div><button class="btn red" ' + (busy ? 'disabled' : '') + '>' + (busy === 'delete' ? 'Deleting…' : 'Delete permanently') + '</button></form></div></section>';
   }
 
@@ -259,9 +259,9 @@
       if (typed !== ws.name) { note = { err: true, text: 'Type the workspace name exactly as shown to confirm.' }; return render(); }
       busy = 'delete'; render();
       try {
-        var files = await allFiles();
-        for (var k = 0; k < files.length; k += 100) { var rm = await sb.storage.from('assets').remove(files.slice(k, k + 100).map(function (f) { return f.path; })); if (rm.error) throw rm.error; }
-        var dr = await sb.rpc('delete_workspace', { confirm_name: typed }); if (dr.error) throw dr.error;
+        /* the "account" server function cancels any subscription first, then deletes the files and the workspace */
+        var dr = await sb.functions.invoke('account', { body: { action: 'delete_workspace', confirm_name: typed } });
+        if (dr.error) { var t = dr.error.message; try { var j = await dr.error.context.json(); if (j && j.error) t = j.error; } catch (x) { } throw new Error(t); }
         await sb.auth.signOut(); location.replace('/'); return;
       } catch (err) { busy = false; note = { err: true, text: 'The workspace wasn’t deleted: ' + (err.message || err) }; return render(); }
     }

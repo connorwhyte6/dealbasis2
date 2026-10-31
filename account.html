@@ -69,6 +69,12 @@
       h += '<p class="lede">Two-factor sign-in is off. Turning it on means a stolen password alone can’t open your account.</p><div class="row"><button class="btn red" id="start" ' + (busy ? 'disabled' : '') + '>Set up two-factor sign-in</button></div>';
     }
     h += '</section>';
+    /* delete my account: the "account" server function decides what happens to the workspace */
+    var only = ws && ws.role === 'admin';
+    h += '<section class="sec"><div class="danger"><h2>Delete my account</h2><p class="small">Permanently deletes your login' + (ws ? ' and removes you from <b>' + esc(ws.name) + '</b>, freeing your seat. The firm’s plan, deals and files stay with the rest of the team.' : '.') +
+      (only ? ' As an admin: if other people are in the workspace, someone else must be an admin first. If you’re the last person in it, the workspace is deleted too, with every deal and file, and its subscription or pilot ends straight away, with no refund.' : '') +
+      ' This can’t be undone. A free trial already used stays used.</p>' +
+      '<form id="delacct" class="row" novalidate><div class="field" style="flex:1;min-width:220px"><label for="de">Type your email to confirm</label><input id="de" type="email" autocomplete="off" placeholder="' + esc(user.email) + '"></div><button class="btn red" ' + (busy ? 'disabled' : '') + '>' + (busy === 'delacct' ? 'Deleting…' : 'Delete my account') + '</button></form></div></section>';
     main.innerHTML = h;
     var c = document.getElementById('code'); if (c) c.focus();
   }
@@ -94,6 +100,15 @@
     busy = false; await load();
   });
   main.addEventListener('submit', async function (e) {
+    if (e.target.id === 'delacct') {
+      e.preventDefault(); if (busy) return;
+      var typed = (document.getElementById('de').value || '').trim();
+      if (typed.toLowerCase() !== String(user.email || '').toLowerCase()) { note = { err: true, text: 'Type your email exactly as shown to confirm.' }; return render(); }
+      busy = 'delacct'; note = null; render();
+      var r = await sb.functions.invoke('account', { body: { action: 'delete_account', confirm_email: typed } });
+      if (r.error) { var t = r.error.message; try { var j = await r.error.context.json(); if (j && j.error) t = j.error; } catch (x) { } busy = false; note = { err: true, text: t }; return render(); }
+      try { await sb.auth.signOut(); } catch (x) { } location.replace('/?account=deleted'); return;
+    }
     e.preventDefault(); if (busy || !enrolling) return;
     var code = (document.getElementById('code').value || '').replace(/\s/g, '');
     if (!/^\d{6}$/.test(code)) { note = { err: true, text: 'Enter the 6 digits from your authenticator app.' }; return render(); }
