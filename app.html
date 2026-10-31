@@ -9045,6 +9045,7 @@ document.addEventListener('click', e => {
   if (t.dataset.rolego) { const [, id, role] = confirmKey.split(':'); confirmKey = null; return setRoleNow(id, role); }
   if (t.dataset.savesample) return newDeal(true);
   if (t.dataset.arch) return archiveDeal(t.dataset.arch);
+  if (t.dataset.deldeal && !can('partner')) return toast('Only a Partner can delete a deal. Archive it instead.');
   if (t.dataset.deldeal) { const key = 'del:' + t.dataset.deldeal; if (confirmKey !== key) { confirmKey = key; return render(); } confirmKey = null; return deleteDeal(t.dataset.deldeal); }
   if (t.dataset.dbcopy) return downloadDealsCSV(t);
   if (t.dataset.memo) return downloadMemo(t.dataset.memo, t);
@@ -9308,7 +9309,7 @@ function dealRows() {
       <td>${s.verdict ? `<span class="chip ${s.verdict === 'Go' ? 'go' : s.verdict === 'Not ready' ? 'bad' : 'warn'}">${s.verdict === 'Limited evidence' ? 'Limited evidence' : s.confidence + ' · ' + s.verdict}</span>` : '<span class="muted">–</span>'}</td>
       <td class="n">${s.highs ? `<span class="neg">${s.highs}</span>` : s.open != null ? 0 : '–'}</td>
       <td style="max-width:220px;font-size:12.5px">${esc(c.fails && c.fails[0] ? 'Fails: ' + c.fails[0].name : s.topIssue || '')}</td>
-      <td style="white-space:nowrap">${d.sample || d.creating ? '' : `<button class="btn sm ghost" data-arch="${esc(d.id)}">${d.archived ? 'Restore' : 'Archive'}</button> <button class="btn sm ${confirmKey === 'del:' + d.id ? 'red' : 'ghost'}" data-deldeal="${esc(d.id)}">${confirmKey === 'del:' + d.id ? 'Confirm delete' : 'Delete'}</button>`}</td></tr>`; }).join('');
+      <td style="white-space:nowrap">${d.sample || d.creating ? '' : `<button class="btn sm ghost" data-arch="${esc(d.id)}">${d.archived ? 'Restore' : 'Archive'}</button> ${can('partner') ? `<button class="btn sm ${confirmKey === 'del:' + d.id ? 'red' : 'ghost'}" data-deldeal="${esc(d.id)}">${confirmKey === 'del:' + d.id ? 'Confirm delete' : 'Delete'}</button>` : ''}`}</td></tr>`; }).join('');
 }
 function vDeals() {
   const stored = dealIndex.filter(r => !r.archived);
