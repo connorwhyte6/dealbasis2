@@ -8968,7 +8968,7 @@ function friendlyReadError(name, e) {
   return `${name} could not be read (${msg.slice(0, 120)}).`;
 }
 async function readFile(file) { return readAny(file.name, () => typeof file.arrayBuffer === 'function' ? file.arrayBuffer() : viaReader(file, 'readAsArrayBuffer'), () => typeof file.text === 'function' ? file.text() : viaReader(file, 'readAsText')); }
-async function ingest(files) { if (SHOWCASE) return;
+async function ingest(files) { if (SHOWCASE) return; if (blockedByPlan()) return;
   /* the sample deal belongs to a fictional company and is never saved: files dropped on it start a deal of their own,
      so another company's figures are never mixed with the sample's */
   let fresh = false; if (MD().id === 'sample' || MD().sample) { await newDeal(false); fresh = true; }
@@ -9357,7 +9357,16 @@ function openDeal(id) { if (SHOWCASE) return;
   try { history.replaceState(null, '', '#' + view); } catch (e) { }
   refresh(); window.scrollTo(0, 0); loadDocs(cache[id]);
 }
-async function newDeal(fromSample) { if (SHOWCASE) return;
+/* a workspace with no plan, an ended plan, a locked trial, or a Viewer's access can't add deals or files:
+   say why instead of letting work be done on screen that the database won't save */
+function blockedByPlan() {
+  if (SHOWCASE || auth.demo || !signedIn()) return false;
+  const P = window.DEALBASIS_PLAN;
+  if (P && !P.active) { toast(P.status === 'none' ? (P.admin ? (P.trialAvailable ? 'This workspace has no plan yet. Start the free trial or buy a plan on the admin page to add deals.' : 'This workspace has no plan yet. Buy a plan on the admin page to add deals.') : 'This workspace has no plan yet. Ask your admin to start the free trial or buy a plan.') : P.trialLocked ? 'The free trial has ended. Buy a plan to unlock your deals and keep working.' : 'This workspace is read-only until a plan is active.'); return true; }
+  if (store.mode === 'readonly') { toast(store.saveErr || 'Your access is read-only, so you can\u2019t add deals or files.'); return true; }
+  return false;
+}
+async function newDeal(fromSample) { if (SHOWCASE) return; if (blockedByPlan()) return;
   const persist = store.mode === 'ready';
   const id = persist ? store.db.collection('deals').doc().id : 'local-' + Date.now().toString(36);
   const now = new Date().toISOString(); const src = cache.sample;
@@ -9383,7 +9392,7 @@ function guessName(m) {
   const first = lines.find(t => t && t.length >= 3 && t.length <= 60 && /[A-Za-z]/.test(t) && !bad.test(t) && !/^(opening|executive summary|table of contents)$/i.test(t));
   return (corp || first || d.name.replace(/\.[^.]+$/, '')).replace(/\s+/g, ' ').trim().slice(0, 80);
 }
-async function screenFiles(files) { if (SHOWCASE) return;
+async function screenFiles(files) { if (SHOWCASE) return; if (blockedByPlan()) return;
   const back = curId; const owners = { ...MD().owners }; const persist = store.mode === 'ready'; let n = 0; const errs = [];
   msgs.screen = { err: false, text: `Screening ${files.length} file${files.length > 1 ? 's' : ''}…` }; render();
   for (const f of files) {
