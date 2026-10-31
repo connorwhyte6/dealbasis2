@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Pricing | DealBasis</title>
 <meta name="description" content="DealBasis pricing: one yearly price per editor seat, with every feature, unlimited deals and free viewers. 14-day free trial.">
-<link rel="canonical" href="https://dealbasis.vercel.app/pricing">
+<link rel="canonical" href="https://www.dealbasis.net/pricing">
 <meta name="theme-color" content="#ffffff">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="DealBasis">
-<meta property="og:url" content="https://dealbasis.vercel.app/pricing">
+<meta property="og:url" content="https://www.dealbasis.net/pricing">
 <meta property="og:title" content="Pricing | DealBasis">
 <meta property="og:description" content="DealBasis pricing: one yearly price per editor seat, with every feature, unlimited deals and free viewers. 14-day free trial.">
 <meta name="twitter:card" content="summary">
@@ -18,6 +18,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<script src="/config.js"></script>
 <link rel="stylesheet" href="/home.css">
 <style>
 .tiers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;max-width:1040px;margin:0 auto}
@@ -39,6 +40,9 @@
 .trial{max-width:1040px;margin:0 auto;border:1px solid var(--line);border-radius:var(--radius);padding:28px 26px;display:flex;flex-wrap:wrap;gap:18px 32px;align-items:center;justify-content:space-between}
 .trial h2{font-size:24px;margin:0}.trial p{color:var(--ink2);margin:6px 0 0;max-width:60ch}
 .trial .ctas{display:flex;gap:12px;flex-wrap:wrap}
+.trial.partner{border-color:var(--brand);background:var(--brandsoft)}
+.trial .off{display:inline-block;background:#fff;color:var(--brand2);font-weight:600;font-size:13px;padding:3px 9px;border-radius:999px;margin-bottom:8px}
+.calc .btn{margin-left:auto}
 .h2c{text-align:center;font-size:clamp(24px,3vw,32px);font-weight:800;letter-spacing:-.02em;margin:0 0 24px}
 .psec{padding:clamp(36px,5vw,56px) 0 0}.psec:last-of-type{padding-bottom:clamp(56px,7vw,88px)}
 @media (max-width:820px){.tiers{grid-template-columns:1fr}.incl{grid-template-columns:1fr}}
@@ -70,7 +74,7 @@
     <div class="tier hi"><span class="seg">3–9 editors</span><span class="amt">$1,275</span><span class="per">per editor seat, per year</span><span class="off">15% off</span><p>A full deal team, with an analyst, a manager and a partner each signing off in their own name.</p></div>
     <div class="tier"><span class="seg">10 or more editors</span><span class="amt">$1,125</span><span class="per">per editor seat, per year</span><span class="off">25% off</span><p>Funds with several deal teams working on one firm-wide set of standards.</p></div>
   </div>
-  <div class="calc"><label for="seats">Editor seats</label><input id="seats" type="number" min="1" max="999" value="3" inputmode="numeric"><output id="total" for="seats" aria-live="polite">$3,825 per year</output><span class="muted">The discount applies to every seat once you reach 3 or 10. Viewers are free and unlimited, whatever the plan.</span></div>
+  <div class="calc"><label for="seats">Editor seats</label><input id="seats" type="number" min="1" max="999" value="3" inputmode="numeric"><output id="total" for="seats" aria-live="polite">$3,825 per year</output><a class="btn btn-primary" id="subcta" href="/signin?signup=1&amp;seats=3&amp;next=%2Fadmin%3Fsubscribe%3D3">Buy 3 seats · $3,825/year</a><span class="muted"><span data-stripe="on">Pay by card or US bank account, yearly. </span>The discount applies to every seat once you reach 3 or 10. Viewers are free and unlimited, whatever the plan.</span></div>
 </div></section>
 
 <section class="psec"><div class="wrap">
@@ -92,15 +96,26 @@
     <div class="ctas"><a class="btn btn-primary" id="trialcta" href="/signin?signup=1&amp;seats=3&amp;next=%2Fadmin%3Ftrial%3D1">Start free trial</a><a class="btn btn-secondary" href="/demo">Request a demo</a></div></div>
 </div></section>
 
+<section class="psec" id="paytest" hidden><div class="wrap">
+  <div class="trial"><div><span class="off">Owner only · not shown to customers</span><h2>Live payment test</h2><p>Two separate test workspaces, each a design partner pilot in miniature: $0.50 now for a 1-day pilot, then $2 for one day with the $0.50 credited ($1.50 charged), then it ends by itself. These buttons disappear once all the test workspaces are used. Open each in its own private window and sign up with a different email, for example you+a@gmail.com and you+b@gmail.com. Only your email can pay.</p></div>
+    <div class="ctas"><a class="btn btn-primary" href="/signin?signup=1&amp;seats=1&amp;next=%2Fadmin%3Ftest%3D1" target="_blank" rel="noopener">Test workspace A</a><a class="btn btn-primary" href="/signin?signup=1&amp;seats=1&amp;next=%2Fadmin%3Ftest%3D1" target="_blank" rel="noopener">Test workspace B</a></div></div>
+</div></section>
+
+<section class="psec" id="design-partners"><div class="wrap">
+  <div class="trial partner"><div><span class="off" id="spots">3 of 3 spots left</span><h2>Design partner pilot</h2><p>$200 for a 60-day pilot on your own deals (non-refundable), with onboarding on your first deal and direct access to the founders. Then your first year continues at <b>half the list price</b>: $750 per editor seat, $637.50 for 3–9 seats and $562.50 for 10 or more, with the $200 credited. Cancel before day 60 and nothing more is charged. Three firms only.</p></div>
+    <div class="ctas"><a class="btn btn-primary" id="pilotcta" href="/signin?signup=1&amp;seats=3&amp;next=%2Fadmin%3Fpilot%3D3">Start a 60-day pilot · $200</a></div></div>
+</div></section>
+
 <section class="psec"><div class="wrap">
   <h2 class="h2c">Pricing questions</h2>
   <div class="faq">
     <details><summary>Who counts as an editor?</summary><p>Anyone who can upload, edit or approve: workspace Admins and Members, whatever deal role (analyst, manager or partner) they hold. Viewers, such as investment committee members and investors, read deals, memos and decks but can’t change anything, and they’re always free.</p></details>
     <details><summary>Can one person run a whole deal on one seat?</summary><p>Yes. Deal roles build on each other: a Partner can do everything a Manager or Analyst can, so a solo searcher can take a deal from upload to committee decision alone. More seats are only needed when different people each sign off under their own name.</p></details>
     <details><summary>What happens when the trial ends?</summary><p>The trial always runs the full 14 days; it can’t be extended or ended early. Buy a plan before it ends and everything carries over: deals, files and the team. If it ends without a plan, its deals, documents and files are locked: kept for 7 days but not openable or exportable. Buy a plan in that week and everything comes back exactly as it was. After the 7 days they are deleted and can’t be recovered; your account stays, and you can still buy a plan, starting with an empty workspace. Each email gets one free trial.</p></details>
-    <details><summary>Can we add seats during the year?</summary><p>Yes. Request them on the admin page, and added seats are prorated to your renewal date. Moving past 3 or 10 seats lowers the price of every seat at your next renewal.</p></details>
-    <details><summary>Do you offer pilots for larger firms?</summary><p>Yes. Firms that need a signed agreement and a data processing addendum before uploading documents can run a 60-day pilot. <a href="/demo">Request a demo</a> and we’ll set it up.</p></details>
-    <details><summary>How do we pay?</summary><p>By invoice, yearly in advance. Plans renew each year unless canceled before the renewal date.</p></details>
+    <details data-stripe="on"><summary>Can we add seats during the year?</summary><p><span data-stripe="on">Yes. Add them under Manage billing on the admin page, and added seats are prorated to your renewal date. Moving past 3 or 10 seats lowers the price of every seat at your next renewal.</span><span data-stripe="off">Yes. Request them on your admin page, and added seats are prorated to your renewal date. Moving past 3 or 10 seats lowers the price of every seat at your next renewal.</span></p></details>
+    <details id="pilotfaq"><summary>Do you offer pilots for larger firms?</summary><p>Yes: the <a href="#design-partners">design partner pilot</a> above, for three firms. Firms that need a signed agreement and a data processing addendum before uploading documents can <a href="/demo">request a demo</a>, and we’ll set the pilot up under one.</p></details>
+    <details data-stripe="on"><summary>How do we pay?</summary><p><span data-stripe="on">By card or US bank account through Stripe, yearly in advance. Plans renew each year unless canceled before the renewal date, and you can change seats, update payment details, download invoices or cancel any time under Manage billing.</span><span data-stripe="off">By invoice, yearly in advance, payable by ACH, wire or card. Plans renew each year unless canceled before the renewal date. Request an invoice for your seats on your admin page.</span></p></details>
+    <details><summary>Can we cancel, and are fees refunded?</summary><p>You can cancel any time under Manage billing on the admin page. The plan stays active until the end of the period you’ve paid for and doesn’t renew. Fees, including the design partner pilot fee, are non-refundable. When a plan ends, the workspace becomes read-only: everyone can still open and export every deal, file and report.</p></details>
   </div>
 </div></section>
 </main>
@@ -108,7 +123,7 @@
 <footer><div class="wrap">
   <div class="fgrid">
     <div><a class="logo" href="/"><span>Deal<b class="wb">Basis</b></span></a><p class="blurb">Financial Diligence and Deal Intelligence for Private Equity, with every number traced to its source.</p></div>
-    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a><a href="/pricing" aria-current="page">Pricing</a></li><li><a href="/security">Security</a></li><li><a href="/faq">FAQ</a></li><li><a href="/about">About</a></li><li><a href="/team">Team</a></li></ul></div>
+    <div><h4>Product</h4><ul><li><a href="/product">Product tour</a></li><li><a href="/product#financial-diligence">Financial Diligence</a></li><li><a href="/product#deal-intelligence">Deal Intelligence</a></li><li><a href="/#how">How it works</a></li><li><a href="/why">Why DealBasis</a></li><li><a href="/example">Example</a></li><li><a href="/pricing" aria-current="page">Pricing</a></li><li><a href="/security">Security</a></li><li><a href="/faq">FAQ</a></li><li><a href="/about">About</a></li><li><a href="/team">Team</a></li></ul></div>
     <div><h4>Get started</h4><ul><li><a href="/app?demo=1">Try the sample deal</a></li><li><a href="/demo">Request a demo</a></li><li><a href="/contact">Contact us</a></li><li><a href="/signin">Sign in</a></li><li><a href="/signin">Create an account</a></li></ul></div>
   </div>
   <p class="legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · DealBasis provides diligence analysis, not an audit, attestation or accounting firm’s quality of earnings report.<br>© 2026 DealBasis. Project Saguaro and Sonoran Peak Mechanical are fictional examples.</p>
@@ -118,8 +133,25 @@
   var i = document.getElementById('seats'), o = document.getElementById('total');
   function price(n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; }
   function upd() { var n = Math.floor(+i.value); o.textContent = n >= 1 && n <= 999 ? '$' + (n * price(n)).toLocaleString('en-US') + ' per year' + (n >= 3 ? ' ($' + price(n).toLocaleString('en-US') + ' per seat)' : '') : 'Enter 1 to 999 seats'; }
-  var cta = document.getElementById('trialcta');
-  function link() { var n = Math.floor(+i.value); if (cta) cta.href = '/signin?signup=1&seats=' + (n >= 1 && n <= 50 ? n : 1) + '&next=%2Fadmin%3Ftrial%3D1'; }
+  /* Card and bank payment through Stripe. Leave false until Stripe is connected (STRIPE-SETUP.md), then change to true. */
+  var STRIPE_READY = true;
+  document.querySelectorAll('[data-stripe]').forEach(function (el) { if ((el.dataset.stripe === 'on') !== STRIPE_READY) el.remove(); });
+  if (!STRIPE_READY) { var sc = document.getElementById('subcta'); if (sc) sc.remove(); var pc0 = document.getElementById('pilotcta'); if (pc0) { pc0.textContent = 'Apply for a pilot'; pc0.href = '/demo'; pc0.id = 'pilotapply'; } }
+  var cta = document.getElementById('trialcta'), sub = document.getElementById('subcta'), pil = document.getElementById('pilotcta');
+  function link() { var n = Math.floor(+i.value), t = n >= 1 && n <= 50 ? n : 1, b = n >= 1 && n <= 500 ? n : 1;
+    if (cta) cta.href = '/signin?signup=1&seats=' + t + '&next=' + encodeURIComponent('/admin?trial=1');
+    if (sub) { sub.href = '/signin?signup=1&seats=' + b + '&next=' + encodeURIComponent('/admin?subscribe=' + b); sub.textContent = 'Buy ' + b + ' seat' + (b === 1 ? '' : 's') + ' · $' + (b * price(b)).toLocaleString('en-US') + '/year'; }
+    if (pil) pil.href = '/signin?signup=1&seats=' + t + '&next=' + encodeURIComponent('/admin?pilot=' + t); }
+  /* the owner's live payment test: only with ?test=1 in the address, only while Stripe is on and a test is left */
+  if (STRIPE_READY && /[?&]test=1\b/.test(location.search) && cfg0().supabaseUrl) fetch(cfg0().supabaseUrl + '/rest/v1/rpc/test_slots_left', { method: 'POST', headers: { apikey: cfg0().supabaseAnonKey, Authorization: 'Bearer ' + cfg0().supabaseAnonKey, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function (r) { return r.ok ? r.json() : 0; }).then(function (n) { if (n > 0) document.getElementById('paytest').hidden = false; }).catch(function () { });
+  function cfg0() { return window.DEALBASIS_CONFIG || {}; }
+  /* design partner spots left, straight from the database */
+  var cfg = window.DEALBASIS_CONFIG || {};
+  if (cfg.supabaseUrl && cfg.supabaseAnonKey) fetch(cfg.supabaseUrl + '/rest/v1/rpc/pilot_spots_left', { method: 'POST', headers: { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function (r) { return r.ok ? r.json() : null; }).then(function (n) { if (typeof n !== 'number') return; var sp = document.getElementById('spots');
+      if (n > 0) sp.textContent = n + ' of 3 spots left';
+      else { var ds = document.getElementById('design-partners'); if (ds) ds.remove(); var fq = document.getElementById('pilotfaq'); if (fq) fq.remove(); } }).catch(function () { });
   i.addEventListener('input', function () { upd(); link(); }); upd(); link();
 })();
 </script>

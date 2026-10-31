@@ -76,7 +76,7 @@
   }
   /* Card and bank payment through Stripe. Leave false until Stripe is connected (STRIPE-SETUP.md), then change to true.
      While false, there is nothing to buy on this page. */
-  var STRIPE_READY = false;
+  var STRIPE_READY = true;
   function buyLabel(n) { return 'Buy ' + n + ' seat' + (n === 1 ? '' : 's') + ' · ' + usd(n * seatPrice(n)) + '/year'; }
   function buyForm(P, used, want, trial) {
     var canBuy = P.status !== 'comp' && !(P.status === 'active' || P.status === 'pilot');
