@@ -41,8 +41,9 @@
   var PILOT_FEE = 200;
   function partnerPrice(n) { return seatPrice(n) / 2; }
   function quote(n) {
-    if (ws && ws.plan && ws.plan.status === 'pilot') return n + ' editor seat' + (n === 1 ? '' : 's') + ' × ' + usd2(partnerPrice(n)) + ' = ' + usd2(n * partnerPrice(n)) + ' for the first year, minus your ' + usd(PILOT_FEE) + ' pilot fee = ' + usd2(Math.max(0, n * partnerPrice(n) - PILOT_FEE)) + ', charged when the pilot ends';
+    if (ws && ws.plan && ws.plan.status === 'pilot') return n + ' editor seat' + (n === 1 ? '' : 's') + ' × ' + usd2(partnerPrice(n)) + ' = ' + usd2(n * partnerPrice(n)) + ' for the first year, minus your ' + usd(PILOT_FEE) + ' pilot fee = ' + usd2(Math.max(0, n * partnerPrice(n) - PILOT_FEE)) + ' if you continue as a design partner';
     var p = seatPrice(n); return n + ' editor seat' + (n === 1 ? '' : 's') + ' × ' + usd(p) + ' = ' + usd(n * p) + ' per year' + (n >= 10 ? ' (25% off)' : n >= 3 ? ' (15% off)' : ''); }
+  function days2(d) { return d ? Math.max(0, Math.ceil((new Date(d) - Date.now()) / 864e5)) : 0; }
   function longDate(d) { try { return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } }
   function planSection() {
     var P = ws.plan || {}; var used = P.seatsUsed || 0, seats = P.seats || 0;
@@ -51,16 +52,17 @@
       : P.status === 'none' ? (P.trialDeletedAt ? 'No plan · the free trial ended on ' + longDate(P.trialDeletedAt) + ' and its work was deleted' : 'No plan yet')
       : P.status === 'trial' ? (P.active ? 'Free trial for ' + seats + ' editor seat' + (seats === 1 ? '' : 's') + ' · ' + (days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left') + ' (ends ' + longDate(P.trialEndsAt) + ')' : 'Free trial ended ' + longDate(P.trialEndsAt) + ' · locked · deleted on ' + longDate(P.deleteAt) + ' unless a plan is bought')
       : P.testPurchase && P.status === 'pilot' ? (P.active ? 'Payment test · 1-day pilot through ' + longDate(P.paidUntil) + ' · then $1.50 is charged ($2 minus the $0.50 fee), it runs one more day and ends' : 'Payment test · pilot ended · read-only')
-      : P.status === 'pilot' ? (P.active ? 'Subscribed as a design partner · 60-day pilot through ' + longDate(P.paidUntil) + ', then your first year continues at the design partner price (' + usd2(partnerPrice(seats)) + ' per editor seat)' : 'Pilot ended ' + longDate(P.paidUntil) + ' · first-year payment not received · read-only')
+      : P.status === 'pilot' ? (P.active ? 'Design partner pilot through ' + longDate(P.paidUntil) + ' · ' + (days2(P.paidUntil) === 0 ? 'ends today' : days2(P.paidUntil) + ' day' + (days2(P.paidUntil) === 1 ? '' : 's') + ' left') + ' · nothing is charged after it'
+          : 'Design partner pilot ended ' + longDate(P.paidUntil) + ' · read-only' + (P.partnerOfferOpen ? ' · design partner price available until ' + longDate(P.pilotOfferUntil) : ''))
       : P.testPurchase && P.status === 'active' ? (P.active ? 'Payment test · paid day through ' + longDate(P.paidUntil) + ' · then it ends' : 'Payment test ended · read-only')
       : P.status === 'active' ? (P.active ? 'Subscribed · paid through ' + longDate(P.paidUntil) : 'Subscription ended ' + longDate(P.paidUntil) + ' · read-only')
       : P.testPurchase ? 'Payment test ended · read-only' : 'Subscription ended · read-only';
-    var want = Math.max(used, seats || 1), trial = P.status === 'trial';
+    var want = Math.max(used, seats || 1), trial = P.status === 'trial' || (P.status === 'pilot' && P.active && !P.stripe);
     return '<section class="sec" id="plan"><div class="sechead"><h2>Plan and seats</h2><span class="aside">Every plan includes every feature and unlimited deals</span></div>' +
       (P.status === 'trial' && P.active ? '<div class="msg err" role="status">When the trial ends on ' + esc(longDate(P.trialEndsAt)) + ', its deals, documents and files are locked: kept for 7 days but not openable, then deleted unless a plan has been bought. Buying keeps everything.</div>' : '') +
       (P.trialLocked ? '<div class="msg err" role="status">Your free trial ended on ' + esc(longDate(P.trialEndsAt)) + '. Your deals and files are saved but locked until ' + esc(longDate(P.deleteAt)) + '. Buy a plan by then to pick up exactly where you left off; after that they are deleted and can’t be recovered.</div>' : '') +
       (P.status === 'none' ? '<div class="msg" role="status">' + (P.trialAvailable ? 'This workspace has no plan yet. Start the 14-day free trial below, or buy a plan, to upload and run deals.' : 'This workspace has no plan. Buy a plan to upload and run deals. ' + (P.hadTrial || P.trialDeletedAt ? 'Its free trial has been used.' : 'This email has already had its free trial: each email gets one.')) + '</div>'
-        : P.active === false && !P.trialLocked ? '<div class="msg err" role="status">This workspace is read-only. Everyone can still open and export every deal, file and report, but nobody can upload or edit until a plan is active.</div>' : '') +
+        : P.active === false && !P.trialLocked ? '<div class="msg err" role="status">This workspace is read-only. Everyone can still open and export every deal, file and report, but nobody can upload or edit until a plan is active.' + (P.deleteAt ? ' Its deals, documents and files are deleted on ' + esc(longDate(P.deleteAt)) + ' unless a plan is bought by then, so export anything you want to keep.' : P.dataDeletedAt ? ' Its deals, documents and files were deleted on ' + esc(longDate(P.dataDeletedAt)) + ', 30 days after the plan ended.' : '') + '</div>' : '') +
       '<div class="tbl"><table><tbody>' +
         '<tr><td><b>Status</b></td><td>' + esc(status) + '</td></tr>' +
         '<tr><td><b>Editor seats</b></td><td>' + used + ' of ' + seats + ' in use <span class="muted">(Admins, Members and pending invites for them)</span></td></tr>' +
@@ -82,15 +84,19 @@
     var canBuy = P.status !== 'comp' && !(P.status === 'active' || P.status === 'pilot');
     var pilotOk = canBuy && !P.designPartner && (P.pilotSpotsLeft || 0) > 0;
     var trialBtn = P.status === 'none' && P.trialAvailable ? '<div class="danger" style="gap:8px"><h2 style="font-size:16px">14-day free trial</h2><p class="small">Every feature on the editor seats above (up to 50), no card needed. One free trial per email. It runs the full 14 days and can’t be extended or ended early. Buy a plan during it and everything carries over; if it ends without one, its deals, documents and files are locked for 7 days, then deleted.</p><div class="row"><button type="button" class="btn red" id="starttrial">' + (busy === 'trial' ? 'Starting…' : 'Start the 14-day free trial') + '</button></div></div>' : '';
-    return trialBtn + '<form id="buy" class="row" novalidate><div class="field" style="width:140px"><label for="bs">Editor seats</label><input id="bs" type="number" min="' + Math.max(1, used) + '" max="500" step="1" value="' + want + '"></div>' +
-        (trial ? '<button type="button" class="btn ghost" id="settrial">Set trial seats</button>' : '') +
+    /* after (or during) a design partner pilot: subscribe at half the list price for the first year, $200 credited, until 30 days after it */
+    var nP = Math.max(used, P.seats || 1);
+    var partnerBox = P.partnerOfferOpen && STRIPE_READY ? '<div class="danger" style="gap:8px"><h2 style="font-size:16px">Continue as a design partner</h2><p class="small">Your first year at half the list price: ' + nP + ' editor seat' + (nP === 1 ? '' : 's') + ' × ' + usd2(partnerPrice(nP)) + ' = ' + usd2(nP * partnerPrice(nP)) + ', less the ' + usd(PILOT_FEE) + ' you paid for the pilot = <b>' + usd2(Math.max(0, nP * partnerPrice(nP) - PILOT_FEE)) + '</b>, charged when you subscribe. From the second year it renews at the list price. Available until ' + esc(longDate(P.pilotOfferUntil)) + '. ' + (P.active ? 'Subscribing now starts your first year today and ends the pilot.' : 'Subscribing unlocks the workspace straight away, with everything as you left it.') + '</p><div class="row"><button type="button" class="btn red" id="partner">' + (busy === 'partner' ? 'Opening checkout…' : 'Continue at the design partner price') + '</button></div></div>' : '';
+    return partnerBox + trialBtn + '<form id="buy" class="row" novalidate><div class="field" style="width:140px"><label for="bs">Editor seats</label><input id="bs" type="number" min="' + Math.max(1, used) + '" max="500" step="1" value="' + want + '"></div>' +
+        (trial ? '<button type="button" class="btn ghost" id="settrial">' + (P.status === 'pilot' ? 'Set pilot seats' : 'Set trial seats') + '</button>' : '') +
         (canBuy && STRIPE_READY ? '<button type="button" class="btn" id="checkout">' + (busy === 'checkout' ? 'Opening checkout…' : buyLabel(want)) + '</button>' : '') +
-        (STRIPE_READY && (P.status === 'active' || P.status === 'pilot') ? '<button class="btn">Request seat change</button>' : '') + '</form>' +
+        (STRIPE_READY && P.status === 'active' ? '<button class="btn">Request seat change</button>' : '') + '</form>' +
       '<p class="lede" id="bq" style="font-size:14px;margin:0">' + esc(quote(want)) + '</p>' +
-      (trial ? '<p class="small">Your trial runs on the number of editor seats you plan to buy, so you can try it with the whole team. Change it any time during the trial (up to 50). The trial can’t be extended or ended early.</p>' : '') +
+      (trial && P.status === 'pilot' ? '<p class="small">Seats are free during the pilot. Change them any time (up to 50); the design partner price is quoted on the seats you have when you continue.</p>' : '') +
+      (trial && P.status === 'trial' ? '<p class="small">Your trial runs on the number of editor seats you plan to buy, so you can try it with the whole team. Change it any time during the trial (up to 50). The trial can’t be extended or ended early.</p>' : '') +
       (canBuy && !STRIPE_READY ? '<p class="small">Online subscriptions open soon. Questions about plans? Email <a href="mailto:support@dealbasis.net">support@dealbasis.net</a>.</p>' : '') +
       (canBuy && STRIPE_READY ? '<p class="small">Pay by card or US bank account through Stripe, yearly. Per editor seat: 1–2 seats ' + usd(1500) + ', 3–9 seats ' + usd(1275) + ' (15% off), 10 or more ' + usd(1125) + ' (25% off). Renews each year; seats added mid-year are prorated.</p>' : '') +
-      (pilotOk && STRIPE_READY ? '<div class="danger" style="gap:8px"><h2 style="font-size:16px">Design partner pilot · ' + P.pilotSpotsLeft + ' of 3 spots left</h2><p class="small">' + usd(PILOT_FEE) + ' today for a 60-day pilot on the seats above (non-refundable), with onboarding on your first deal and direct access to the founders. Then your first year continues at half the list price: ' + usd(750) + ' per editor seat, ' + usd2(637.5) + ' for 3–9 seats, ' + usd2(562.5) + ' for 10 or more, with the ' + usd(PILOT_FEE) + ' credited. Cancel before day 60 and nothing more is charged.</p><div class="row"><button type="button" class="btn red" id="pilot">' + (busy === 'pilot' ? 'Opening checkout…' : 'Start a 60-day pilot · ' + usd(PILOT_FEE)) + '</button></div></div>' : '');
+      (pilotOk && STRIPE_READY ? '<div class="danger" style="gap:8px"><h2 style="font-size:16px">Design partner pilot · ' + P.pilotSpotsLeft + ' of 3 spots left</h2><p class="small">' + usd(PILOT_FEE) + ' today for a 60-day pilot on the seats above (non-refundable), with onboarding on your first deal and direct access to the founders. Nothing is charged after it. At the end-of-pilot review you decide whether to continue: subscribe within 30 days after the pilot and your first year is at half the list price, ' + usd(750) + ' per editor seat, ' + usd2(637.5) + ' for 3–9 seats, ' + usd2(562.5) + ' for 10 or more, with the ' + usd(PILOT_FEE) + ' credited. After the pilot the workspace is read-only until you subscribe.</p><div class="row"><button type="button" class="btn red" id="pilot">' + (busy === 'pilot' ? 'Opening checkout…' : 'Start a 60-day pilot · ' + usd(PILOT_FEE)) + '</button></div></div>' : '');
   }
   /* the free trial starts only from a free trial button: here, or the pricing page's (which lands on /admin?trial=1) */
   async function startTrial(n) {
@@ -159,6 +165,7 @@
       case 'workspace.plan_changed': return 'Plan updated: ' + Object.keys(d).map(function (k) { return k === 'seats' ? d[k] + ' editor seats' : k === 'status' ? ({ none: 'no plan', trial: 'free trial', pilot: 'design partner pilot', active: 'subscribed', comp: 'complimentary', canceled: 'canceled' })[d[k]] || d[k] : k === 'paid_until' ? 'paid through ' + longDate(d[k]) : k === 'trial_ends_at' ? 'trial ends ' + longDate(d[k]) : k; }).join(', ');
       case 'workspace.trial_extended': return 'Extended the free trial to ' + longDate(d.trial_ends_at);
       case 'trial.ended_deleted': return 'Free trial ended without a plan: its deals and files were deleted';
+      case 'plan.ended_deleted': return 'Plan ended 30 days earlier without a new one: its deals and files were deleted';
       case 'workspace.exported': return 'Exported the whole workspace';
       case 'workspace.deleted': return 'Deleted the workspace';
       case 'file.uploaded': return 'Uploaded a file';
@@ -286,17 +293,17 @@
     note = u.error ? { err: true, text: u.error.message } : { err: false, text: 'Access updated.' }; load();
   });
   main.addEventListener('click', async function (e) {
-    var b = e.target.closest('[data-uninvite],[data-remove],#export,#logcsv,#settrial,#starttrial,#checkout,#pilot,#portal'); if (!b) return; note = null;
+    var b = e.target.closest('[data-uninvite],[data-remove],#export,#logcsv,#settrial,#starttrial,#checkout,#pilot,#partner,#portal'); if (!b) return; note = null;
     if (b.id === 'starttrial') { if (busy) return; var bs0 = document.getElementById('bs'), n1 = bs0 ? Math.floor(+bs0.value) : 0; busy = 'trial'; render(); await startTrial(n1); busy = false; return; }
-    if (b.id === 'checkout' || b.id === 'pilot' || b.id === 'portal') {
+    if (b.id === 'checkout' || b.id === 'pilot' || b.id === 'partner' || b.id === 'portal') {
       if (busy) return; var n0 = Math.floor(+((document.getElementById('bs') || {}).value || 0));
       busy = b.id; render();
-      try { await billing(b.id === 'portal' ? { action: 'portal' } : { action: 'checkout', kind: b.id === 'pilot' ? 'pilot' : 'subscription', seats: n0 }); return; }
+      try { await billing(b.id === 'portal' ? { action: 'portal' } : { action: 'checkout', kind: b.id === 'pilot' ? 'pilot' : b.id === 'partner' ? 'partner' : 'subscription', seats: b.id === 'partner' ? Math.max((ws.plan || {}).seatsUsed || 1, (ws.plan || {}).seats || 1) : n0 }); return; }
       catch (er) { busy = false; note = { err: true, text: er.message }; return render(); }
     }
     if (b.id === 'settrial') {
       var sn = Math.floor(+document.getElementById('bs').value), st = await sb.rpc('set_trial_seats', { n: sn });
-      note = st.error ? { err: true, text: st.error.message } : { err: false, text: 'Your trial now has ' + st.data + ' editor seat' + (st.data === 1 ? '' : 's') + '. At list price that is ' + quote(st.data) + '.' };
+      note = st.error ? { err: true, text: st.error.message } : { err: false, text: 'Your ' + (((ws.plan || {}).status === 'pilot') ? 'pilot' : 'trial') + ' now has ' + st.data + ' editor seat' + (st.data === 1 ? '' : 's') + '. ' + (((ws.plan || {}).status === 'pilot') ? 'If you continue as a design partner: ' : 'At list price that is ') + quote(st.data) + '.' };
       return load();
     }
     if (b.id === 'logcsv') {
@@ -354,7 +361,7 @@
     load();
   });
   (async function () {
-    var s = await sb.auth.getSession(); if (!s.data.session) return location.replace('/signin?next=/admin');
+    var s = await sb.auth.getSession(); if (!s.data.session) return location.replace('/signin?next=' + encodeURIComponent('/admin' + location.search + location.hash));
     me = s.data.session.user;
     var r = await sb.rpc('join_workspace');
     var w = await sb.rpc('my_workspace'); ws = w.data;
@@ -369,6 +376,12 @@
     /* arriving from the pricing page's Subscribe or pilot buttons: go straight to checkout for the seats chosen there */
     if (qs.get('trial') && (ws.plan || {}).status === 'none') { busy = 'trial'; render(); await startTrial(); busy = false; render(); }
     else if (qs.get('trial') && (ws.plan || {}).status === 'trial') { note = { err: false, text: 'Your free trial is running. It ends on ' + longDate(ws.plan.trialEndsAt) + '.' }; render(); }
+    /* from a reminder email's "Continue at the design partner price" button: straight to checkout for the current seats */
+    if (qs.get('continue') && STRIPE_READY) {
+      var Pc = ws.plan || {};
+      if (Pc.partnerOfferOpen) { busy = 'partner'; render(); try { await billing({ action: 'checkout', kind: 'partner', seats: Math.max(Pc.seatsUsed || 1, Pc.seats || 1) }); } catch (er) { busy = false; note = { err: true, text: er.message }; render(); } }
+      else { note = { err: true, text: 'The design partner price is no longer available for this workspace. You can still subscribe at the standard price below.' }; render(); }
+    }
     var want0 = Math.floor(+(qs.get('subscribe') || qs.get('pilot') || qs.get('test') || 0)), P1 = ws.plan || {};
     /* the owner's $1 test works before the public buttons are switched on; the server only lets the owner's email pay */
     var testOnly = !!qs.get('test');

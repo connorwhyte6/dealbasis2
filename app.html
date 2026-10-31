@@ -8715,9 +8715,12 @@ function planLapsedText(P) {
     : P.trialAvailable ? `This workspace has no plan yet. ${P.admin ? 'Start the 14-day free trial or buy a plan to upload and run deals.' : 'Ask your workspace admin to start the free trial or buy a plan.'}`
     : `This workspace has no plan yet. ${P.admin ? 'Buy a plan on the admin page to upload and run deals.' : 'Ask your workspace admin to buy a plan.'}`;
   if (P.status === 'trial') return `Your free trial ended on ${planDate(P.trialEndsAt)}. Your deals and files are saved but locked until ${planDate(P.deleteAt)}. ${P.admin ? 'Buy a plan on the admin page by then to pick up exactly where you left off.' : 'Ask your workspace admin to buy a plan by then to pick up where you left off.'} After that they are deleted.`;
-  if (P.status === 'pilot') return `Your pilot ended on ${planDate(P.paidUntil)} and the first-year invoice hasn't been paid yet. Every deal, file and report is still here to open and export, and editing resumes as soon as it's paid.${P.admin ? '' : ' Your workspace admin can check the plan on the admin page.'}`;
-  if (P.status === 'canceled') return `This workspace's subscription has ended. Every deal, file and report is still here to open and export. ${how}`;
-  return `This workspace's subscription ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export. ${how}`;
+  const gone = P.dataDeletedAt && !P.deleteAt ? ` Its deals, documents and files were deleted on ${planDate(P.dataDeletedAt)}, 30 days after the plan ended.` : '';
+  const until = P.deleteAt ? ` They are deleted on ${planDate(P.deleteAt)} unless a plan is bought by then, so export anything you want to keep.` : '';
+  if (gone) return `This workspace's plan has ended.${gone} ${how}`;
+  if (P.status === 'pilot') return `Your design partner pilot ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export.${P.partnerOfferOpen ? ` ${P.admin ? 'Continue at the design partner price on the admin page' : 'Your workspace admin can continue at the design partner price'} by ${planDate(P.pilotOfferUntil)} to pick up exactly where you left off.` : ''}${until}`;
+  if (P.status === 'canceled') return `This workspace's plan has ended. Every deal, file and report is still here to open and export.${until} ${how}`;
+  return `This workspace's subscription ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export.${until} ${how}`;
 }
 function planBanner() {
   const P = PLAN(); if (!P || !signedIn()) return '';
@@ -8728,7 +8731,7 @@ function planBanner() {
   if (P.status === 'pilot' && P.paidUntil && P.testPurchase) return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Owner payment test, in the pilot format.</p>`;
   if (P.status === 'pilot' && P.paidUntil) {
     const days = Math.max(0, Math.ceil((new Date(P.paidUntil) - Date.now()) / 864e5));
-    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Your first year continues at the design partner price.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
+    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Nothing is charged after it: you decide whether to continue at the end-of-pilot review.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
   }
   if (P.status === 'trial' && P.trialEndsAt) {
     const days = Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5));

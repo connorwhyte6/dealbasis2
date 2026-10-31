@@ -37,7 +37,7 @@
     var plan = ws.plan || { active: true };
     window.DEALBASIS_PLAN = Object.freeze({ status: plan.status || null, seats: plan.seats || null, seatsUsed: plan.seatsUsed || 0, trialEndsAt: plan.trialEndsAt || null,
       paidUntil: plan.paidUntil || null, active: plan.active !== false, admin: role === 'admin',
-      trialAvailable: !!plan.trialAvailable, trialDeletedAt: plan.trialDeletedAt || null, trialLocked: !!plan.trialLocked, deleteAt: plan.deleteAt || null, testPurchase: !!plan.testPurchase });
+      trialAvailable: !!plan.trialAvailable, trialDeletedAt: plan.trialDeletedAt || null, trialLocked: !!plan.trialLocked, deleteAt: plan.deleteAt || null, dataDeletedAt: plan.dataDeletedAt || null, partnerOfferOpen: !!plan.partnerOfferOpen, pilotOfferUntil: plan.pilotOfferUntil || null, testPurchase: !!plan.testPurchase });
     if (plan.active === false) writable = false;
     /* two-factor: ask for the code, or set up an authenticator when the firm requires one */
     var G = window.DealBasisGuard;

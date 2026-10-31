@@ -42,7 +42,7 @@
   var linkError = /error_code=|error_description=/.test(location.hash) ? decodeURIComponent(((location.hash.match(/error_description=([^&]+)/) || [])[1] || '').replace(/\+/g, ' ')) || 'This link is no longer valid.' : null;
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   var mode = 'signin', msg = null, busy = false, recovering = false, factorId = null, shown = null, pendingPw = null;
-  var TERMS_VERSION = '2026-10-30';
+  var TERMS_VERSION = '2026-10-31';
   /* editor seats for the free trial: from the pricing page (?seats=4), or chosen on the sign-up form */
   var SEAT_PRICE = function (n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; };
   var trialSeats = Math.min(50, Math.max(1, Math.floor(+params.get('seats')) || 1));
