@@ -8718,7 +8718,7 @@ function planLapsedText(P) {
   const gone = P.dataDeletedAt && !P.deleteAt ? ` Its deals, documents and files were deleted on ${planDate(P.dataDeletedAt)}, 30 days after the plan ended.` : '';
   const until = P.deleteAt ? ` They are deleted on ${planDate(P.deleteAt)} unless a plan is bought by then, so export anything you want to keep.` : '';
   if (gone) return `This workspace's plan has ended.${gone} ${how}`;
-  if (P.status === 'pilot') return `Your design partner pilot ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export.${P.partnerOfferOpen ? ` ${P.admin ? 'Continue at the design partner price on the admin page' : 'Your workspace admin can continue at the design partner price'} by ${planDate(P.pilotOfferUntil)} to pick up exactly where you left off.` : ''}${until}`;
+  if (P.status === 'pilot') return `Your design partner pilot ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export.${P.partnerOfferOpen ? ` ${P.admin ? 'Continue at the design partner price on the admin page' : 'Your workspace admin can continue at the design partner price'} by ${planDate(P.pilotOfferUntil)} to pick up exactly where you left off.` : ` ${P.admin ? 'Subscribe on the admin page' : 'Your workspace admin can subscribe'} to pick up exactly where you left off.`}${until}`;
   if (P.status === 'canceled') return `This workspace's plan has ended. Every deal, file and report is still here to open and export.${until} ${how}`;
   return `This workspace's subscription ended on ${planDate(P.paidUntil)}. Every deal, file and report is still here to open and export.${until} ${how}`;
 }
@@ -8729,9 +8729,10 @@ function planBanner() {
   if (P.trialLocked) return `<div class="callout"><b>Trial ended · work saved until ${esc(planDate(P.deleteAt))}.</b><p>${esc(planLapsedText(P))}${P.admin ? ' <a href="/admin#plan">Buy a plan</a>' : ''}</p></div>`;
   if (!P.active) return view === 'deals' ? '' : `<div class="callout"><b>Read-only.</b><p>${esc(planLapsedText(P))}${link}</p></div>`;
   if (P.status === 'pilot' && P.paidUntil && P.testPurchase) return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Owner payment test, in the pilot format.</p>`;
+  if (P.status === 'pilot' && P.pilotOneDeal && !P.paidUntil) return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: one deal, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Its 30 days start when you upload the first documents to your deal, and the design partner price stays open until 30 days after they end.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
   if (P.status === 'pilot' && P.paidUntil) {
     const days = Math.max(0, Math.ceil((new Date(P.paidUntil) - Date.now()) / 864e5));
-    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'}, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Nothing is charged after it: you decide whether to continue at the end-of-pilot review.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
+    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'} (until ${esc(planDate(P.paidUntil))}), one deal, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Nothing is charged after it. The design partner price is open until ${esc(planDate(P.pilotOfferUntil))}.${P.admin ? ' <a href="/admin?continue=1">Continue at half price</a>' : ''}</p>`;
   }
   if (P.status === 'trial' && P.trialEndsAt) {
     const days = Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5));
@@ -8974,7 +8975,7 @@ async function readFile(file) { return readAny(file.name, () => typeof file.arra
 async function ingest(files) { if (SHOWCASE) return; if (blockedByPlan()) return;
   /* the sample deal belongs to a fictional company and is never saved: files dropped on it start a deal of their own,
      so another company's figures are never mixed with the sample's */
-  let fresh = false; if (MD().id === 'sample' || MD().sample) { await newDeal(false); fresh = true; }
+  let fresh = false; if (MD().id === 'sample' || MD().sample) { if (!(await newDeal(false))) return; fresh = true; }
   const m = MD(); const ok = [], bad = [], origs = []; m.busy = (m.busy || 0) + 1; renderStatus();
   try {
   msgs.upload = { err: false, text: `Reading ${files.length} file${files.length > 1 ? 's' : ''}…` }; render();
@@ -9370,7 +9371,14 @@ function blockedByPlan() {
   if (store.mode === 'readonly') { toast(store.saveErr || 'Your access is read-only, so you can\u2019t add deals or files.'); return true; }
   return false;
 }
-async function newDeal(fromSample) { if (SHOWCASE) return; if (blockedByPlan()) return;
+/* a design partner pilot covers one deal (the database enforces it too) */
+function pilotDealsUsed() { return allDeals().filter(d => !d.sample).length; }
+function blockedByPilot(adding) {
+  const P = PLAN(); if (!P || P.status !== 'pilot' || !P.pilotOneDeal) return false;
+  if (!P.paidUntil && pilotDealsUsed() + (adding || 1) <= 1) return false;
+  toast(`Your design partner pilot covers one deal. ${P.admin ? 'Subscribe on the admin page to add more.' : 'Ask your workspace admin to subscribe to add more.'}`); return true;
+}
+async function newDeal(fromSample) { if (SHOWCASE) return false; if (blockedByPlan()) return false; if (blockedByPilot(1)) return false;
   const persist = store.mode === 'ready';
   const id = persist ? store.db.collection('deals').doc().id : 'local-' + Date.now().toString(36);
   const now = new Date().toISOString(); const src = cache.sample;
@@ -9388,6 +9396,7 @@ async function newDeal(fromSample) { if (SHOWCASE) return; if (blockedByPlan()) 
   }
   refresh();
   await saveNow(m); m.creating = false; render();
+  return true;
 }
 function guessName(m) {
   const d = m.docs[0]; if (!d) return null; const bad = /confidential|information memorandum|memorandum|teaser|presentation|form 10-?[kq]|securities and exchange|united states|page \d|^\d+$|prepared by|fictional/i;
@@ -9396,7 +9405,7 @@ function guessName(m) {
   const first = lines.find(t => t && t.length >= 3 && t.length <= 60 && /[A-Za-z]/.test(t) && !bad.test(t) && !/^(opening|executive summary|table of contents)$/i.test(t));
   return (corp || first || d.name.replace(/\.[^.]+$/, '')).replace(/\s+/g, ' ').trim().slice(0, 80);
 }
-async function screenFiles(files) { if (SHOWCASE) return; if (blockedByPlan()) return;
+async function screenFiles(files) { if (SHOWCASE) return; if (blockedByPlan()) return; if (blockedByPilot(files.length)) return;
   const back = curId; const owners = { ...MD().owners }; const persist = store.mode === 'ready'; let n = 0; const errs = [];
   msgs.screen = { err: false, text: `Screening ${files.length} file${files.length > 1 ? 's' : ''}…` }; render();
   for (const f of files) {
@@ -9523,7 +9532,7 @@ function stepPresent(d) { const n = getDeck().slides.length; present.i = Math.ma
 function renderPresent() {
   const h = document.getElementById('present'); if (!h || !present) return; const D = getDeck(); if (!D.slides.length) return closePresent(); present.i = Math.max(0, Math.min(D.slides.length - 1, present.i)); const s = D.slides[present.i];
   const notesH = present.notes ? Math.min(innerHeight * 0.24, 180) : 0; const sc = Math.min((innerWidth - 32) / 960, (innerHeight - 64 - notesH - 16) / 540);
-  h.innerHTML = `<div class="stage" style="width:${960 * sc}px;height:${540 * sc}px">${deckSlideHTML(D, present.i).replace('class="slide"', `class="slide" style="transform:scale(${sc})"`)}<span class="hit" style="left:0" data-pv="prev"></span><span class="hit" style="right:0" data-pv="next"></span></div>
+  h.innerHTML = `<div class="stage" style="width:${960 * sc}px;height:${540 * sc}px">${deckSlideHTML(D, present.i).replace('class="slide" style="', `class="slide" style="transform:scale(${sc});`)}<span class="hit" style="left:0" data-pv="prev"></span><span class="hit" style="right:0" data-pv="next"></span></div>
     ${present.notes ? `<div class="notes">${esc(s.notes || 'No speaker notes for this slide.')}</div>` : ''}
     <div class="bar"><button data-pv="prev" aria-label="Previous slide">\u2190</button><span>${present.i + 1} / ${D.slides.length}</span><button data-pv="next" aria-label="Next slide">\u2192</button><button data-pv="notes">${present.notes ? 'Hide notes' : 'Speaker notes'}</button><button data-pv="exit">Exit</button></div>`;
   const st = h.querySelector('.stage .slide'); if (st) st.style.transform = `scale(${sc})`;
