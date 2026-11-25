@@ -8729,10 +8729,10 @@ function planBanner() {
   if (P.trialLocked) return `<div class="callout"><b>Trial ended · work saved until ${esc(planDate(P.deleteAt))}.</b><p>${esc(planLapsedText(P))}${P.admin ? ' <a href="/admin#plan">Buy a plan</a>' : ''}</p></div>`;
   if (!P.active) return view === 'deals' ? '' : `<div class="callout"><b>Read-only.</b><p>${esc(planLapsedText(P))}${link}</p></div>`;
   if (P.status === 'pilot' && P.paidUntil && P.testPurchase) return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Owner payment test, in the pilot format.</p>`;
-  if (P.status === 'pilot' && P.pilotOneDeal && !P.paidUntil) return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: one deal, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Its 30 days start when you upload the first documents to your deal, and the design partner price stays open until 30 days after they end.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
+  if (P.status === 'pilot' && P.pilotOneDeal && !P.paidUntil) return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: unlimited deals, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Its 30 days start when you first upload files, and the design partner price stays open until 30 days after they end.${P.admin ? ' <a href="/admin#plan">Plan</a>' : ''}</p>`;
   if (P.status === 'pilot' && P.paidUntil) {
     const days = Math.max(0, Math.ceil((new Date(P.paidUntil) - Date.now()) / 864e5));
-    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'} (until ${esc(planDate(P.paidUntil))}), one deal, ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Nothing is charged after it. The design partner price is open until ${esc(planDate(P.pilotOfferUntil))}.${P.admin ? ' <a href="/admin?continue=1">Continue at half price</a>' : ''}</p>`;
+    return `<p class="muted" style="font-size:12.5px;margin:0 0 12px">Design partner pilot: ${days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left'} (until ${esc(planDate(P.paidUntil))}), ${P.seats} editor seat${P.seats === 1 ? '' : 's'}. Nothing is charged after it. The design partner price is open until ${esc(planDate(P.pilotOfferUntil))}.${P.admin ? ' <a href="/admin?continue=1">Continue at half price</a>' : ''}</p>`;
   }
   if (P.status === 'trial' && P.trialEndsAt) {
     const days = Math.max(0, Math.ceil((new Date(P.trialEndsAt) - Date.now()) / 864e5));
@@ -9371,13 +9371,8 @@ function blockedByPlan() {
   if (store.mode === 'readonly') { toast(store.saveErr || 'Your access is read-only, so you can\u2019t add deals or files.'); return true; }
   return false;
 }
-/* a design partner pilot covers one deal (the database enforces it too) */
-function pilotDealsUsed() { return allDeals().filter(d => !d.sample).length; }
-function blockedByPilot(adding) {
-  const P = PLAN(); if (!P || P.status !== 'pilot' || !P.pilotOneDeal) return false;
-  if (!P.paidUntil && pilotDealsUsed() + (adding || 1) <= 1) return false;
-  toast(`Your design partner pilot covers one deal. ${P.admin ? 'Subscribe on the admin page to add more.' : 'Ask your workspace admin to subscribe to add more.'}`); return true;
-}
+/* a design partner pilot has unlimited deals; nothing to block */
+function blockedByPilot() { return false; }
 async function newDeal(fromSample) { if (SHOWCASE) return false; if (blockedByPlan()) return false; if (blockedByPilot(1)) return false;
   const persist = store.mode === 'ready';
   const id = persist ? store.db.collection('deals').doc().id : 'local-' + Date.now().toString(36);

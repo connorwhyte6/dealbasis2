@@ -37,7 +37,7 @@
   function seatPrice(n) { return n >= 10 ? 1125 : n >= 3 ? 1275 : 1500; }
   function usd(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
   function usd2(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }); }
-  /* design partners: a free pilot on one deal (30 days from its first upload), started only from the pricing page's pilot button; then a first year at half the list price (the same volume discounts apply) */
+  /* design partners: a free pilot with unlimited deals (30 days from its first upload), started only from the pricing page's pilot button; then a first year at half the list price (the same volume discounts apply) */
   var BOOKING_URL = 'https://calendar.app.google/CeQRVz8qhHdSUeNh7';
   function partnerPrice(n) { return seatPrice(n) / 2; }
   function quote(n) {
@@ -52,8 +52,8 @@
       : P.status === 'none' ? (P.trialDeletedAt ? 'No plan · the free trial ended on ' + longDate(P.trialDeletedAt) + ' and its work was deleted' : 'No plan yet')
       : P.status === 'trial' ? (P.active ? 'Free trial for ' + seats + ' editor seat' + (seats === 1 ? '' : 's') + ' · ' + (days === 0 ? 'ends today' : days + ' day' + (days === 1 ? '' : 's') + ' left') + ' (ends ' + longDate(P.trialEndsAt) + ')' : 'Free trial ended ' + longDate(P.trialEndsAt) + ' · locked · deleted on ' + longDate(P.deleteAt) + ' unless a plan is bought')
       : P.testPurchase && P.status === 'pilot' ? (P.active ? 'Payment test · 1-day pilot through ' + longDate(P.paidUntil) + ' · then $1.50 is charged ($2 minus the $0.50 fee), it runs one more day and ends' : 'Payment test · pilot ended · read-only')
-      : P.status === 'pilot' ? (P.active ? (P.paidUntil ? 'Design partner pilot through ' + longDate(P.paidUntil) + ' · ' + (days2(P.paidUntil) === 0 ? 'ends today' : days2(P.paidUntil) + ' day' + (days2(P.paidUntil) === 1 ? '' : 's') + ' left') + ' · one deal · nothing is charged after it'
-            : 'Design partner pilot · one deal · its 30 days start when you upload the first documents to your deal · nothing is charged after it')
+      : P.status === 'pilot' ? (P.active ? (P.paidUntil ? 'Design partner pilot through ' + longDate(P.paidUntil) + ' · ' + (days2(P.paidUntil) === 0 ? 'ends today' : days2(P.paidUntil) + ' day' + (days2(P.paidUntil) === 1 ? '' : 's') + ' left') + ' · unlimited deals · nothing is charged after it'
+            : 'Design partner pilot · unlimited deals · its 30 days start when you first upload files · nothing is charged after it')
           : 'Design partner pilot ended ' + longDate(P.paidUntil) + ' · read-only' + (P.partnerOfferOpen ? ' · design partner price available until ' + longDate(P.pilotOfferUntil) : ' · subscribe to keep editing'))
       : P.testPurchase && P.status === 'active' ? (P.active ? 'Payment test · paid day through ' + longDate(P.paidUntil) + ' · then it ends' : 'Payment test ended · read-only')
       : P.status === 'active' ? (P.active ? 'Subscribed · paid through ' + longDate(P.paidUntil) : 'Subscription ended ' + longDate(P.paidUntil) + ' · read-only')
@@ -371,7 +371,7 @@
     var a = await sb.auth.mfa.getAuthenticatorAssuranceLevel(); mfaOn = a.data && a.data.currentLevel === 'aal2';
     G.watchIdle(sb, ws.idleMinutes);
     var qs = new URLSearchParams(location.search);
-    if (qs.get('pilot_started')) note = { err: false, text: 'Your design partner pilot has started. It covers one deal, and its 30 days begin when you upload that deal’s documents. Book your kickoff call below.' };
+    if (qs.get('pilot_started')) note = { err: false, text: 'Your design partner pilot has started. Run as many deals as you like; its 30 days begin when you first upload files. Book your kickoff call below.' };
     if (qs.get('billing') === 'done') { note = { err: false, text: 'Payment received. Your plan updates here within a few seconds.' }; [2500, 6000, 12000].forEach(function (t) { setTimeout(function () { load(); }, t); }); }
     history.replaceState(null, '', '/admin' + location.hash);
     await load();
